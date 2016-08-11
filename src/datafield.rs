@@ -1,13 +1,13 @@
 use std::ops::Index;
 
-struct DataField<T> {
+pub struct DataField<T> {
     pub data: Vec<T>
 }
 
 impl<T> DataField<T> {
-    fn new() -> DataField<T> {
+    pub fn new() -> DataField<T> {
         DataField {
-            data: Vec::<T>::new()
+            data: Vec::new()
         }
     }
 }

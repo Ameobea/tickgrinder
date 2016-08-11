@@ -1,22 +1,21 @@
 use std::collections::VecDeque;
 
-use datafield::tickfield;
-use datafield::tickfield::Tick;
+use tick::Tick;
 
 //Calculate weighted average of all ticks within period seconds
 //pop ticks off the front after they leave the period
 
-pub struct SimpleMovingAverage<'tf> {
+pub struct SimpleMovingAverage<'df> {
     period: i64,
-    ticks: VecDeque<&'tf Tick>,
+    ticks: VecDeque<&'df Tick>,
     // indicates if an out-of-range tick exists in the front element
     overflow: bool,
     // stores the price of the last tick before this series
     ref_tick: Tick
 }
 
-impl<'tf> SimpleMovingAverage<'tf> {
-    pub fn new(period: i64) -> SimpleMovingAverage<'tf> {
+impl<'df> SimpleMovingAverage<'df> {
+    pub fn new(period: i64) -> SimpleMovingAverage<'df> {
         SimpleMovingAverage {
             period: period,
             ticks: VecDeque::new(),
@@ -58,7 +57,7 @@ impl<'tf> SimpleMovingAverage<'tf> {
         return diff >= self.period;
     }
 
-    pub fn push(&mut self, t: &'tf Tick) -> Option<f64> {
+    pub fn push(&mut self, t: &'df Tick) -> Option<f64> {
         self.ticks.push_back(t);
         if !self.overflow{
             if self.is_overflown() {
