@@ -1,0 +1,4 @@
+[package]
+name = "rustbot3"
+version = "0.1.0"
+authors = ["me@ameo.link"]
