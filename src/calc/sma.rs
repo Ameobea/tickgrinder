@@ -1,45 +1,12 @@
 use std::collections::VecDeque;
-use std::slice::Iter;
+
+use datafield::tickfield;
+use datafield::tickfield::Tick;
 
 //Calculate weighted average of all ticks within period seconds
 //pop ticks off the front after they leave the period
 
-#[derive(Debug)]
-struct Tick {
-    price: f64,
-    timestamp: i64
-}
-
-impl Tick {
-    // returns a dummy placeholder tick
-    fn null() -> Tick {
-        Tick {price: 0f64, timestamp: 0i64}
-    }
-}
-
-struct TickField<'tf> {
-    symbol: &'tf str,
-    ticks: Vec<Tick>
-}
-
-impl<'tf> TickField<'tf> {
-    fn new(symbol: &'tf str) -> TickField<'tf> {
-        TickField {
-            symbol: symbol,
-            ticks: Vec::new()
-        }
-    }
-
-    fn push(&mut self, t: Tick) {
-        self.ticks.push(t);
-    }
-
-    fn iter(&mut self) -> Iter<Tick> {
-        return self.ticks.iter();
-    }
-}
-
-struct SimpleMovingAverage<'tf> {
+pub struct SimpleMovingAverage<'tf> {
     period: i64,
     ticks: VecDeque<&'tf Tick>,
     // indicates if an out-of-range tick exists in the front element
@@ -49,7 +16,7 @@ struct SimpleMovingAverage<'tf> {
 }
 
 impl<'tf> SimpleMovingAverage<'tf> {
-    fn new(period: i64) -> SimpleMovingAverage<'tf> {
+    pub fn new(period: i64) -> SimpleMovingAverage<'tf> {
         SimpleMovingAverage {
             period: period,
             ticks: VecDeque::new(),
@@ -91,7 +58,7 @@ impl<'tf> SimpleMovingAverage<'tf> {
         return diff >= self.period;
     }
 
-    fn push(&mut self, t: &'tf Tick) -> Option<f64> {
+    pub fn push(&mut self, t: &'tf Tick) -> Option<f64> {
         self.ticks.push_back(t);
         if !self.overflow{
             if self.is_overflown() {
@@ -108,23 +75,5 @@ impl<'tf> SimpleMovingAverage<'tf> {
         }else {
             return self.average();
         }
-    }
-}
-
-fn main() {
-    let mut tf = TickField::new("USDCAD");
-    tf.push(Tick{price: 23f64, timestamp: 1470533189000i64});
-    tf.push(Tick{price: 23f64, timestamp: 1470533191010i64});
-    tf.push(Tick{price: 23.23894f64, timestamp: 1470533192410i64});
-
-    for period in [3, 5].iter() {
-        println!("Moving average with period {}", period);
-
-        let mut sma = SimpleMovingAverage::new(*period as i64);
-        let mut test: Option<f64> = Some(0f64);
-        for t in tf.iter() {
-            test = sma.push(t);
-        }
-        println!("{:?}", test);
     }
 }
