@@ -2,3 +2,7 @@
 name = "rustbot3"
 version = "0.1.0"
 authors = ["me@ameo.link"]
+
+[dependencies]
+redis = "0.5.3"
+tokio = { git = "https://github.com/tokio-rs/tokio" }
