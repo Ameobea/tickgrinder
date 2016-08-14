@@ -3,22 +3,23 @@
 
 use redis::{Client, PubSub};
 
-use conf::conf;
+use conf::CONF;
 
 pub struct Tickstream {
     ps: PubSub
 }
 
 fn get_pubsub() -> PubSub {
-    let client = match Client::open(conf.redis_url) {
+    let client = match Client::open(CONF.redis_url) {
         Ok(c) => c,
-        Err(e) => panic!("Could not connect to redis!")
+        Err(_) => panic!("Could not connect to redis!")
     };
     let mut pubsub = match client.get_pubsub() {
         Ok(p) => p,
-        Err(e) => panic!("Could not create pubsub for redis client!")
+        Err(_) => panic!("Could not create pubsub for redis client!")
     };
-    pubsub.subscribe(conf.redis_ticks_channel);
+    pubsub.subscribe(CONF.redis_ticks_channel)
+        .expect("Could not subscribe to the ticks channel");
     return pubsub;
 }
 
@@ -32,11 +33,11 @@ impl Tickstream {
     pub fn get_tick(&mut self) -> String {
         let msg = match self.ps.get_message() {
             Ok(m) => m,
-            Err(e) => panic!("Could not get message from pubsub!")
+            Err(_) => panic!("Could not get message from pubsub!")
         };
         let payload: String = match msg.get_payload() {
             Ok(s) => s,
-            Err(e) => panic!("Could not convert redis message to string!")
+            Err(_) => panic!("Could not convert redis message to string!")
         };
         return payload;
     }

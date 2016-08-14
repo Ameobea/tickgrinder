@@ -10,6 +10,10 @@ impl<T> DataField<T> {
             data: Vec::new()
         }
     }
+
+    pub fn push(&mut self, d: T) {
+        self.data.push(d);
+    }
 }
 
 impl<T> Index<usize> for DataField<T> {
