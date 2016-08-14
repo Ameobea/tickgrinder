@@ -1,13 +1,16 @@
 // Responsible for receiving live ticks and other kinds of data and
 // sending calculations and results back.
 
-extern crate redis;
-extern crate tokio;
+use redis::{Client, PubSub};
 
 use conf::conf;
 
-pub fn get_tick() -> String {
-    let client = match redis::Client::open(conf.redis_url) {
+pub struct Tickstream {
+    ps: PubSub
+}
+
+fn get_pubsub() -> PubSub {
+    let client = match Client::open(conf.redis_url) {
         Ok(c) => c,
         Err(e) => panic!("Could not connect to redis!")
     };
@@ -16,9 +19,18 @@ pub fn get_tick() -> String {
         Err(e) => panic!("Could not create pubsub for redis client!")
     };
     pubsub.subscribe(conf.redis_ticks_channel);
+    return pubsub;
+}
 
-    loop {
-        let msg = match pubsub.get_message() {
+impl Tickstream {
+    pub fn new() -> Tickstream {
+        return Tickstream {
+            ps: get_pubsub()
+        }
+    }
+
+    pub fn get_tick(&mut self) -> String {
+        let msg = match self.ps.get_message() {
             Ok(m) => m,
             Err(e) => panic!("Could not get message from pubsub!")
         };
@@ -26,7 +38,6 @@ pub fn get_tick() -> String {
             Ok(s) => s,
             Err(e) => panic!("Could not convert redis message to string!")
         };
-        println!("channel '{}': {}", msg.get_channel_name(), payload);
         return payload;
     }
 }

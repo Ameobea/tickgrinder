@@ -1,7 +1,14 @@
 // Algobot 3, Rust Version
 // Casey Primozic, 2016-2016
 
-extern crate tokio;
+extern crate redis;
+extern crate futures;
+// extern crate futures_cpupool;
+
+use std::thread;
+
+use futures::*;
+use futures::stream::{Stream, Sender, Receiver, channel};
 
 mod datafield;
 mod calc;
@@ -9,28 +16,41 @@ mod tick;
 mod transport;
 mod conf;
 
-use datafield::DataField;
-use calc::sma::SimpleMovingAverage as SMA;
-use tick::Tick;
-use transport::get_tick;
+use transport::Tickstream;
+
+// create a thread that 
+fn get_ticks(tx: Sender<String, ()>) {
+    let mut ts = Tickstream::new();
+    let listener = thread::spawn(move || {
+        // perform blocking read operation inside the thread
+        let res = ts.get_tick();
+        // send the result from redis through the channel,
+        // which returns a new tx.
+        let new_tx = tx.send(Ok(res)).and_then(|new_tx| {
+            println!("{:?}", "got it");
+            // call this function and restart the process of listening for ticks.
+            get_ticks(new_tx);
+            Ok(())
+        }).forget();
+    });
+}
 
 fn main() {
-    // let mut tf = DataField::<Tick>::new();
-    // tf.data.push(Tick{price: 23f64, timestamp: 1470533189000i64});
-    // tf.data.push(Tick{price: 23f64, timestamp: 1470533191010i64});
-    // tf.data.push(Tick{price: 23.23894f64, timestamp: 1470533192410i64});
+    let (tx, rx) = channel::<String, ()>();
 
-    // for period in [3, 5].iter() {
-    //     println!("Moving average with period {}", period);
+    // start listening for new ticks on a separate thread
+    get_ticks(tx);
 
-    //     let mut sma = SMA::new(*period as i64);
-    //     let mut test: Option<f64> = Some(0f64);
-    //     for t in tf.data.iter() {
-    //         test = sma.push(t);
-    //     }
-    //     println!("{:?}", test);
-    // }
+    // do something each time something is received on the Receiver
+    rx.for_each(|res| {
+        // do whatever you want to do with the received tick.
+        // This will be handled asynchronously.
+        println!("{:?}", res);
+        Ok(())
+    }).forget(); // register this callback and continue program's execution
+
     loop {
-        let tick: String = get_tick();
+        // do whatever you want here and the tick listener
+        // and callback will continue to run in the background
     }
 }
