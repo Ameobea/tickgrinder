@@ -6,6 +6,7 @@ extern crate futures;
 // extern crate futures_cpupool;
 
 use std::thread;
+use std::time::Duration;
 
 use futures::*;
 use futures::stream::{Stream, Sender, Receiver, channel};
@@ -18,7 +19,8 @@ mod conf;
 
 use transport::Tickstream;
 
-// create a thread that 
+// create a thread that listens for new messages on redis
+// and resets itself after the results are consumed
 fn get_ticks(tx: Sender<String, ()>) {
     let mut ts = Tickstream::new();
     let listener = thread::spawn(move || {
@@ -52,5 +54,6 @@ fn main() {
     loop {
         // do whatever you want here and the tick listener
         // and callback will continue to run in the background
+        thread::sleep(Duration::new(5, 0));
     }
 }
