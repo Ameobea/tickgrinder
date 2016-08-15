@@ -1,8 +1,12 @@
 // Algobot 3, Rust Version
 // Casey Primozic, 2016-2016
 
+#![feature(custom_derive, plugin)]
+#![plugin(serde_macros)]
+
 extern crate redis;
 extern crate futures;
+extern crate serde_json;
 
 mod datafield;
 mod calc;
@@ -13,6 +17,7 @@ mod processor;
 
 use std::thread;
 use std::time::Duration;
+use std::error::Error;
 
 use futures::*;
 use futures::stream::{Stream, Sender, Receiver, channel};
@@ -44,9 +49,12 @@ fn get_ticks_inner(tx: Sender<String, ()>, mut ts: Tickstream) {
 fn handle_ticks(rx: Receiver<String, ()>) {
     let mut processor: Processor = Processor::new();
     // do something each time something is received on the Receiver
-    rx.for_each(move |t| {
+    rx.for_each(move |res| {
         let mut processor = &mut processor;
-        processor.process(Tick {price: 4f64, timestamp: 3i64});
+        match Tick::from_string(res) {
+            Ok(t) => processor.process(t),
+            Err(e) => println!("{:?}", e.description()),
+        }
         Ok(())
     }).forget(); // register this callback and continue program's execution
 }

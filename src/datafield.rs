@@ -19,6 +19,10 @@ impl<T> DataField<T> {
     pub fn first(&mut self) -> Option<&T> {
         self.data.first()
     }
+
+    pub fn last(&mut self) -> Option<&T> {
+        self.data.last()
+    }
 }
 
 impl<T> Index<usize> for DataField<T> {

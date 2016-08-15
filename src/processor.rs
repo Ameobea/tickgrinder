@@ -22,12 +22,10 @@ impl Processor {
 
     // Add a new tick to be processed
     pub fn process(&mut self, t: Tick) {
-        println!("Publishing tick: {:?}", t);
         self.ticks.push(t);
 
         // sma
-        let avg = self.sma.push(*self.ticks.first().unwrap());
+        let avg = self.sma.push(*self.ticks.last().unwrap());
         println!("15-second average: {:?}", avg);
-        println!("{:?}", self.ticks);
     }
 }

@@ -6,3 +6,6 @@ authors = ["me@ameo.link"]
 [dependencies]
 redis = "0.5.3"
 futures = { git = "https://github.com/alexcrichton/futures-rs" }
+serde = "0.8.1"
+serde_json = { git = "https://github.com/serde-rs/json.git", rev = "e9f8560" }
+serde_macros = "0.8.1"

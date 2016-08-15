@@ -9,9 +9,8 @@ pub struct SimpleMovingAverage {
     period: f64,
     ticks: VecDeque<Tick>,
     // indicates if an out-of-range tick exists in the front element
-    overflow: bool,
-    // stores the price of the last tick before this series
-    ref_tick: Tick
+    ref_tick: Tick,
+    overflown_once: bool
 }
 
 impl SimpleMovingAverage {
@@ -19,8 +18,8 @@ impl SimpleMovingAverage {
         SimpleMovingAverage {
             period: period,
             ticks: VecDeque::new(),
-            overflow: false,
-            ref_tick: Tick::null()
+            ref_tick: Tick::null(),
+            overflown_once: false,
         }
     }
 
@@ -29,50 +28,69 @@ impl SimpleMovingAverage {
     fn trim(&mut self) -> Tick {
         let mut t: Tick = Tick::null();
         while self.is_overflown() {
-            t = self.ticks.pop_front().unwrap()
+            t = self.ticks.pop_front().unwrap();
         }
-        return Tick {price: t.price, timestamp: t.timestamp};
+        t
     }
 
-    fn average(&self) -> Option<f64> {
-        if self.ref_tick.price == 0f64 {return None}
+    fn average(&self) -> f64 {
         let mut p_sum = 0f64; // sum of prices
         let mut t_sum = 0f64; // sum of time
-        let last_timestamp: i64 = self.ticks.back().unwrap().timestamp;
-        for t in self.ticks.iter().next() {
-            assert!(t.timestamp < last_timestamp, "Out-of-order ticks sent to SMA!
-                timestamps: {:?}, {:?}", last_timestamp, t.timestamp);
-            println!("{:?}", t);
-            let t_diff: f64 = last_timestamp as f64 - t.timestamp as f64;
-            p_sum += t.price * t_diff;
+        let newest_timestamp: i64 = self.ticks.back().unwrap().timestamp;
+        let mut iter = self.ticks.iter().enumerate();
+        iter.next(); // skip first value since there's no time difference to compute
+        let mut last_tick;
+        for (i, t) in iter {
+            last_tick = self.ticks[i-1];
+            let t_diff = (t.timestamp - last_tick.timestamp) as f64;
+            p_sum += t.mid() * t_diff;
             t_sum += t_diff;
         }
-        let old_time: f64 = self.period - t_sum;
-        p_sum += old_time * self.ref_tick.price as f64;
-        return Some(p_sum / self.period);
+
+        // if there is a previous value to take into account
+        if self.ref_tick.bid != 0f64 {
+            let old_time: f64 = self.period - t_sum;
+            p_sum += old_time * self.ref_tick.mid();
+            t_sum = self.period;
+        }
+
+        println!("{:?}", (p_sum, t_sum));
+        p_sum / t_sum
     }
 
     fn is_overflown(&self) -> bool {
+        // time between newest tick and reference tick
         let diff: i64 = self.ticks.back().unwrap().timestamp - self.ticks.front().unwrap().timestamp;
-        return diff as f64 >= self.period;
+        println!("time between newest tick and ref_tick: {:?}", diff);
+        diff as f64 >= self.period
     }
 
-    pub fn push(&mut self, t: Tick) -> Option<f64> {
-        self.ticks.push_back(t);
-        if !self.overflow{
-            if self.is_overflown() {
-                self.overflow = true;
+    // Add a new tick to be averaged.
+    pub fn push(&mut self, t: Tick) -> f64 {
+        // open new section so we're not double-borrowing self.ticks
+        {
+            let last_tick: Option<&Tick> = self.ticks.back();
+            if last_tick.is_some() {
+                assert!(t.timestamp > last_tick.unwrap().timestamp, "Out-of-order ticks sent to SMA!
+                    timestamps: {:?}, {:?}", last_tick.unwrap().timestamp, t.timestamp);
             }
-        }else{
-            self.ref_tick = self.trim();
+        }
+        self.ticks.push_back(t);
+        // if we haven't overflown before
+        let is_overflown = self.is_overflown();
+        if !self.overflown_once && is_overflown {
+            self.overflown_once = true;
         }
 
-        if self.ticks.is_empty() {
-            return None;
-        }else if self.ticks.len() == 1 {
-            return Some(self.ticks.front().unwrap().price);
-        }else {
-            return self.average();
+        if is_overflown {
+            self.ref_tick = self.trim();
+            println!("ref tick: {:?}", self.ref_tick);
         }
+
+        if self.ticks.len() == 1 {
+            return self.ticks.front().unwrap().mid()
+        }
+
+        self.average()
     }
 }
