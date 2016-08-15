@@ -1,12 +1,14 @@
 // Algobot 3, Rust Version
 // Casey Primozic, 2016-2016
 
-#![feature(custom_derive, plugin)]
+#![feature(custom_derive, plugin, test)]
 #![plugin(serde_macros)]
+#![allow(dead_code)]
 
 extern crate redis;
 extern crate futures;
 extern crate serde_json;
+extern crate test;
 
 mod datafield;
 mod calc;
@@ -14,6 +16,7 @@ mod tick;
 mod transport;
 mod conf;
 mod processor;
+mod tests;
 
 use std::thread;
 use std::time::Duration;

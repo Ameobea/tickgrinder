@@ -10,7 +10,6 @@ pub struct SimpleMovingAverage {
     ticks: VecDeque<Tick>,
     // indicates if an out-of-range tick exists in the front element
     ref_tick: Tick,
-    overflown_once: bool
 }
 
 impl SimpleMovingAverage {
@@ -19,7 +18,6 @@ impl SimpleMovingAverage {
             period: period,
             ticks: VecDeque::new(),
             ref_tick: Tick::null(),
-            overflown_once: false,
         }
     }
 
@@ -36,15 +34,15 @@ impl SimpleMovingAverage {
     fn average(&self) -> f64 {
         let mut p_sum = 0f64; // sum of prices
         let mut t_sum = 0f64; // sum of time
-        let newest_timestamp: i64 = self.ticks.back().unwrap().timestamp;
-        let mut iter = self.ticks.iter().enumerate();
+        let mut iter = self.ticks.iter();
         iter.next(); // skip first value since there's no time difference to compute
-        let mut last_tick;
-        for (i, t) in iter {
-            last_tick = self.ticks[i-1];
+        let mut last_tick = self.ticks.front().unwrap();
+        // loop over ticks, oldest to newest
+        for t in iter {
             let t_diff = (t.timestamp - last_tick.timestamp) as f64;
-            p_sum += t.mid() * t_diff;
+            p_sum += last_tick.mid() * t_diff;
             t_sum += t_diff;
+            last_tick = t;
         }
 
         // if there is a previous value to take into account
@@ -54,14 +52,12 @@ impl SimpleMovingAverage {
             t_sum = self.period;
         }
 
-        println!("{:?}", (p_sum, t_sum));
         p_sum / t_sum
     }
 
     fn is_overflown(&self) -> bool {
         // time between newest tick and reference tick
         let diff: i64 = self.ticks.back().unwrap().timestamp - self.ticks.front().unwrap().timestamp;
-        println!("time between newest tick and ref_tick: {:?}", diff);
         diff as f64 >= self.period
     }
 
@@ -76,15 +72,9 @@ impl SimpleMovingAverage {
             }
         }
         self.ticks.push_back(t);
-        // if we haven't overflown before
-        let is_overflown = self.is_overflown();
-        if !self.overflown_once && is_overflown {
-            self.overflown_once = true;
-        }
 
-        if is_overflown {
+        if self.is_overflown() {
             self.ref_tick = self.trim();
-            println!("ref tick: {:?}", self.ref_tick);
         }
 
         if self.ticks.len() == 1 {
