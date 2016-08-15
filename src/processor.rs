@@ -5,15 +5,18 @@
 
 use tick::Tick;
 use datafield::DataField;
+use calc::sma::SimpleMovingAverage;
 
 pub struct Processor {
-    ticks: DataField<Tick>
+    ticks: DataField<Tick>,
+    sma: SimpleMovingAverage
 }
 
 impl Processor {
     pub fn new() -> Processor {
         Processor {
-            ticks: DataField::new()
+            ticks: DataField::new(),
+            sma: SimpleMovingAverage::new(15f64),
         }
     }
 
@@ -21,5 +24,10 @@ impl Processor {
     pub fn process(&mut self, t: Tick) {
         println!("Publishing tick: {:?}", t);
         self.ticks.push(t);
+
+        // sma
+        let avg = self.sma.push(*self.ticks.first().unwrap());
+        println!("15-second average: {:?}", avg);
+        println!("{:?}", self.ticks);
     }
 }
