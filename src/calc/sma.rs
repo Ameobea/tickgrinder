@@ -83,4 +83,53 @@ impl SimpleMovingAverage {
 
         self.average()
     }
+
+    pub fn average_tick(&self) -> Tick {
+        let mut bid_sum = 0f64;
+        let mut ask_sum = 0f64;
+        let mut t_sum = 0f64; // sum of time
+        let mut iter = self.ticks.iter();
+        iter.next(); // skip first value since there's no time difference to compute
+        let mut last_tick = self.ticks.front().unwrap();
+        // loop over ticks, oldest to newest
+        for t in iter {
+            let t_diff = (t.timestamp - last_tick.timestamp) as f64;
+            bid_sum += last_tick.bid * t_diff;
+            ask_sum += last_tick.ask * t_diff;
+            t_sum += t_diff;
+            last_tick = t;
+        }
+
+        // if there is a previous value to take into account
+        if self.ref_tick.bid != 0f64 {
+            let old_time: f64 = self.period - t_sum;
+            bid_sum += old_time * self.ref_tick.bid;
+            ask_sum += old_time * self.ref_tick.ask;
+            t_sum = self.period;
+        }
+
+        Tick { bid: bid_sum / t_sum, ask: ask_sum / t_sum, timestamp: (*self.ticks.back().unwrap()).timestamp }
+    }
+
+    pub fn push_tick(&mut self, t: Tick) -> Tick {
+        // open new section so we're not double-borrowing self.ticks
+        {
+            let last_tick: Option<&Tick> = self.ticks.back();
+            if last_tick.is_some() {
+                assert!(t.timestamp > last_tick.unwrap().timestamp, "Out-of-order ticks sent to SMA!
+                    timestamps: {:?}, {:?}", last_tick.unwrap().timestamp, t.timestamp);
+            }
+        }
+        self.ticks.push_back(t);
+
+        if self.is_overflown() {
+            self.ref_tick = self.trim();
+        }
+
+        if self.ticks.len() == 1 {
+            return *self.ticks.front().unwrap()
+        }
+
+        self.average_tick()
+    }
 }
