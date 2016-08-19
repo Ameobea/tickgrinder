@@ -1,0 +1,8 @@
+[package]
+name = "optimizer"
+version = "0.1.0"
+authors = ["Casey Primozic <me@ameo.link>"]
+
+[dependencies]
+redis = "0.5.3"
+postgres = "0.11"
