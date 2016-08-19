@@ -26,7 +26,7 @@ use futures::*;
 use futures::stream::{Stream, Sender, Receiver, channel};
 
 use tick::Tick;
-use transport::Tickstream;
+use transport::redis::Tickstream;
 use processor::Processor;
 
 // create a thread that listens for new messages on redis
