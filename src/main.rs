@@ -8,6 +8,7 @@
 extern crate redis;
 extern crate futures;
 extern crate serde_json;
+extern crate postgres;
 extern crate test;
 
 mod datafield;
@@ -54,7 +55,7 @@ fn handle_ticks(rx: Receiver<String, ()>) {
     // do something each time something is received on the Receiver
     rx.for_each(move |res| {
         let mut processor = &mut processor;
-        match Tick::from_string(res) {
+        match Tick::from_json_string(res) {
             Ok(t) => processor.process(t),
             Err(e) => println!("{:?}", e.description()),
         }
