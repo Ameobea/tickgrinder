@@ -1,4 +1,5 @@
 use serde_json;
+use postgres::Connection;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Tick {
@@ -39,6 +40,20 @@ impl Tick {
     // returns the average of the bid and ask price
     pub fn mid(&self) -> f64 {
         (self.bid + self.ask) / 2f64
+    }
+
+    // saves the tick in the database
+    // the table "ticks_SYMBOL" must exist.
+    pub fn store(&self, symbol: &str, client: &Connection) {
+        let query = format!(
+            "INSERT INTO ticks_{} (tick_time, bid, ask) VALUES ({}, {}, {});",
+            symbol,
+            self.timestamp,
+            self.bid,
+            self.ask
+        );
+
+        client.execute(query.as_str(), &[]).expect("Unable to store tick!");
     }
 }
 

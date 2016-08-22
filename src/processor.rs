@@ -3,29 +3,45 @@
 // deterine a trading signal.  The main goal is to produce a result as quickly as
 // possible, so non-essential operations should be deferred asynchronously.
 
+use postgres::Connection;
+
 use tick::Tick;
 use datafield::DataField;
 use calc::sma::SimpleMovingAverage;
+use transport::postgres::{get_client, init_tick_table};
+use conf::CONF;
 
 pub struct Processor {
     ticks: DataField<Tick>,
-    sma: SimpleMovingAverage
+    sma: SimpleMovingAverage,
+    postgres_client: Connection
 }
 
 impl Processor {
     pub fn new() -> Processor {
+        // Create database connection and initialize some tables
+        let client = match get_client() {
+            Ok(c) => c,
+            Err(e) => panic!("Could not connect to Postgres: {:?}", e)
+        };
+        init_tick_table(CONF.symbol, &client).expect("Error initializing tick table");
+
         Processor {
             ticks: DataField::new(),
             sma: SimpleMovingAverage::new(15f64),
+            postgres_client: client
         }
     }
 
-    // Add a new tick to be processed
+    // Called for each new tick received by the tick processor
     pub fn process(&mut self, t: Tick) {
+        // Add to internal tick data field
         self.ticks.push(t);
 
-        // sma
-        let avg = self.sma.push(*self.ticks.last().unwrap());
-        println!("15-second average: {:?}", avg);
+        // Calculate sma
+        self.sma.push(*self.ticks.last().unwrap());
+
+        // Initialize async database store
+        t.store(CONF.symbol, &self.postgres_client);
     }
 }
