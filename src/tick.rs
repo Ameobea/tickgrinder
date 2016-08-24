@@ -1,5 +1,4 @@
 use serde_json;
-use postgres::Connection;
 
 use transport::query_server::QueryServer;
 

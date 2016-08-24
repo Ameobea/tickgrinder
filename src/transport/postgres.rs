@@ -14,7 +14,9 @@ pub fn get_client() -> Result<Connection, error::ConnectError> {
         CONF.postgres_db
     );
 
-    Connection::connect(conn_string.as_str(), SslMode::None)
+    let client = Connection::connect(conn_string.as_str(), SslMode::None);
+    println!("Successfully created Postgres connection.");
+    client
 }
 
 /***************************
@@ -36,10 +38,8 @@ pub fn init_tick_table(symbol: &str, client: &Connection) {
     let query2 = format!(
     "ALTER TABLE ticks_{}
       OWNER TO {};", symbol, CONF.postgres_user);
-    let mut res = client.execute(query1.as_str(), &[]);
-    println!("{:?}", res);
-    res = client.execute(query2.as_str(), &[]);
-    println!("{:?}", res);
+    client.execute(query1.as_str(), &[]).expect("Unable to query postgres to set up tick table");
+    client.execute(query2.as_str(), &[]).expect("Unable to query postgres to set up tick table");
 }
 
 /***************************
