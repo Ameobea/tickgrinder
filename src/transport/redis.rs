@@ -25,7 +25,7 @@ fn get_pubsub() -> PubSub {
 
 impl Tickstream {
     pub fn new() -> Tickstream {
-        return Tickstream {
+        Tickstream {
             ps: get_pubsub()
         }
     }

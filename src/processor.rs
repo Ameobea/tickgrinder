@@ -23,6 +23,7 @@ impl Processor {
             Ok(c) => c,
             Err(e) => panic!("Could not connect to Postgres: {:?}", e)
         };
+        println!("Successfully connected to Postgres");
         init_tick_table(CONF.symbol, &client);
 
         Processor {

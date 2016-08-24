@@ -3,7 +3,6 @@
 
 use std::collections::VecDeque;
 use std::thread;
-use std::time::Duration;
 use std::sync::{Arc, Mutex};
 
 use postgres;
@@ -23,9 +22,7 @@ pub struct QueryServer {
 }
 
 // locks the QueryQueue and returns a queued query, if there are any.
-// DO NOT CALL THIS FROM THE MAIN THREAD; WILL BLOCK EVERYTHING
 fn try_get_new_query(query_queue: QueryQueue) -> Option<String> {
-    println!("Locking query_queue in worker thread");
     let mut qq_inner = query_queue.lock().unwrap();
     // there is a queued query
     if !qq_inner.is_empty() {
@@ -36,12 +33,11 @@ fn try_get_new_query(query_queue: QueryQueue) -> Option<String> {
     }
 }
 
+// executes the query and blocks the calling thread until it completes
+#[allow(unused_must_use)]
 fn execute_query(query: String, client: &postgres::Connection) {
-    println!("Sending query: {:?}", query);
-    println!("Current thread: {:?}", thread::current().name());
     client.execute(query.as_str(), &[])
         .map_err(|err| println!("Error saving tick: {:?}", err) );
-    thread::sleep(Duration::new(6, 0));
 }
 
 // Creates a query processor that awaits requests
@@ -55,10 +51,12 @@ fn init_query_processor(rx: Receiver<(String, Sender<(), ()>), ()>, query_queue:
     for tup in rx.wait() {
         let (query, done_tx) = tup.unwrap();
         execute_query(query, &client);
+        // keep trying to get queued queries to exeucte until the queue is empty
         while let Some(new_query) = try_get_new_query(query_queue.clone()) {
             execute_query(new_query, &client);
         }
-        // Let the main thread know it's safe to use the 
+        // Let the main thread know it's safe to use the sender again
+        // This essentially indicates that the worker thread is idle
         done_tx.send(Ok(()));
     }
 }
@@ -67,13 +65,11 @@ impl QueryServer {
     pub fn new(conn_count: usize) -> QueryServer {
         let mut conn_queue = VecDeque::with_capacity(conn_count);
         let query_queue = Arc::new(Mutex::new(VecDeque::new()));
-        for i in 0..conn_count {
+        for _ in 0..conn_count {
             // channel for getting the Sender back from the worker thread
             let (tx, rx) = channel::<(String, Sender<(), ()>), ()>();
             let qq_copy = query_queue.clone();
-            thread::Builder::new().name(format!("worker{}", i))
-                .spawn(move || { init_query_processor(rx, qq_copy) })
-                .expect("Unable to Query Processor thread");
+            thread::spawn(move || { init_query_processor(rx, qq_copy) });
             // store the sender which can be used to send queries
             // to the worker in the connection queue
             conn_queue.push_back(tx);
@@ -95,19 +91,17 @@ impl QueryServer {
         let copy_res = temp_lock_res.clone();
         if copy_res {
             // push query to the query queue
-            println!("Locking query_queue in execute()");
             self.query_queue.lock().unwrap().push_back(query);
-            println!("Query queued!");
         }else{
             let tx = self.conn_queue.lock().unwrap().pop_front().unwrap();
             let cq_clone = self.conn_queue.clone();
             // channel for notifying main thread when query is done and worker is idle
             let (tx_tx, tx_rx) = channel::<(), ()>();
             tx.send(Ok((query, tx_tx))).and_then(|new_tx| {
+                // Wait until the worker thread signals that it is idle
                 tx_rx.take(1).into_future().and_then(move |_| {
-                    println!("Locking conn_queue in execute()");
+                    // Put the Sender for the newly idle worker into the connection queue
                     cq_clone.lock().unwrap().push_back(new_tx);
-                    println!("Pushing new Sender into conn_queue");
                     Ok(())
                 }).forget();
                 Ok(())

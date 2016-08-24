@@ -14,9 +14,7 @@ pub fn get_client() -> Result<Connection, error::ConnectError> {
         CONF.postgres_db
     );
 
-    let client = Connection::connect(conn_string.as_str(), SslMode::None);
-    println!("Successfully created Postgres connection.");
-    client
+    Connection::connect(conn_string.as_str(), SslMode::None)
 }
 
 /***************************
