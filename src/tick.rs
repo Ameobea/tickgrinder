@@ -1,6 +1,8 @@
 use serde_json;
 use postgres::Connection;
 
+use transport::query_server::QueryServer;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Tick {
     pub bid: f64,
@@ -44,7 +46,7 @@ impl Tick {
 
     // saves the tick in the database
     // the table "ticks_SYMBOL" must exist.
-    pub fn store(&self, symbol: &str, client: &Connection) {
+    pub fn store(&self, symbol: &str, qs: &mut QueryServer) {
         let query = format!(
             "INSERT INTO ticks_{} (tick_time, bid, ask) VALUES ({}, {}, {});",
             symbol,
@@ -53,7 +55,8 @@ impl Tick {
             self.ask
         );
 
-        client.execute(query.as_str(), &[]).expect("Unable to store tick!");
+        // Asynchronously store the tick in the database
+        qs.execute(query);
     }
 }
 

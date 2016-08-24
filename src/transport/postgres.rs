@@ -22,9 +22,9 @@ pub fn get_client() -> Result<Connection, error::ConnectError> {
 ***************************/
 
 // Creates a new table for ticks with given symbol
-pub fn init_tick_table(symbol: &str, client: &Connection) -> Result<u64, error::Error> {
-    let query = format!(
-    "CREATE TABLE IF NOT EXISTS \"ticks_{}\"
+pub fn init_tick_table(symbol: &str, client: &Connection) {
+    let query1 = format!(
+    "CREATE TABLE IF NOT EXISTS ticks_{}
     (
       tick_time bigint NOT NULL PRIMARY KEY UNIQUE,
       bid double precision NOT NULL,
@@ -32,10 +32,14 @@ pub fn init_tick_table(symbol: &str, client: &Connection) -> Result<u64, error::
     )
     WITH (
       OIDS=FALSE
-    );
-    ALTER TABLE \"ticks_{}\"
-      OWNER TO {};", symbol, symbol, CONF.postgres_user);
-    client.execute(query.as_str(), &[])
+    );", symbol);
+    let query2 = format!(
+    "ALTER TABLE ticks_{}
+      OWNER TO {};", symbol, CONF.postgres_user);
+    let mut res = client.execute(query1.as_str(), &[]);
+    println!("{:?}", res);
+    res = client.execute(query2.as_str(), &[]);
+    println!("{:?}", res);
 }
 
 /***************************
@@ -43,9 +47,9 @@ pub fn init_tick_table(symbol: &str, client: &Connection) -> Result<u64, error::
 ***************************/
 
 // Drops all tables in the database, resetting it to defaults
-pub fn reset_db(client: &Connection) -> Result<u64, error::Error> {
+pub fn reset_db(client: &Connection) -> Result<(), error::Error> {
     let query = format!("DROP SCHEMA public CASCADE;
         CREATE SCHEMA public AUTHORIZATION {};
         GRANT ALL ON SCHEMA public TO {};", CONF.postgres_user, CONF.postgres_user);
-    client.execute(query.as_str(), &[])
+    client.batch_execute(query.as_str())
 }
