@@ -1,24 +1,25 @@
-// Connection Pool-esque construct used to queue up and asynchronously execute
-// Postgres queries ane optionally evaluate callbacks based on the results.
+// Connection Pool-esque construct used to queue up
+// and asynchronously execute Postgres queries
 
 use std::collections::VecDeque;
 use std::thread;
+use std::time::Duration;
 use std::sync::{Arc, Mutex};
 
 use postgres;
 use futures::stream::{Stream, channel, Sender, Receiver};
-use futures::Future;
+use futures::{Future, oneshot, Complete};
 
 use transport::postgres::get_client;
 
 type QueryError = postgres::error::Error;
-type SenderQueue = Arc<Mutex<VecDeque<Sender<(String, Sender<(), ()>), ()>>>>;
+type SenderQueue = Arc<Mutex<VecDeque<Sender<(String, Complete<()>), ()>>>>;
 type QueryQueue = Arc<Mutex<VecDeque<String>>>;
 
 pub struct QueryServer {
     conn_count: usize, // how many connections to open
     query_queue: QueryQueue, // internal query queue
-    conn_queue: SenderQueue, // Database connection objects
+    conn_queue: SenderQueue, // senders for idle query threads
 }
 
 // locks the QueryQueue and returns a queued query, if there are any.
@@ -38,10 +39,11 @@ fn try_get_new_query(query_queue: QueryQueue) -> Option<String> {
 fn execute_query(query: String, client: &postgres::Connection) {
     client.execute(query.as_str(), &[])
         .map_err(|err| println!("Error saving tick: {:?}", err) );
+    thread::sleep(Duration::new(5, 0));
 }
 
 // Creates a query processor that awaits requests
-fn init_query_processor(rx: Receiver<(String, Sender<(), ()>), ()>, query_queue: QueryQueue) {
+fn init_query_processor(rx: Receiver<(String, Complete<()>), ()>, query_queue: QueryQueue) {
     // get a connection to the postgres database
     let client = get_client().expect("Couldn't create postgres connection.");
     // Handler for new queries from main thread
@@ -57,7 +59,7 @@ fn init_query_processor(rx: Receiver<(String, Sender<(), ()>), ()>, query_queue:
         }
         // Let the main thread know it's safe to use the sender again
         // This essentially indicates that the worker thread is idle
-        done_tx.send(Ok(()));
+        done_tx.complete(());
     }
 }
 
@@ -67,7 +69,7 @@ impl QueryServer {
         let query_queue = Arc::new(Mutex::new(VecDeque::new()));
         for _ in 0..conn_count {
             // channel for getting the Sender back from the worker thread
-            let (tx, rx) = channel::<(String, Sender<(), ()>), ()>();
+            let (tx, rx) = channel::<(String, Complete<()>), ()>();
             let qq_copy = query_queue.clone();
             thread::spawn(move || { init_query_processor(rx, qq_copy) });
             // store the sender which can be used to send queries
@@ -95,11 +97,11 @@ impl QueryServer {
         }else{
             let tx = self.conn_queue.lock().unwrap().pop_front().unwrap();
             let cq_clone = self.conn_queue.clone();
-            // channel for notifying main thread when query is done and worker is idle
-            let (tx_tx, tx_rx) = channel::<(), ()>();
-            tx.send(Ok((query, tx_tx))).and_then(|new_tx| {
+            // future for notifying main thread when query is done and worker is idle
+            let (c, o) = oneshot::<()>();
+            tx.send(Ok((query, c))).and_then(|new_tx| {
                 // Wait until the worker thread signals that it is idle
-                tx_rx.take(1).into_future().and_then(move |_| {
+                o.and_then(move |_| {
                     // Put the Sender for the newly idle worker into the connection queue
                     cq_clone.lock().unwrap().push_back(new_tx);
                     Ok(())
