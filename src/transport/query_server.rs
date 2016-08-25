@@ -3,7 +3,6 @@
 
 use std::collections::VecDeque;
 use std::thread;
-use std::time::Duration;
 use std::sync::{Arc, Mutex};
 
 use postgres;
@@ -38,8 +37,7 @@ fn try_get_new_query(query_queue: QueryQueue) -> Option<String> {
 #[allow(unused_must_use)]
 fn execute_query(query: String, client: &postgres::Connection) {
     client.execute(query.as_str(), &[])
-        .map_err(|err| println!("Error saving tick: {:?}", err) );
-    thread::sleep(Duration::new(5, 0));
+        /*.map_err(|err| println!("Error saving tick: {:?}", err) )*/;
 }
 
 // Creates a query processor that awaits requests

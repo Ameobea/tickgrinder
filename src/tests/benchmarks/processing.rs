@@ -21,7 +21,7 @@ fn tick_insertion(b: &mut Bencher) {
 fn json_to_tick(b: &mut Bencher) {
     b.iter(|| {
         let s: String = String::from("{\"bid\": 1.123128412, \"ask\": 1.123128402, \"timestamp\": 1471291001837}");
-        Tick::from_string(s).unwrap();
+        Tick::from_json_string(s).unwrap();
     });
 }
 

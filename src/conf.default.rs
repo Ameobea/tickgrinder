@@ -19,7 +19,7 @@ pub struct Conf {
 pub const CONF: Conf = Conf {
     // General config
     symbol: "EURUSD",
-    database_conns: 5,
+    database_conns: 10,
     // Redis config
     redis_url: "redis://127.0.0.1/",
     redis_ticks_channel: "ticks",
