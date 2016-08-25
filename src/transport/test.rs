@@ -1,4 +1,6 @@
+#[allow(unused_imports)]
 use transport::query_server::QueryServer;
+#[allow(unused_imports)]
 use tick::Tick;
 
 #[test]

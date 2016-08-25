@@ -48,6 +48,8 @@ pub fn init_tick_table(symbol: &str, client: &Connection) {
 pub fn reset_db(client: &Connection) -> Result<(), error::Error> {
     let query = format!("DROP SCHEMA public CASCADE;
         CREATE SCHEMA public AUTHORIZATION {};
-        GRANT ALL ON SCHEMA public TO {};", CONF.postgres_user, CONF.postgres_user);
+        ALTER SCHEMA public OWNER TO {};
+        GRANT ALL ON SCHEMA public TO {};",
+            CONF.postgres_user, CONF.postgres_user, CONF.postgres_user);
     client.batch_execute(query.as_str())
 }

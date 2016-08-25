@@ -28,7 +28,9 @@ use futures::stream::{Stream, Sender, Receiver, channel};
 
 use tick::Tick;
 use transport::redis::Tickstream;
+use transport::postgres::{get_client, reset_db};
 use processor::Processor;
+use conf::CONF;
 
 // create a thread that listens for new messages on redis
 // and resets itself after the results are consumed
@@ -64,6 +66,11 @@ fn handle_ticks(rx: Receiver<String, ()>) {
 }
 
 fn main() {
+    if CONF.reset_db_on_load {
+        reset_db(&get_client().expect("Unable to get postgres client"))
+            .expect("Unable to reset database");
+        println!("Database reset");
+    }
     let (tx, rx) = channel::<String, ()>();
     // start listening for new ticks on a separate thread
     get_ticks(tx);
