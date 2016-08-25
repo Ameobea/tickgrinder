@@ -1,44 +1,53 @@
 // Responsible for receiving live ticks and other kinds of data and
 // sending calculations and results back.
 
-use redis::{Client, PubSub};
+use std::thread;
+
+use redis;
+use futures::Future;
+use futures::stream::{channel, Receiver, Sender};
 
 use conf::CONF;
 
-pub struct Tickstream {
-    ps: PubSub
+pub fn get_client() -> redis::Client {
+    redis::Client::open(CONF.redis_url).expect("Could not connect to redis")
 }
 
-fn get_pubsub() -> PubSub {
-    let client = match Client::open(CONF.redis_url) {
-        Ok(c) => c,
-        Err(_) => panic!("Could not connect to redis!")
-    };
-    let mut pubsub = match client.get_pubsub() {
-        Ok(p) => p,
-        Err(_) => panic!("Could not create pubsub for redis client!")
-    };
-    pubsub.subscribe(CONF.redis_ticks_channel)
-        .expect("Could not subscribe to the ticks channel");
-    return pubsub;
+fn get_pubsub(channel: &'static str) -> redis::PubSub {
+    let client = get_client();
+    let mut pubsub = client.get_pubsub()
+        .expect("Could not create pubsub for redis client");
+    pubsub.subscribe(channel)
+        .expect("Could not subscribe to pubsub channel");
+    pubsub
 }
 
-impl Tickstream {
-    pub fn new() -> Tickstream {
-        Tickstream {
-            ps: get_pubsub()
-        }
-    }
+// Blocks until a message is received on a pubsub then returns it
+// Returns the message as a String
+fn get_message(ps: &redis::PubSub) -> String {
+    let msg = ps.get_message().expect("Could not get message from pubsub!");
+    msg.get_payload::<String>().expect("Could not convert redis message to string!")
+}
 
-    pub fn get_tick(&mut self) -> String {
-        let msg = match self.ps.get_message() {
-            Ok(m) => m,
-            Err(_) => panic!("Could not get message from pubsub!")
-        };
-        let payload: String = match msg.get_payload() {
-            Ok(s) => s,
-            Err(_) => panic!("Could not convert redis message to string!")
-        };
-        return payload;
-    }
+// Recursively call get_message and send the results over tx
+fn get_message_outer(tx: Sender<String, ()>, ps: &redis::PubSub) {
+    // block until a new message is received
+    let res = get_message(ps);
+    // block again until the message is consumed
+    // this prevents the tx from dropping since .send() is async
+    tx.send(Ok(res)).wait().map(|new_tx| {
+        // start listening again
+        get_message_outer(new_tx, ps);
+    });
+}
+
+// Returns a Receiver that resolves to new messages received
+// on a pubsub channel
+pub fn sub_channel(ps_channel: &'static str) -> Receiver<String, ()> {
+    let (tx, rx) = channel::<String, ()>();
+    let ps = get_pubsub(ps_channel);
+    thread::spawn(move || {
+        get_message_outer(tx, &ps);
+    });
+    rx
 }

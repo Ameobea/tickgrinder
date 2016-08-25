@@ -11,8 +11,8 @@ use transport::query_server::QueryServer;
 use conf::CONF;
 
 pub struct Processor {
-    ticks: DataField<Tick>,
-    sma: SimpleMovingAverage,
+    pub ticks: DataField<Tick>,
+    pub sma: SimpleMovingAverage,
     qs: QueryServer
 }
 

@@ -23,6 +23,10 @@ impl<T> DataField<T> {
     pub fn last(&mut self) -> Option<&T> {
         self.data.last()
     }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
 }
 
 impl<T> Index<usize> for DataField<T> {

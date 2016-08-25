@@ -2,6 +2,7 @@
 // to run the tick processor
 
 pub struct Conf {
+    pub reset_db_on_load: bool, // wipe all stored data in postgres on app launch
     // General config
     pub symbol: &'static str, // symbol of ticks this processor will monitor
     pub database_conns: usize, // how many connections to open to the database
@@ -17,8 +18,9 @@ pub struct Conf {
 }
 
 pub const CONF: Conf = Conf {
+    reset_db_on_load: false,
     // General config
-    symbol: "EURUSD",
+    symbol: "eurusd",
     database_conns: 10,
     // Redis config
     redis_url: "redis://127.0.0.1/",
