@@ -1,6 +1,7 @@
 // Algobot 4
 // Casey Primozic, 2016-2016
 
+
 #![feature(custom_derive, plugin, test, conservative_impl_trait)]
 #![plugin(serde_macros)]
 #![allow(dead_code)]
@@ -31,10 +32,10 @@ use processor::Processor;
 use conf::CONF;
 
 fn handle_messages() {
-    // subscribe to live ticks channel + process new ticks
+    // subscribe to live ticks channel
     let ticks_rx = sub_channel(CONF.redis_ticks_channel);
 
-    let mut processor = Processor::new();
+    let mut processor = Processor::new(CONF.symbol);
     // listen for new commands
     let cmds_rx = sub_channel(CONF.redis_control_channel);
 

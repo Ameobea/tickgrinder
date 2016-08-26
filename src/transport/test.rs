@@ -1,3 +1,4 @@
+use futures::Future;
 use futures::stream::Stream;
 use redis;
 
@@ -28,7 +29,7 @@ fn postgres_db_reset() {
 // through and make sure they're stored and processed.
 #[test]
 fn tick_ingestion() {
-    let mut processor = Processor::new();
+    let mut processor = Processor::new("temp1");
     let rx = transport::redis::sub_channel(CONF.redis_ticks_channel);
     let mut client = transport::redis::get_client();
 
@@ -47,4 +48,34 @@ fn tick_ingestion() {
         processor.process(Tick::from_json_string(json_tick.unwrap()));
     }
     assert_eq!(processor.ticks.len(), 5);
+}
+
+// Processor listens to commands and updates internals accordingly
+// insert one SMA into the processor then remove it
+#[test]
+fn sma_commands() {
+    let mut processor = Processor::new("temp2");
+    let rx = transport::redis::sub_channel(CONF.redis_control_channel);
+    let mut client = transport::redis::get_client();
+    let command_string = "{\"AddSMA\": {\"period\": 32.34}}";
+    assert_eq!(processor.smas.smas.len(), 0);
+
+    redis::cmd("PUBLISH")
+        .arg(CONF.redis_control_channel)
+        .arg(command_string)
+        .execute(&mut client);
+    // block until the message is received and processed
+    let msg = rx.wait().next();
+    processor.execute_command(msg.unwrap().unwrap());
+    assert_eq!(processor.smas.smas.len(), 1);
+
+    let rx2 = transport::redis::sub_channel(CONF.redis_control_channel);
+    let command_string = "{\"RemoveSMA\": {\"period\": 32.34}}";
+    redis::cmd("PUBLISH")
+        .arg(CONF.redis_control_channel)
+        .arg(command_string)
+        .execute(&mut client);
+    let msg = rx2.wait().next();
+    processor.execute_command(msg.unwrap().unwrap());
+    assert_eq!(processor.smas.smas.len(), 0);
 }

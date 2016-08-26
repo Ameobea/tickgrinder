@@ -6,7 +6,7 @@ use tick::Tick;
 //pop ticks off the front after they leave the period
 
 pub struct SMAList {
-    smas: Vec<SimpleMovingAverage>
+    pub smas: Vec<SimpleMovingAverage>
 }
 
 impl SMAList {

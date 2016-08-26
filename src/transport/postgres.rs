@@ -1,5 +1,7 @@
 // functions for communicating with the postgresql database
 
+#![allow(unused_must_use)]
+
 use postgres::{Connection, SslMode};
 use postgres::error;
 
@@ -36,8 +38,10 @@ pub fn init_tick_table(symbol: &str, client: &Connection) {
     let query2 = format!(
     "ALTER TABLE ticks_{}
       OWNER TO {};", symbol, CONF.postgres_user);
-    client.execute(query1.as_str(), &[]).expect("Unable to query postgres to set up tick table");
-    client.execute(query2.as_str(), &[]).expect("Unable to query postgres to set up tick table");
+    client.execute(query1.as_str(), &[])
+        .map_err(|_| println!("Error while querying postgres to set up tick table"));
+    client.execute(query2.as_str(), &[])
+        .map_err(|_| println!("Error while querying postgres to set up tick table"));
 }
 
 /***************************

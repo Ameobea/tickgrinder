@@ -22,8 +22,8 @@ pub struct Processor {
 enum Command {
     Restart,
     Shutdown,
-    AddSMA(f64),
-    RemoveSMA(f64),
+    AddSMA{period: f64},
+    RemoveSMA{period: f64},
 }
 
 fn parse_command(cmd: String) -> Result<Command, serde_json::Error> {
@@ -31,12 +31,12 @@ fn parse_command(cmd: String) -> Result<Command, serde_json::Error> {
 }
 
 impl Processor {
-    pub fn new() -> Processor {
+    pub fn new(symbol: &str) -> Processor {
         // Create database connection and initialize some tables
         let client = get_client().expect("Could not connect to Postgres");
 
         println!("Successfully connected to Postgres");
-        init_tick_table(CONF.symbol, &client);
+        init_tick_table(symbol, &client);
 
         Processor {
             ticks: DataField::new(),
@@ -56,6 +56,13 @@ impl Processor {
     }
 
     pub fn execute_command(&mut self, raw_cmd: String) {
-        parse_command(raw_cmd);
+        let cmd: Command = parse_command(raw_cmd)
+            .expect("Unable to parse command");
+        match cmd {
+            Command::Restart => unimplemented!(),
+            Command::Shutdown => unimplemented!(),
+            Command::AddSMA{period: pd} => self.smas.add(pd),
+            Command::RemoveSMA{period: pd} => self.smas.remove(pd)
+        }
     }
 }
