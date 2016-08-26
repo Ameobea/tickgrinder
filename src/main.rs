@@ -1,7 +1,7 @@
 // Algobot 4
 // Casey Primozic, 2016-2016
 
-#![feature(custom_derive, plugin, test)]
+#![feature(custom_derive, plugin, test, conservative_impl_trait)]
 #![plugin(serde_macros)]
 #![allow(dead_code)]
 
@@ -21,10 +21,8 @@ mod tests;
 
 use std::thread;
 use std::time::Duration;
-use std::error::Error;
 
-use futures::*;
-use futures::stream::{Stream, Receiver};
+use futures::stream::{Stream, MergedItem};
 
 use tick::Tick;
 use transport::redis::sub_channel;
@@ -32,17 +30,24 @@ use transport::postgres::{get_client, reset_db};
 use processor::Processor;
 use conf::CONF;
 
-fn handle_ticks(rx: Receiver<String, ()>) {
-    let mut processor: Processor = Processor::new();
-    // do something each time something is received on the Receiver
-    rx.for_each(move |res| {
-        let mut processor = &mut processor;
-        match Tick::from_json_string(res) {
-            Ok(t) => processor.process(t),
-            Err(e) => println!("{:?}", e.description()),
-        }
+fn handle_messages() {
+    // subscribe to live ticks channel + process new ticks
+    let ticks_rx = sub_channel(CONF.redis_ticks_channel);
+
+    let mut processor = Processor::new();
+    // listen for new commands
+    let cmds_rx = sub_channel(CONF.redis_control_channel);
+
+    ticks_rx.merge(cmds_rx).for_each(move |mi| {
+        match mi {
+            MergedItem::First(raw_string) =>
+                processor.process(Tick::from_json_string(raw_string)),
+            MergedItem::Second(raw_string) =>
+                processor.execute_command(raw_string),
+            MergedItem::Both(_, _) => ()
+        };
         Ok(())
-    }).forget(); // register this callback and continue program's execution
+    });
 }
 
 fn main() {
@@ -52,9 +57,8 @@ fn main() {
         println!("Database reset");
     }
 
-    // rx returns (payload: String, channel_n)
-    let rx = sub_channel(CONF.redis_ticks_channel);
-    handle_ticks(rx);
+    // Start the listeners for everything
+    handle_messages();
 
     loop {
         // keep program alive but don't swamp the CPU

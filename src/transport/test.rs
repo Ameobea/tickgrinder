@@ -44,7 +44,7 @@ fn tick_ingestion() {
 
     // process the 5 ticks
     for json_tick in rx.wait().take(5) {
-        processor.process(Tick::from_json_string(json_tick.unwrap()).unwrap());
+        processor.process(Tick::from_json_string(json_tick.unwrap()));
     }
     assert_eq!(processor.ticks.len(), 5);
 }

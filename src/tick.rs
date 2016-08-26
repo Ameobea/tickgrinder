@@ -24,8 +24,8 @@ impl Tick {
     }
 
     // converts a JSON-encoded String into a Tick
-    pub fn from_json_string(s: String) -> Result<Tick, serde_json::Error> {
-        serde_json::from_str(s.as_str())
+    pub fn from_json_string(s: String) -> Tick {
+        serde_json::from_str(s.as_str()).expect("Unable to parse tick from string")
     }
 
     // generates a JSON string containing the data of the tick

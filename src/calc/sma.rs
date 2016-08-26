@@ -5,9 +5,43 @@ use tick::Tick;
 //Calculate weighted average of all ticks within period seconds
 //pop ticks off the front after they leave the period
 
+pub struct SMAList {
+    smas: Vec<SimpleMovingAverage>
+}
+
+impl SMAList {
+    pub fn new() -> SMAList {
+        SMAList {
+            smas: Vec::new()
+        }
+    }
+
+    pub fn push_all(&mut self, t: Tick) {
+        let smas = &mut self.smas;
+        for mut sma in smas {
+            let sma = &mut sma;
+            sma.push(t);
+        }
+    }
+
+    pub fn add(&mut self, period: f64) {
+        self.smas.push(SimpleMovingAverage::new(period));
+    }
+
+    pub fn remove(&mut self, period: f64) {
+        for i in 0..self.smas.len() {
+            if self.smas[i].period == period {
+                self.smas.remove(i);
+                return
+            }
+        }
+        println!("No SMA with period {} currently tracked", period);
+    }
+}
+
 pub struct SimpleMovingAverage {
-    period: f64,
-    ticks: VecDeque<Tick>,
+    pub period: f64,
+    pub ticks: VecDeque<Tick>,
     // indicates if an out-of-range tick exists in the front element
     ref_tick: Tick,
 }
