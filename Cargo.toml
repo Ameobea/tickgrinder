@@ -4,5 +4,5 @@ version = "0.1.0"
 authors = ["Casey Primozic <me@ameo.link>"]
 
 [dependencies]
-redis = "0.5.3
+redis = "0.5.3"
 futures = { git = "https://github.com/alexcrichton/futures-rs" }
