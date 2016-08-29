@@ -11,7 +11,6 @@ use futures::{Future, oneshot, Complete};
 
 use transport::postgres::get_client;
 
-type QueryError = postgres::error::Error;
 type SenderQueue = Arc<Mutex<VecDeque<Sender<(String, Complete<()>), ()>>>>;
 type QueryQueue = Arc<Mutex<VecDeque<String>>>;
 
@@ -22,22 +21,14 @@ pub struct QueryServer {
 }
 
 // locks the QueryQueue and returns a queued query, if there are any.
-fn try_get_new_query(query_queue: QueryQueue) -> Option<String> {
+fn try_get_new_query(query_queue: &Mutex<VecDeque<String>>) -> Option<String> {
     let mut qq_inner = query_queue.lock().unwrap();
-    // there is a queued query
-    if !qq_inner.is_empty() {
-        return Some(qq_inner.pop_front().unwrap())
-    }else{
-        // No new queries
-        return None
-    }
+    qq_inner.pop_front()
 }
 
 // executes the query and blocks the calling thread until it completes
-#[allow(unused_must_use)]
-fn execute_query(query: String, client: &postgres::Connection) {
-    client.execute(query.as_str(), &[])
-        /*.map_err(|err| println!("Error saving tick: {:?}", err) )*/;
+fn execute_query(query: &str, client: &postgres::Connection) {
+    let _ = client.execute(query, &[]);
 }
 
 // Creates a query processor that awaits requests
@@ -50,10 +41,10 @@ fn init_query_processor(rx: Receiver<(String, Complete<()>), ()>, query_queue: Q
     // for the worker to push a message saying it's done before sending more messages
     for tup in rx.wait() {
         let (query, done_tx) = tup.unwrap();
-        execute_query(query, &client);
-        // keep trying to get queued queries to exeucte until the queue is empty
-        while let Some(new_query) = try_get_new_query(query_queue.clone()) {
-            execute_query(new_query, &client);
+        execute_query(query.as_str(), &client);
+        // keep trying to get queued queries to execute until the queue is empty
+        while let Some(new_query) = try_get_new_query(&*query_queue.clone()) {
+            execute_query(new_query.as_str(), &client);
         }
         // Let the main thread know it's safe to use the sender again
         // This essentially indicates that the worker thread is idle
@@ -69,7 +60,7 @@ impl QueryServer {
             // channel for getting the Sender back from the worker thread
             let (tx, rx) = channel::<(String, Complete<()>), ()>();
             let qq_copy = query_queue.clone();
-            thread::spawn(move || { init_query_processor(rx, qq_copy) });
+            thread::spawn(move || init_query_processor(rx, qq_copy) );
             // store the sender which can be used to send queries
             // to the worker in the connection queue
             conn_queue.push_back(tx);
@@ -92,7 +83,7 @@ impl QueryServer {
         if copy_res {
             // push query to the query queue
             self.query_queue.lock().unwrap().push_back(query);
-        }else{
+        } else {
             let tx = self.conn_queue.lock().unwrap().pop_front().unwrap();
             let cq_clone = self.conn_queue.clone();
             // future for notifying main thread when query is done and worker is idle
