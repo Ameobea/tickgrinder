@@ -5,6 +5,4 @@
 //!
 //! Commands are sent one at a time to the bot
 
-use futures::{Future, Poll};
-
 use transport::command_server;

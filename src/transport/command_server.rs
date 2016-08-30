@@ -6,10 +6,10 @@
 //! and are sent to worker processes that register interest in them over channels.
 //! Workers register interest after sending a command so that they can be notified
 //! of the successful reception of the command.
-
+//!
 //! TODO: Ensure that commands aren't processed twice by storing Uuids or most
 //! recent 200 commands or something and checking that list before executing (?)
-
+//!
 //! TODO: Use different channel for responses than for commands
 
 use std::collections::VecDeque;
@@ -32,19 +32,6 @@ type SenderQueue = Arc<Mutex<VecDeque<Sender<(Command, Complete<Result<Response,
 type CommandQueue = Arc<Mutex<VecDeque<(Command, Complete<Result<Response, String>>)>>>;
 type RegisteredList = Vec<(Uuid, Complete<Result<Response, ()>>)>;
 
-/// Blocks the current thread until a Duration+Complete is received.
-/// Then it sleeps for that Duration and Completes the oneshot upon awakening.
-/// Returns a Complete upon starting that can be used to end the timeout early
-fn init_sleeper(rx: Receiver<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>,) {
-    for res in rx.wait() {
-        let (dur, awake_c, asleep_c) = res.unwrap();
-        // send a Complete with a handle to the thread
-        asleep_c.complete(thread::current());
-        thread::park_timeout(dur);
-        awake_c.complete(Err(()));
-    }
-}
-
 /// A list of Senders over which Results from the Tick Processor
 /// will be sent if they match the ID of the request the command
 /// sender thread sent.
@@ -56,7 +43,7 @@ struct AlertList {
 }
 
 /// Represents a command sent to the Tick Processor
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum Command {
     Restart,
     Shutdown,
@@ -66,45 +53,47 @@ pub enum Command {
 
 /// Represents a command bound to a unique identifier that can be
 /// used to link it with a Response
-#[derive(Serialize, Deserialize)]
-struct WrappedCommand {
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct WrappedCommand {
     uuid: Uuid,
     cmd: Command
 }
 
-fn parse_wrapped_command(cmd: String) -> WrappedCommand {
+/// Converts a String into a WrappedCommand
+/// JSON Format: {"uuid": "xxxx-xxxx", "cmd": {"CommandName":{"arg": "val"}}}
+pub fn parse_wrapped_command(cmd: String) -> WrappedCommand {
     serde_json::from_str::<WrappedCommand>(cmd.as_str())
         .expect("Unable to parse WrappedCommand from String")
 }
 
 /// Represents a response from the Tick Processor to a Command sent
 /// to it at some earlier point.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum Response {
     Ok,
     Error{status: String}
 }
 
 /// A Response bound to a UUID
-#[derive(Serialize, Deserialize)]
-struct WrappedResponse {
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct WrappedResponse {
     pub uuid: Uuid,
     pub res: Response
 }
 
 /// Parses a String into a WrappedResponse
-fn parse_wrapped_response(raw_res: String) -> WrappedResponse {
+pub fn parse_wrapped_response(raw_res: String) -> WrappedResponse {
     serde_json::from_str::<WrappedResponse>(raw_res.as_str())
         .expect("Unable to parse WrappedResponse from String")
 }
 
 /// Send out the Response to any workers that registered interest ot its Uuid
 fn send_messages(res: WrappedResponse, al: &Mutex<AlertList>) {
-    let mut al_inner = al.lock().unwrap();
+    let mut al_inner = al.lock().expect("Unable to unlock al n send_messages");
     let pos_opt = al_inner.list.iter_mut().position(|ref x| x.0 == res.uuid );
     match pos_opt {
         Some(pos) => {
-            let (stored_uuid, complete) = al_inner.list.remove(pos);
+            let (_, complete) = al_inner.list.remove(pos);
             complete.complete(Ok(res.res));
         },
         None => ()
@@ -145,14 +134,19 @@ pub struct CommandServer {
 
 /// Locks the CommandQueue and returns a queued command, if there are any.
 fn try_get_new_command(command_queue: CommandQueue) -> Option<(Command, Complete<Result<Response, String>>)> {
-    let mut qq_inner = command_queue.lock().unwrap();
+    let mut qq_inner = command_queue.lock().expect("Unable to unlock qq_inner in try_get_new_command");
     qq_inner.pop_front()
 }
 
 /// Asynchronously sends off a command to the Tick Processor without
 /// waiting to see if it was received or sent properly
-fn send_command(cmd: &WrappedCommand, client: &redis::Client) {
-    // TODO: Send command over redis
+fn send_command(cmd: &WrappedCommand, client: &mut redis::Client) {
+    let command_string = serde_json::to_string(cmd)
+        .expect("Unable to parse command into JSON String");
+    redis::cmd("PUBLISH")
+        .arg(CONF.redis_commands_channel)
+        .arg(command_string)
+        .execute(client);
 }
 
 /// Returns a WrappedCommand that binds a UUID to a command so that
@@ -164,7 +158,7 @@ fn wrap_command(cmd: Command) -> WrappedCommand {
     }
 }
 
-fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand, client: &redis::Client,
+fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand, client: &mut redis::Client,
         sleeper_tx: Sender<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>,
         done_c: Complete<Result<Response, String>>, command_queue: CommandQueue)
         -> Result<Sender<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>, ()> {
@@ -181,17 +175,18 @@ fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand, clien
     // oneshot for sending the Response back
     let (res_recvd_c, res_recvd_o) = oneshot::<Result<Response, ()>>();
     // register interest in new Responses coming in with our Command's Uuid
-    al.lock().unwrap().register(&wrapped_cmd.uuid, res_recvd_c);
-    let mut al_clone = al.clone();
+    al.lock().expect("Unlock to lock al in send_command_outer")
+        .register(&wrapped_cmd.uuid, res_recvd_c);
+    let al_clone = al.clone();
     let mut attempts = 0;
-    res_recvd_o.select(awake_o).and_then(move |res| {
-        let (status, next_future) = res;
+    let _ = res_recvd_o.select(awake_o).and_then(move |res| {
+        let (status, _) = res;
         // Result received before the timeout
         match status {
             // command received
             Ok(wrapped_res) => {
                 // end the timeout now so that we can re-use sleeper thread
-                sleepy_handle.unwrap().unpark();
+                sleepy_handle.expect("Couldn't unwrap handle to sleeper thread").unpark();
                 done_c.complete(Ok(wrapped_res));
                 let new_tx_wrapped = active_tx.wait();
                 // keep trying to get queued commands to execute until the queue is empty
@@ -214,7 +209,7 @@ fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand, clien
             },
             // timed out
             Err(_) => {
-                al_clone.lock().unwrap().deregister(&wrapped_cmd.uuid);
+                al_clone.lock().expect("Couldn't lock al in Err(_)").deregister(&wrapped_cmd.uuid);
                 attempts += 1;
                 if attempts >= CONF.max_command_retry_attempts {
                     // Let the main thread know it's safe to use the sender again
@@ -240,28 +235,43 @@ fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand, clien
     Err(())
 }
 
-/// manually loop over the converted Stream of commands
+/// Manually loop over the converted Stream of commands
 fn manual_iterate(mut iter: Wait<Receiver<(Command, Complete<Result<Response, String>>), ()>>, al: &Mutex<AlertList>,
-        client: &redis::Client,
+        mut client: &mut redis::Client,
         sleeper_tx: Sender<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>,
         command_queue: CommandQueue) {
-    let (cmd, done_c) = iter.next().unwrap().unwrap();
+    let (cmd, done_c) = iter.next().expect("Coudln't unwrap #1").expect("Couldn't unwrap #2");
+    println!("{:?}", cmd);
     // create a Uuid and bind it to the command
     let wrapped_cmd = WrappedCommand{uuid: Uuid::new_v4(), cmd: cmd};
-    let new_sleeper_tx = send_command_outer(al, &wrapped_cmd, &client, sleeper_tx, done_c, command_queue.clone()).unwrap();
-    manual_iterate(iter, al, &client, new_sleeper_tx, command_queue);
+    let new_sleeper_tx = send_command_outer(al, &wrapped_cmd, &mut client, sleeper_tx, done_c, command_queue.clone())
+        .expect("Couldn't unwrap new_sleeper_tx");
+    manual_iterate(iter, al, client, new_sleeper_tx, command_queue);
+}
+
+/// Blocks the current thread until a Duration+Complete is received.
+/// Then it sleeps for that Duration and Completes the oneshot upon awakening.
+/// Returns a Complete upon starting that can be used to end the timeout early
+fn init_sleeper(rx: Receiver<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>,) {
+    for res in rx.wait() {
+        let (dur, awake_c, asleep_c) = res.unwrap();
+        // send a Complete with a handle to the thread
+        asleep_c.complete(thread::current());
+        thread::park_timeout(dur);
+        awake_c.complete(Err(()));
+    }
 }
 
 /// Creates a command processor that awaits requests
 fn init_command_processor(cmd_rx: Receiver<(Command, Complete<Result<Response, String>>), ()>,
         command_queue: CommandQueue, al: &Mutex<AlertList>) {
     // get a connection to the postgres database
-    let client = get_client(CONF.redis_host);
+    let mut client = get_client(CONF.redis_host);
     // channel for communicating with the sleeper thread
     let (sleeper_tx, sleeper_rx) = channel::<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>();
     thread::spawn(move || init_sleeper(sleeper_rx) );
-    let mut iter = cmd_rx.wait();
-    manual_iterate(iter, al, &client, sleeper_tx, command_queue.clone());
+    let iter = cmd_rx.wait();
+    manual_iterate(iter, al, &mut client, sleeper_tx, command_queue.clone());
 }
 
 impl CommandServer {
@@ -296,7 +306,7 @@ impl CommandServer {
         }
     }
 
-    /// queues up a command to send to the Tick Processor and returns a future
+    /// Queues up a command to send to the Tick Processor and returns a future
     /// that resolves to the Response returned from the Tick Processor
     pub fn execute(&mut self, command: Command) -> Oneshot<Result<Response, String>> {
         // no connections available
