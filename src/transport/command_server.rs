@@ -13,29 +13,35 @@
 //! TODO: Use different channel for responses than for commands
 
 use std::collections::VecDeque;
-use std::thread;
+use std::thread::{self, Thread};
 use std::time::Duration;
 use std::sync::{Arc, Mutex};
+use std::str::FromStr;
 
-use futures::stream::{Stream, channel, Sender, Receiver};
-use futures::{Future, oneshot, Complete};
+use futures::stream::{Stream, channel, Sender, Receiver, Wait};
+use futures::{Future, oneshot, Complete, Oneshot};
 use uuid::Uuid;
 use redis;
+use serde_json;
 
 use algobot_util::transport::redis::{get_client, sub_channel};
 
 use conf::CONF;
 
-type SenderQueue = Arc<Mutex<VecDeque<Sender<(Command, Complete<()>), ()>>>>;
-type CommandQueue = Arc<Mutex<VecDeque<Command>>>;
+type SenderQueue = Arc<Mutex<VecDeque<Sender<(Command, Complete<Result<Response, String>>), ()>>>>;
+type CommandQueue = Arc<Mutex<VecDeque<(Command, Complete<Result<Response, String>>)>>>;
+type RegisteredList = Vec<(Uuid, Complete<Result<Response, ()>>)>;
 
 /// Blocks the current thread until a Duration+Complete is received.
 /// Then it sleeps for that Duration and Completes the oneshot upon awakening.
-fn init_sleeper(rx: Receiver<(Duration, Complete<()>), ()>) {
+/// Returns a Complete upon starting that can be used to end the timeout early
+fn init_sleeper(rx: Receiver<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>,) {
     for res in rx.wait() {
-        let (dur, comp) = res.unwrap();
-        thread::sleep(dur);
-        comp.complete(());
+        let (dur, awake_c, asleep_c) = res.unwrap();
+        // send a Complete with a handle to the thread
+        asleep_c.complete(thread::current());
+        thread::park_timeout(dur);
+        awake_c.complete(Err(()));
     }
 }
 
@@ -43,76 +49,90 @@ fn init_sleeper(rx: Receiver<(Duration, Complete<()>), ()>) {
 /// will be sent if they match the ID of the request the command
 /// sender thread sent.
 struct AlertList {
-    // Receiver yeilding new messages over the responses channel
-    channel_rx: Receiver<String, ()>,
     // Vec to hold the ids of responses we're waiting for and `Complete`s
     // to send the result back to the worker thread
-    list: Vec<(Uuid, Complete<Result<WrappedResponse, ()>>)>
+    // Wrapped in Arc<Mutex<>> so that it can be accessed from within futures
+    pub list: RegisteredList
 }
 
 /// Represents a command sent to the Tick Processor
-enum Command {
-
+#[derive(Serialize, Deserialize)]
+pub enum Command {
+    Restart,
+    Shutdown,
+    AddSMA{period: f64},
+    RemoveSMA{period: f64},
 }
 
 /// Represents a command bound to a unique identifier that can be
 /// used to link it with a Response
+#[derive(Serialize, Deserialize)]
 struct WrappedCommand {
     uuid: Uuid,
     cmd: Command
 }
 
+fn parse_wrapped_command(cmd: String) -> WrappedCommand {
+    serde_json::from_str::<WrappedCommand>(cmd.as_str())
+        .expect("Unable to parse WrappedCommand from String")
+}
+
 /// Represents a response from the Tick Processor to a Command sent
 /// to it at some earlier point.
-enum Response {
+#[derive(Serialize, Deserialize)]
+pub enum Response {
     Ok,
     Error{status: String}
 }
 
+/// A Response bound to a UUID
+#[derive(Serialize, Deserialize)]
 struct WrappedResponse {
     pub uuid: Uuid,
-    pub cmd: Response
+    pub res: Response
 }
 
+/// Parses a String into a WrappedResponse
+fn parse_wrapped_response(raw_res: String) -> WrappedResponse {
+    serde_json::from_str::<WrappedResponse>(raw_res.as_str())
+        .expect("Unable to parse WrappedResponse from String")
+}
+
+/// Send out the Response to any workers that registered interest ot its Uuid
+fn send_messages(res: WrappedResponse, al: &Mutex<AlertList>) {
+    let mut al_inner = al.lock().unwrap();
+    let pos_opt = al_inner.list.iter_mut().position(|ref x| x.0 == res.uuid );
+    match pos_opt {
+        Some(pos) => {
+            let (stored_uuid, complete) = al_inner.list.remove(pos);
+            complete.complete(Ok(res.res));
+        },
+        None => ()
+    }
+}
+
+/// Utility struct for keeping track of the UUIDs of Responses that workers are
+/// interested in and holding Completes to let them know when they are received
 impl AlertList {
     pub fn new() -> AlertList {
-        let al = AlertList {
-            channel_rx: sub_channel(CONF.redis_host, CONF.redis_response_channel),
+        AlertList {
             list: Vec::new()
-        };
-        al.listen()
+        }
     }
 
     /// Register interest in Results with a specified Uuid and send
     /// the Result over the specified Oneshot when it's received
-    pub fn register(&mut self, response_uuid: Uuid, c: Complete<Result<WrappedResponse, ()>>) {
-        self.list.push((response_uuid, c));
+    pub fn register(&mut self, response_uuid: &Uuid, c: Complete<Result<Response, ()>>) {
+        self.list.push((response_uuid.clone(), c));
     }
 
     /// Deregisters a listener if a timeout in the case of a timeout occuring
-    pub fn deregister(&mut self, response_uuid: Uuid) {
-
-    }
-
-    /// Start listening on the channel and doling out Responses where requested
-    fn listen(mut self) -> AlertList {
-        self.channel_rx.and_then(move |raw_res| {
-            // TODO: Parse the Response into a Response object
-            self.send_messages(parsed_res);
-            Ok(())
-        }).forget();
-        self
-    }
-
-    /// Send out the Response to any workers that registered interest ot its Uuid
-    fn send_messages(&mut self, list:  res: WrappedResponse) {
-        for (i, &(Uuid, c)) in self.list.iter().enumerate() {
-            if res.uuid == Uuid {
-                self.list.remove(i);
-                c.complete(Ok(res));
-                break;
-            }
-        }
+    pub fn deregister(&mut self, uuid: &Uuid) {
+        let pos_opt = self.list.iter().position(|x| &x.0 == uuid );
+        let _ = match pos_opt {
+            Some(pos) => { self.list.remove(pos); () },
+            None => println!("Error removing element from interest list; it's not in it")
+        };
     }
 }
 
@@ -120,18 +140,18 @@ pub struct CommandServer {
     conn_count: usize, // how many connections to open
     command_queue: CommandQueue, // internal command queue
     conn_queue: SenderQueue, // senders for idle command-sender threads
-    alert_list: Arc<Mutex<AlertList>> // vec of handles to workers waiting for particular Responses
+    // alert_list: AlertList // vec of handles to workers waiting for particular Responses
 }
 
 /// Locks the CommandQueue and returns a queued command, if there are any.
-fn try_get_new_command(command_queue: CommandQueue) -> Option<Command> {
+fn try_get_new_command(command_queue: CommandQueue) -> Option<(Command, Complete<Result<Response, String>>)> {
     let mut qq_inner = command_queue.lock().unwrap();
     qq_inner.pop_front()
 }
 
 /// Asynchronously sends off a command to the Tick Processor without
 /// waiting to see if it was received or sent properly
-fn execute_command(cmd: WrappedCommand, client: &redis::Client) {
+fn send_command(cmd: &WrappedCommand, client: &redis::Client) {
     // TODO: Send command over redis
 }
 
@@ -144,55 +164,104 @@ fn wrap_command(cmd: Command) -> WrappedCommand {
     }
 }
 
+fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand, client: &redis::Client,
+        sleeper_tx: Sender<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>,
+        done_c: Complete<Result<Response, String>>, command_queue: CommandQueue)
+        -> Result<Sender<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>, ()> {
+    send_command(wrapped_cmd, client);
+    let (sleepy_c, sleepy_o) = oneshot::<Thread>();
+    let (awake_c, awake_o) = oneshot::<Result<Response, ()>>();
+    // start the timeout timer on a separate thread
+    let dur = Duration::from_millis(CONF.command_timeout_ms);
+    let timeout_msg = (dur, awake_c, sleepy_c);
+    // sleepy_o fulfills immediately to a handle to the sleeper thread
+    let sleepy_handle = sleepy_o.wait();
+    let active_tx = sleeper_tx.send(Ok(timeout_msg));
+    // TODO: Recycle tx
+    // oneshot for sending the Response back
+    let (res_recvd_c, res_recvd_o) = oneshot::<Result<Response, ()>>();
+    // register interest in new Responses coming in with our Command's Uuid
+    al.lock().unwrap().register(&wrapped_cmd.uuid, res_recvd_c);
+    let mut al_clone = al.clone();
+    let mut attempts = 0;
+    res_recvd_o.select(awake_o).and_then(move |res| {
+        let (status, next_future) = res;
+        // Result received before the timeout
+        match status {
+            // command received
+            Ok(wrapped_res) => {
+                // end the timeout now so that we can re-use sleeper thread
+                sleepy_handle.unwrap().unpark();
+                done_c.complete(Ok(wrapped_res));
+                let new_tx_wrapped = active_tx.wait();
+                // keep trying to get queued commands to execute until the queue is empty
+                match new_tx_wrapped {
+                    Ok(new_tx) => {
+                        let wrapped = try_get_new_command(command_queue.clone());
+                        match wrapped {
+                            Some((new_command, new_done_c)) => {
+                                return Ok(Ok(send_command_outer(al, &wrap_command(new_command),
+                                    client, new_tx, new_done_c, command_queue.clone())))
+                            },
+                            None => return Ok(Ok(Ok(new_tx)))// TODO: FULFILL idle_c
+                        }
+                    },
+                    Err(_) => {
+                        println!("Error getting new tx from old tx");
+                        Ok(Err(()))
+                    }
+                }
+            },
+            // timed out
+            Err(_) => {
+                al_clone.lock().unwrap().deregister(&wrapped_cmd.uuid);
+                attempts += 1;
+                if attempts >= CONF.max_command_retry_attempts {
+                    // Let the main thread know it's safe to use the sender again
+                    // This essentially indicates that the worker thread is idle
+                    let err_msg = String::from_str("Timed out too many times!").unwrap();
+                    done_c.complete(Err(err_msg));
+                    match active_tx.wait() {
+                        Ok(new_tx) => return Ok(Ok(Ok(new_tx))),
+                        Err(_) => {
+                            println!("Error getting new sleeper tx");
+                            return Ok(Err(()))
+                        }
+                    }
+                } else {
+                    // TODO: re-send command if timeout triggered
+                    // the following line is temp
+                    return Ok(Err(()))
+                }
+            }
+        }
+    }).wait(); // block until a response is received or the command times out
+    // Somehow nowhere else returned
+    Err(())
+}
+
+/// manually loop over the converted Stream of commands
+fn manual_iterate(mut iter: Wait<Receiver<(Command, Complete<Result<Response, String>>), ()>>, al: &Mutex<AlertList>,
+        client: &redis::Client,
+        sleeper_tx: Sender<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>,
+        command_queue: CommandQueue) {
+    let (cmd, done_c) = iter.next().unwrap().unwrap();
+    // create a Uuid and bind it to the command
+    let wrapped_cmd = WrappedCommand{uuid: Uuid::new_v4(), cmd: cmd};
+    let new_sleeper_tx = send_command_outer(al, &wrapped_cmd, &client, sleeper_tx, done_c, command_queue.clone()).unwrap();
+    manual_iterate(iter, al, &client, new_sleeper_tx, command_queue);
+}
+
 /// Creates a command processor that awaits requests
-fn init_command_processor(cmd_rx: Receiver<(Command, Complete<()>), ()>,
+fn init_command_processor(cmd_rx: Receiver<(Command, Complete<Result<Response, String>>), ()>,
         command_queue: CommandQueue, al: &Mutex<AlertList>) {
     // get a connection to the postgres database
     let client = get_client(CONF.redis_host);
     // channel for communicating with the sleeper thread
-    let (tx, rx) = channel::<(Duration, Complete<()>), ()>();
-    thread::spawn(move || init_sleeper(rx) );
-    for tup in cmd_rx.wait() {
-        let (cmd, done_tx) = tup.unwrap();
-        // create a Uuid and bind it to the command
-        let wrapped_cmd = WrappedCommand{uuid: Uuid::new_v4(), cmd: cmd};
-        execute_command(wrapped_cmd, &client);
-        // `timeout` fulfills when the timeout is up
-        let (c, timeout) = oneshot::<()>();
-        // start the timeout timer on a separate thread
-        let timeout_promise = tx.send(Ok((CONF.command_timeout_duration, c)));
-        // TODO: Recycle tx
-        // oneshot for sending the Response back
-        let (complete, oneshot) = oneshot::<Result<WrappedResponse, ()>>();
-        let mut al_inner = al.lock().unwrap();
-        // register interest in new Responses coming in with our Command's Uuid
-        al_inner.register(wrapped_cmd.uuid, complete);
-        let mut attempts = 0;
-        timeout.select(oneshot).and_then(move |status| {
-            // Result received before the timeout
-            match status.unwrap() {
-                // command received
-                Ok(raw_res) => {
-                    // TODO: Parse into WrappedResponse + Result and return
-                    al_inner
-                },
-                // timed out
-                Err(_) => {
-                    // TODO
-                }
-            }
-            // TODO: re-send command if timeout triggered
-            // TODO: move on if it was successfully received
-            // TODO: Clean out interest list if timed out
-        }).wait(); // block until a response is received or the command times out
-        // keep trying to get queued commands to execute until the queue is empty
-        while let Some(new_command) = try_get_new_command(command_queue.clone()) {
-            execute_command(wrap_command(new_command), &client);
-        }
-        // Let the main thread know it's safe to use the sender again
-        // This essentially indicates that the worker thread is idle
-        done_tx.complete(());
-    }
+    let (sleeper_tx, sleeper_rx) = channel::<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>();
+    thread::spawn(move || init_sleeper(sleeper_rx) );
+    let mut iter = cmd_rx.wait();
+    manual_iterate(iter, al, &client, sleeper_tx, command_queue.clone());
 }
 
 impl CommandServer {
@@ -200,13 +269,21 @@ impl CommandServer {
         let mut conn_queue = VecDeque::with_capacity(conn_count);
         let command_queue = Arc::new(Mutex::new(VecDeque::new()));
         let al = Arc::new(Mutex::new(AlertList::new()));
+        let al_clone = al.clone();
+        // Handle newly received Responses
+        let rx = sub_channel(CONF.redis_host, CONF.redis_response_channel);
+        rx.for_each(move |raw_res| {
+            let parsed_res = parse_wrapped_response(raw_res);
+            send_messages(parsed_res, &*al_clone);
+            Ok(())
+        }).forget();
         for _ in 0..conn_count {
-            let al = al.clone();
+            let al_clone = al.clone();
             // channel for getting the Sender back from the worker thread
-            let (tx, rx) = channel::<(Command, Complete<()>), ()>();
+            let (tx, rx) = channel::<(Command, Complete<Result<Response, String>>), ()>();
 
             let qq_copy = command_queue.clone();
-            thread::spawn(move || init_command_processor(rx, qq_copy, &*al) );
+            thread::spawn(move || init_command_processor(rx, qq_copy, &*al_clone) );
             // store the sender which can be used to send queries
             // to the worker in the connection queue
             conn_queue.push_back(tx);
@@ -215,29 +292,34 @@ impl CommandServer {
         CommandServer {
             conn_count: conn_count,
             command_queue: command_queue,
-            conn_queue: Arc::new(Mutex::new(conn_queue)),
-            alert_list: al
+            conn_queue: Arc::new(Mutex::new(conn_queue))
         }
     }
 
-    /// queues up a command to send to the Tick Processor
-    pub fn execute(&mut self, command: Command) {
+    /// queues up a command to send to the Tick Processor and returns a future
+    /// that resolves to the Response returned from the Tick Processor
+    pub fn execute(&mut self, command: Command) -> Oneshot<Result<Response, String>> {
         // no connections available
         let temp_lock_res = self.conn_queue.lock().unwrap().is_empty();
         // Force the guard locking conn_queue to go out of scope
         // this prevents the lock from being held through the entire if/else
         let copy_res = temp_lock_res.clone();
+        // future for handing back to the caller that resolves to Response/Error
+        let (res_c, res_o) = oneshot::<Result<Response, String>>();
         if copy_res {
             // push command to the command queue
-            self.command_queue.lock().unwrap().push_back(command);
+            self.command_queue.lock().unwrap().push_back((command, res_c));
+            // TODO: Include res_o thing
         }else{
             let tx = self.conn_queue.lock().unwrap().pop_front().unwrap();
             let cq_clone = self.conn_queue.clone();
             // future for notifying main thread when command is done and worker is idle
-            let (complete, oneshot) = oneshot::<()>();
-            tx.send(Ok((command, complete))).and_then(|new_tx| {
+            let (idle_c, idle_o) = oneshot::<Result<Response, String>>();
+            // TODO: SEPARATE idle_c AND res_c
+            tx.send(Ok((command, idle_c))).and_then(move |new_tx| {
                 // Wait until the worker thread signals that it is idle
-                oneshot.and_then(move |_| {
+                idle_o.and_then(move |res| {
+                    res_c.complete(res);
                     // Put the Sender for the newly idle worker into the connection queue
                     cq_clone.lock().unwrap().push_back(new_tx);
                     Ok(())
@@ -245,5 +327,6 @@ impl CommandServer {
                 Ok(())
             }).forget();
         }
+        res_o
     }
 }
