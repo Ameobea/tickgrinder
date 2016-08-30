@@ -28,13 +28,25 @@ use algobot_util::transport::redis::{get_client, sub_channel};
 
 use conf::CONF;
 
-type SenderQueue = Arc<Mutex<VecDeque<Sender<(Command, Complete<Result<Response, String>>), ()>>>>;
-type CommandQueue = Arc<Mutex<VecDeque<(Command, Complete<Result<Response, String>>)>>>;
+/// A command waiting to be sent plus a Complete to send the Response/Errorstring through
+type CommandRequest = (Command, Complete<Result<Response, String>>);
+/// Threadsafe queue containing handles to idle command-sender threads in the form of Senders
+type SenderQueue = Arc<Mutex<VecDeque<Sender<CommandRequest, ()>>>>;
+/// Threadsafe queue containing commands waiting to be sent
+type CommandQueue = Arc<Mutex<VecDeque<CommandRequest>>>;
+/// A Vec containing a UUID of a Response that's expected and a Complete to send the
+/// response through once it arrives
 type RegisteredList = Vec<(Uuid, Complete<Result<Response, ()>>)>;
+/// A message to be sent to the Timeout thread containing how long to time out for,
+/// a oneshot that resolves to Err(()) if the timeout completes and a oneshot that
+/// resolves to a handle to the Timeout's thread as soon as the timeout begins.
+///
+/// The thread handle can be used to end the timeout early to make the timeout thread
+/// useable again.
+type TimeoutRequest = (Duration, Complete<Result<Response, ()>>, Complete<Thread>);
 
-/// A list of Senders over which Results from the Tick Processor
-/// will be sent if they match the ID of the request the command
-/// sender thread sent.
+/// A list of Senders over which Results from the Tick Processor will be sent if they
+/// match the ID of the request the command sender thread sent.
 struct AlertList {
     // Vec to hold the ids of responses we're waiting for and `Complete`s
     // to send the result back to the worker thread
@@ -45,6 +57,7 @@ struct AlertList {
 /// Represents a command sent to the Tick Processor
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum Command {
+    Ping,
     Restart,
     Shutdown,
     AddSMA{period: f64},
@@ -133,7 +146,7 @@ pub struct CommandServer {
 }
 
 /// Locks the CommandQueue and returns a queued command, if there are any.
-fn try_get_new_command(command_queue: CommandQueue) -> Option<(Command, Complete<Result<Response, String>>)> {
+fn try_get_new_command(command_queue: CommandQueue) -> Option<CommandRequest> {
     let mut qq_inner = command_queue.lock().expect("Unable to unlock qq_inner in try_get_new_command");
     qq_inner.pop_front()
 }
@@ -158,10 +171,10 @@ fn wrap_command(cmd: Command) -> WrappedCommand {
     }
 }
 
-fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand, client: &mut redis::Client,
-        sleeper_tx: Sender<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>,
+fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand,
+        client: &mut redis::Client, sleeper_tx: Sender<TimeoutRequest, ()>,
         done_c: Complete<Result<Response, String>>, command_queue: CommandQueue)
-        -> Result<Sender<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>, ()> {
+        -> Result<Sender<TimeoutRequest, ()>, ()> {
     send_command(wrapped_cmd, client);
     let (sleepy_c, sleepy_o) = oneshot::<Thread>();
     let (awake_c, awake_o) = oneshot::<Result<Response, ()>>();
@@ -236,9 +249,8 @@ fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand, clien
 }
 
 /// Manually loop over the converted Stream of commands
-fn manual_iterate(mut iter: Wait<Receiver<(Command, Complete<Result<Response, String>>), ()>>, al: &Mutex<AlertList>,
-        mut client: &mut redis::Client,
-        sleeper_tx: Sender<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>,
+fn manual_iterate(mut iter: Wait<Receiver<CommandRequest, ()>>, al: &Mutex<AlertList>,
+        mut client: &mut redis::Client, sleeper_tx: Sender<TimeoutRequest, ()>,
         command_queue: CommandQueue) {
     let (cmd, done_c) = iter.next().expect("Coudln't unwrap #1").expect("Couldn't unwrap #2");
     println!("{:?}", cmd);
@@ -252,7 +264,7 @@ fn manual_iterate(mut iter: Wait<Receiver<(Command, Complete<Result<Response, St
 /// Blocks the current thread until a Duration+Complete is received.
 /// Then it sleeps for that Duration and Completes the oneshot upon awakening.
 /// Returns a Complete upon starting that can be used to end the timeout early
-fn init_sleeper(rx: Receiver<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>,) {
+fn init_sleeper(rx: Receiver<TimeoutRequest, ()>,) {
     for res in rx.wait() {
         let (dur, awake_c, asleep_c) = res.unwrap();
         // send a Complete with a handle to the thread
@@ -263,12 +275,12 @@ fn init_sleeper(rx: Receiver<(Duration, Complete<Result<Response, ()>>, Complete
 }
 
 /// Creates a command processor that awaits requests
-fn init_command_processor(cmd_rx: Receiver<(Command, Complete<Result<Response, String>>), ()>,
+fn init_command_processor(cmd_rx: Receiver<CommandRequest, ()>,
         command_queue: CommandQueue, al: &Mutex<AlertList>) {
     // get a connection to the postgres database
     let mut client = get_client(CONF.redis_host);
     // channel for communicating with the sleeper thread
-    let (sleeper_tx, sleeper_rx) = channel::<(Duration, Complete<Result<Response, ()>>, Complete<Thread>), ()>();
+    let (sleeper_tx, sleeper_rx) = channel::<TimeoutRequest, ()>();
     thread::spawn(move || init_sleeper(sleeper_rx) );
     let iter = cmd_rx.wait();
     manual_iterate(iter, al, &mut client, sleeper_tx, command_queue.clone());
@@ -290,7 +302,7 @@ impl CommandServer {
         for _ in 0..conn_count {
             let al_clone = al.clone();
             // channel for getting the Sender back from the worker thread
-            let (tx, rx) = channel::<(Command, Complete<Result<Response, String>>), ()>();
+            let (tx, rx) = channel::<CommandRequest, ()>();
 
             let qq_copy = command_queue.clone();
             thread::spawn(move || init_command_processor(rx, qq_copy, &*al_clone) );

@@ -20,10 +20,20 @@ mod conf;
 use std::thread;
 use std::time::Duration;
 
-use transport::command_server::CommandServer;
+use futures::Future;
+
+use transport::command_server::*;
 use conf::CONF;
 
 fn main() {
-    let command_server = CommandServer::new(CONF.conn_senders);
-    thread::sleep(Duration::new(50000, 0));
+    let mut command_server = CommandServer::new(CONF.conn_senders);
+    loop {
+        let mut command_server = &mut command_server;
+        thread::sleep(Duration::new(1, 0));
+        let prom = command_server.execute(Command::Ping);
+        prom.and_then(|res| {
+            println!("{:?}", res);
+            Ok(())
+        });
+    }
 }
