@@ -4,44 +4,71 @@
 // possible, so non-essential operations should be deferred asynchronously.
 
 use serde_json;
+use redis;
+use uuid::Uuid;
 
 use tick::Tick;
 use datafield::DataField;
 use calc::sma::SMAList;
 use transport::postgres::{get_client, init_tick_table};
 use transport::query_server::QueryServer;
+use transport::redis::get_client as get_redis_client;
 use conf::CONF;
 
 pub struct Processor {
     pub ticks: DataField<Tick>,
     pub smas: SMAList,
-    qs: QueryServer
+    qs: QueryServer,
+    redis_client: redis::Client
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
+struct WrappedCommand {
+    uuid: Uuid,
+    cmd: Command,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 enum Command {
+    Ping,
     Restart,
     Shutdown,
     AddSMA{period: f64},
     RemoveSMA{period: f64},
 }
 
-fn parse_command(cmd: String) -> Result<Command, serde_json::Error> {
-    serde_json::from_str::<Command>(cmd.as_str())
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct WrappedResponse {
+    pub uuid: Uuid,
+    pub res: Response
+}
+
+/// Represents a response from the Tick Processor to a Command sent
+/// to it at some earlier point.
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub enum Response {
+    Ok,
+    Error{status: String},
+    Pong
+}
+
+fn parse_wrapped_command(raw: String) -> Result<WrappedCommand, serde_json::Error> {
+    serde_json::from_str::<WrappedCommand>(raw.as_str())
 }
 
 impl Processor {
     pub fn new(symbol: &str) -> Processor {
         // Create database connection and initialize some tables
-        let client = get_client().expect("Could not connect to Postgres");
+        let pg_client = get_client().expect("Could not connect to Postgres");
 
         println!("Successfully connected to Postgres");
-        init_tick_table(symbol, &client);
+        init_tick_table(symbol, &pg_client);
 
         Processor {
             ticks: DataField::new(),
             smas: SMAList::new(),
-            qs: QueryServer::new(CONF.database_conns)
+            qs: QueryServer::new(CONF.database_conns),
+            redis_client: get_redis_client()
         }
     }
 
@@ -56,13 +83,15 @@ impl Processor {
     }
 
     pub fn execute_command(&mut self, raw_cmd: String) {
-        let cmd: Command = parse_command(raw_cmd)
+        let wrapped_cmd: WrappedCommand = parse_wrapped_command(raw_cmd)
             .expect("Unable to parse command");
-        match cmd {
+        match wrapped_cmd.cmd {
             Command::Restart => unimplemented!(),
             Command::Shutdown => unimplemented!(),
             Command::AddSMA{period: pd} => self.smas.add(pd),
-            Command::RemoveSMA{period: pd} => self.smas.remove(pd)
+            Command::RemoveSMA{period: pd} => self.smas.remove(pd),
+            Command::Ping => redis::cmd("PUBLISH")
+                .arg("responses").arg(serde_json::to_string(&WrappedResponse{uuid: wrapped_cmd.uuid, res: Response::Pong}).unwrap().as_str()).execute(&self.redis_client)
         }
     }
 }

@@ -11,6 +11,7 @@ extern crate futures;
 extern crate serde_json;
 extern crate postgres;
 extern crate test;
+extern crate uuid;
 
 mod datafield;
 mod calc;
@@ -23,6 +24,7 @@ mod tests;
 use std::thread;
 use std::time::Duration;
 
+use futures::Future;
 use futures::stream::{Stream, MergedItem};
 
 use tick::Tick;
@@ -48,7 +50,7 @@ fn handle_messages() {
             MergedItem::Both(_, _) => ()
         };
         Ok(())
-    });
+    }).forget();
 }
 
 fn main() {

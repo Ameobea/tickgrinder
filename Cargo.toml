@@ -1,6 +1,6 @@
 [package]
-name = "rustbot3"
-version = "0.1.0"
+name = "algobot"
+version = "4.0.2"
 authors = ["me@ameo.link"]
 
 [dependencies]
@@ -10,3 +10,6 @@ serde = "0.8.1"
 serde_json = { git = "https://github.com/serde-rs/json.git", rev = "e9f8560" }
 serde_macros = "0.8.1"
 postgres = "0.11"
+uuid = { version = "0.3.1", features = ["serde", "v4"] }
+
+algobot-util = { path = "../util", version = "*" }
