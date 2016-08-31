@@ -27,13 +27,14 @@ use conf::CONF;
 
 fn main() {
     let mut command_server = CommandServer::new(CONF.conn_senders);
+    let prom = command_server.execute(Command::Ping);
+    println!("{:?}", prom.wait());
+    // prom.and_then(|res| {
+    //     println!("Result of command: {:?}", res);
+    //     Ok(())
+    // });
     loop {
         let mut command_server = &mut command_server;
         thread::sleep(Duration::new(1, 0));
-        let prom = command_server.execute(Command::Ping);
-        prom.and_then(|res| {
-            println!("{:?}", res);
-            Ok(())
-        });
     }
 }

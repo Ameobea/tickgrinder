@@ -4,5 +4,3 @@
 //! redis, creating/managing conditions, and managing tick processor instances.
 //!
 //! Commands are sent one at a time to the bot
-
-use transport::command_server;
