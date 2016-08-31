@@ -1,6 +1,6 @@
 use serde_json;
 
-use transport::command_server::*;
+use algobot_util::transport::commands::*;
 
 #[test]
 fn command_serialization() {
