@@ -5,7 +5,7 @@
 
 use serde_json;
 use redis;
-use uuid::Uuid;
+use algobot_util::transport::commands::*;
 
 use tick::Tick;
 use datafield::DataField;
@@ -20,40 +20,6 @@ pub struct Processor {
     pub smas: SMAList,
     qs: QueryServer,
     redis_client: redis::Client
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct WrappedCommand {
-    uuid: Uuid,
-    cmd: Command,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-enum Command {
-    Ping,
-    Restart,
-    Shutdown,
-    AddSMA{period: f64},
-    RemoveSMA{period: f64},
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct WrappedResponse {
-    pub uuid: Uuid,
-    pub res: Response
-}
-
-/// Represents a response from the Tick Processor to a Command sent
-/// to it at some earlier point.
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub enum Response {
-    Ok,
-    Error{status: String},
-    Pong
-}
-
-fn parse_wrapped_command(raw: String) -> Result<WrappedCommand, serde_json::Error> {
-    serde_json::from_str::<WrappedCommand>(raw.as_str())
 }
 
 impl Processor {
@@ -83,8 +49,7 @@ impl Processor {
     }
 
     pub fn execute_command(&mut self, raw_cmd: String) {
-        let wrapped_cmd: WrappedCommand = parse_wrapped_command(raw_cmd)
-            .expect("Unable to parse command");
+        let wrapped_cmd: WrappedCommand = parse_wrapped_command(raw_cmd);
         match wrapped_cmd.cmd {
             Command::Restart => unimplemented!(),
             Command::Shutdown => unimplemented!(),

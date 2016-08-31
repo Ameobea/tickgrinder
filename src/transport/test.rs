@@ -57,7 +57,8 @@ fn sma_commands() {
     let mut processor = Processor::new("temp2");
     let rx = transport::redis::sub_channel(CONF.redis_control_channel);
     let mut client = transport::redis::get_client();
-    let command_string = "{\"AddSMA\": {\"period\": 32.34}}";
+    let command_string = "{\"uuid\":\"2f663301-5b73-4fa0-b231-09ab196ec5fd\",\
+        \"cmd\":{\"AddSMA\":{\"period\":5.2342}}}";
     assert_eq!(processor.smas.smas.len(), 0);
 
     redis::cmd("PUBLISH")
@@ -70,7 +71,8 @@ fn sma_commands() {
     assert_eq!(processor.smas.smas.len(), 1);
 
     let rx2 = transport::redis::sub_channel(CONF.redis_control_channel);
-    let command_string = "{\"RemoveSMA\": {\"period\": 32.34}}";
+    let command_string = "{\"uuid\":\"2f663301-5b73-4fa0-b201-09ab196ec5fd\",\
+        \"cmd\":{\"RemoveSMA\":{\"period\":5.2342}}}";
     redis::cmd("PUBLISH")
         .arg(CONF.redis_control_channel)
         .arg(command_string)

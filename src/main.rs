@@ -12,6 +12,7 @@ extern crate serde_json;
 extern crate postgres;
 extern crate test;
 extern crate uuid;
+extern crate algobot_util;
 
 mod datafield;
 mod calc;
