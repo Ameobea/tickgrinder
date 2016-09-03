@@ -10,6 +10,7 @@ pub struct Conf {
     pub redis_url: &'static str,
     pub redis_ticks_channel: &'static str,
     pub redis_control_channel: &'static str,
+    pub redis_responses_channel: &'static str,
     // Postgres config
     pub postgres_url: &'static str,
     pub postgres_port: i32,
@@ -27,6 +28,7 @@ pub const CONF: Conf = Conf {
     redis_url: "redis://127.0.0.1/",
     redis_ticks_channel: "ticks",
     redis_control_channel: "control",
+    redis_responses_channel: "responses",
     // Postgres config
     postgres_url: "localhost",
     postgres_port: 5432,

@@ -29,18 +29,18 @@ use futures::Future;
 use futures::stream::{Stream, MergedItem};
 
 use tick::Tick;
-use transport::redis::sub_channel;
 use transport::postgres::{get_client, reset_db};
 use processor::Processor;
 use conf::CONF;
+use algobot_util::transport::redis::sub_channel;
 
 fn handle_messages() {
     // subscribe to live ticks channel
-    let ticks_rx = sub_channel(CONF.redis_ticks_channel);
+    let ticks_rx = sub_channel(CONF.redis_url, CONF.redis_ticks_channel);
 
     let mut processor = Processor::new(CONF.symbol);
     // listen for new commands
-    let cmds_rx = sub_channel(CONF.redis_control_channel);
+    let cmds_rx = sub_channel(CONF.redis_url, CONF.redis_control_channel);
 
     ticks_rx.merge(cmds_rx).for_each(move |mi| {
         match mi {

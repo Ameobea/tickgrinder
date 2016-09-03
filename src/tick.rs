@@ -30,7 +30,8 @@ impl Tick {
 
     // generates a JSON string containing the data of the tick
     pub fn to_json_string(&self, symbol :String) -> String {
-        serde_json::to_string(&SymbolTick::from_tick(*self, symbol)).unwrap()
+        serde_json::to_string(&SymbolTick::from_tick(*self, symbol))
+            .expect("Couldn't convert tick to json string")
     }
 
     // returns the difference between the bid and the ask

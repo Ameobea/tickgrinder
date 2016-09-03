@@ -12,7 +12,7 @@ use datafield::DataField;
 use calc::sma::SMAList;
 use transport::postgres::{get_client, init_tick_table};
 use transport::query_server::QueryServer;
-use transport::redis::get_client as get_redis_client;
+use algobot_util::transport::redis::get_client as get_redis_client;
 use conf::CONF;
 
 pub struct Processor {
@@ -20,6 +20,15 @@ pub struct Processor {
     pub smas: SMAList,
     qs: QueryServer,
     redis_client: redis::Client
+}
+
+pub fn send_response(res: &WrappedResponse, client: &redis::Client) {
+    let ser = serde_json::to_string(res).expect("Couldn't serialize WrappedResponse into String");
+    let res_str = ser.as_str();
+    let _ = redis::cmd("PUBLISH")
+        .arg(CONF.redis_responses_channel)
+        .arg(res_str)
+        .execute(client);
 }
 
 impl Processor {
@@ -34,7 +43,7 @@ impl Processor {
             ticks: DataField::new(),
             smas: SMAList::new(),
             qs: QueryServer::new(CONF.database_conns),
-            redis_client: get_redis_client()
+            redis_client: get_redis_client(CONF.redis_url)
         }
     }
 
@@ -53,10 +62,16 @@ impl Processor {
         match wrapped_cmd.cmd {
             Command::Restart => unimplemented!(),
             Command::Shutdown => unimplemented!(),
-            Command::AddSMA{period: pd} => self.smas.add(pd),
+            Command::AddSMA{period: pd} => {
+                self.smas.add(pd);
+                let wr = WrappedResponse{uuid: wrapped_cmd.uuid, res: Response::Ok};
+                send_response(&wr, &self.redis_client);
+            },
             Command::RemoveSMA{period: pd} => self.smas.remove(pd),
-            Command::Ping => redis::cmd("PUBLISH")
-                .arg("responses").arg(serde_json::to_string(&WrappedResponse{uuid: wrapped_cmd.uuid, res: Response::Pong}).unwrap().as_str()).execute(&self.redis_client)
+            Command::Ping => {
+                let wr = WrappedResponse{uuid: wrapped_cmd.uuid, res: Response::Pong};
+                send_response(&wr, &self.redis_client);
+            }
         }
     }
 }
