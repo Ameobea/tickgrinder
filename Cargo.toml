@@ -4,12 +4,12 @@ version = "0.1.0"
 authors = ["Casey Primozic <me@ameo.link>"]
 
 [dependencies]
-redis = "0.5.3"
+redis = { git = "https://github.com/mitsuhiko/redis-rs" }
 futures = { git = "https://github.com/alexcrichton/futures-rs" }
-serde = "0.8.1"
-serde_json = { git = "https://github.com/serde-rs/json.git", rev = "e9f8560" }
-serde_macros = "0.8.1"
-postgres = "0.11"
-uuid = { version = "0.3.1", features = ["serde", "v4",] }
+serde = "0.8.4"
+serde_json = "0.8.1"
+serde_macros = "0.8.4"
+postgres = { git = "https://github.com/sfackler/rust-postgres" }
+uuid = { version = "0.3.1", features = ["serde", "v4"] }
 
 algobot-util = { path = "../util", version = "*" }

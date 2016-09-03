@@ -30,14 +30,17 @@ use algobot_util::transport::commands::*;
 use conf::CONF;
 
 fn main() {
-    let mut command_server = CommandServer::new(CONF.conn_senders);
-    let prom = command_server.execute(Command::AddSMA{period: 5.2342f64});
-    println!("{:?}", prom.wait());
-    // prom.and_then(|res| {
-    //     println!("Result of command: {:?}", res);
-    //     Ok(())
-    // });
+    let mut command_server = CommandServer::new(15);
+    let mut i = 1;
     loop {
-        thread::sleep(Duration::new(1, 0));
+        let mut command_server = &mut command_server;
+        thread::sleep(Duration::new(0, 4000000));
+        println!("{:?}", i);
+        let prom = command_server.execute(Command::Ping);
+        prom.and_then(|res| {
+            println!("{:?}", res);
+            Ok(())
+        });
+        i+=1;
     }
 }

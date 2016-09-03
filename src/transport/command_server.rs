@@ -60,7 +60,6 @@ struct AlertList {
 
 /// Send out the Response to any workers that registered interest ot its Uuid
 fn send_messages(res: WrappedResponse, al: &Mutex<AlertList>) {
-    println!("Locking al in send_messages");
     let mut al_inner = al.lock().expect("Unable to unlock al n send_messages");
     let pos_opt = al_inner.list.iter_mut().position(|ref x| x.0 == res.uuid );
     match pos_opt {
@@ -148,7 +147,6 @@ fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand,
         // oneshot for sending the Response back
         let (res_recvd_c, res_recvd_o) = oneshot::<Result<Response, ()>>();
         // register interest in new Responses coming in with our Command's Uuid
-        println!("Locking al in send_command_outer");
         al.lock().expect("Unlock to lock al in send_command_outer")
             .register(&wrapped_cmd.uuid, res_recvd_c);
         let al_clone = al.clone();
@@ -159,17 +157,8 @@ fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand,
                     // end the timeout now so that we can re-use sleeper thread
                     sleepy_handle.expect("Couldn't unwrap handle to sleeper thread").unpark();
                     // resolve the Response future
-                    println!("Fulfilling with Response");
                     res_c.complete(Ok(wrapped_res));
-                    // keep trying to get queued commands to execute until the queue is empty
-                    let wrapped = try_get_new_command(command_queue.clone());
-                    match wrapped {
-                        Some((new_command, new_res_c)) => {
-                            return send_command_outer(al, &wrap_command(new_command),
-                                client, new_sleeper_tx, new_res_c, command_queue.clone(), attempts)
-                        },
-                        None => return Ok(new_sleeper_tx)
-                    }
+                    return Ok(new_sleeper_tx)
                 },
                 Err(_) => { // timed out
                     al_clone.lock().expect("Couldn't lock al in Err(_)").deregister(&wrapped_cmd.uuid);
@@ -177,12 +166,11 @@ fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand,
                     if attempts >= CONF.max_command_retry_attempts {
                         // Let the main thread know it's safe to use the sender again
                         // This essentially indicates that the worker thread is idle
-                        println!("Timed out too many times");
                         let err_msg = String::from_str("Timed out too many times!").unwrap();
                         res_c.complete(Err(err_msg));
                         return Ok(new_sleeper_tx)
                     } else { // re-send the command
-                        println!("Resending command because of timeout...");
+                        // we can do this recursively since it's only a few retries
                         return send_command_outer(al, &wrapped_cmd, client, new_sleeper_tx,
                             res_c, command_queue.clone(), attempts)
                     }
@@ -193,18 +181,23 @@ fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand,
 }
 
 /// Manually loop over the converted Stream of commands
-fn manual_iterate(mut iter: Wait<Receiver<WorkerTask, ()>>, al: &Mutex<AlertList>,
+fn dispatch_worker(mut iter: &mut Wait<Receiver<WorkerTask, ()>>, al: &Mutex<AlertList>,
         mut client: &mut redis::Client, sleeper_tx: Sender<TimeoutRequest, ()>,
-        command_queue: CommandQueue) {
+        command_queue: CommandQueue) -> Sender<TimeoutRequest, ()>{
     let ((cmd, res_c), idle_c) = iter.next().expect("Coudln't unwrap #1").expect("Couldn't unwrap #2");
     // create a Uuid and bind it to the command
     let wrapped_cmd = WrappedCommand{uuid: Uuid::new_v4(), cmd: cmd};
     // completes initial command and internall iterates until queue is empty
-    let new_sleeper_tx = send_command_outer(al, &wrapped_cmd, &mut client, sleeper_tx,
+    let mut new_sleeper_tx = send_command_outer(al, &wrapped_cmd, &mut client, sleeper_tx,
             res_c, command_queue.clone(), 0)
         .expect("Couldn't unwrap new_sleeper_tx");
+    // keep trying to get queued commands to execute until the queue is empty;
+    while let Some((new_cmd, new_res_c)) = try_get_new_command(command_queue.clone()) {
+        new_sleeper_tx = send_command_outer(al, &wrap_command(new_cmd),
+            client, new_sleeper_tx, new_res_c, command_queue.clone(), 0).unwrap();
+    }
     idle_c.complete(());
-    manual_iterate(iter, al, client, new_sleeper_tx, command_queue);
+    new_sleeper_tx
 }
 
 /// Blocks the current thread until a Duration+Complete is received.
@@ -226,8 +219,11 @@ fn init_command_processor(cmd_rx: Receiver<WorkerTask, ()>, command_queue: Comma
     // channel for communicating with the sleeper thread
     let (sleeper_tx, sleeper_rx) = channel::<TimeoutRequest, ()>();
     thread::spawn(move || init_sleeper(sleeper_rx) );
-    let iter = cmd_rx.wait();
-    manual_iterate(iter, al, &mut client, sleeper_tx, command_queue.clone());
+    let mut iter = cmd_rx.wait();
+    let mut new_sleeper_tx = dispatch_worker(&mut iter, al, &mut client, sleeper_tx, command_queue.clone());
+    loop {
+        new_sleeper_tx = dispatch_worker(&mut iter, al, &mut client, new_sleeper_tx, command_queue.clone());
+    }
 }
 
 impl CommandServer {
@@ -286,7 +282,6 @@ impl CommandServer {
                 // Wait until the worker thread signals that it is idle
                 idle_o.and_then(move |_| {
                     // Put the Sender for the newly idle worker into the connection queue
-                    println!("Idle worker put back in queue");
                     cq_clone.lock().unwrap().push_back(new_tx);
                     Ok(())
                 }).forget();
