@@ -18,15 +18,12 @@ fn get_message(ps: &redis::PubSub) -> String {
 }
 
 /// Recursively call get_message and send the results over tx
-fn get_message_outer(tx: Sender<String, ()>, ps: &redis::PubSub) {
+fn get_message_outer(tx: Sender<String, ()>, ps: &redis::PubSub) -> Sender<String, ()> {
     // block until a new message is received
     let res = get_message(ps);
     // block again until the message is consumed
     // this prevents the tx from dropping since .send() is async
-    let _ = tx.send(Ok(res)).wait().map(|new_tx| {
-        // start listening again
-        get_message_outer(new_tx, ps);
-    });
+    tx.send(Ok(res)).wait().ok().unwrap()
 }
 
 pub fn get_pubsub(host: &str, channel: &'static str) -> redis::PubSub {
@@ -44,7 +41,10 @@ pub fn sub_channel(host: &str, ps_channel: &'static str) -> Receiver<String, ()>
     let (tx, rx) = channel::<String, ()>();
     let ps = get_pubsub(host, ps_channel);
     thread::spawn(move || {
-        get_message_outer(tx, &ps);
+        let mut new_tx = get_message_outer(tx, &ps);
+        loop {
+            new_tx = get_message_outer(new_tx, &ps);
+        }
     });
     rx
 }
