@@ -2,14 +2,14 @@ use serde_json;
 
 use transport::query_server::QueryServer;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct Tick {
     pub bid: f64,
     pub ask: f64,
     pub timestamp: i64
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SymbolTick {
     pub bid: f64,
     pub ask: f64,
