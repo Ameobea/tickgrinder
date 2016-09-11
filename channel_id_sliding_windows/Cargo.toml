@@ -5,5 +5,5 @@ authors = ["Casey Primozic <me@ameo.link>"]
 description = "Strategy focused on identifying channels by analyzing minimum/maximum prices over various time periods."
 
 [dependencies]
-futures = { git = "https://github.com/alexcrichton/futures-rs", rev = "fd6bc8b" }
+futures = { git = "https://github.com/alexcrichton/futures-rs", rev = "ed43dcc6" }
 algobot-util = { path = "../../util", version = "*" }

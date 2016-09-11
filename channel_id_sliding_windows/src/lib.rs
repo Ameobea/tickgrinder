@@ -20,7 +20,7 @@ impl Strategy for strat {
 
     }
 
-    fn exit_now(&mut self, ready: futures::Complete<()>) {
+    fn exit_now(&mut self, ready: Complete<()>) {
 
     }
 }
