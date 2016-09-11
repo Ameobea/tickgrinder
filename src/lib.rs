@@ -12,3 +12,4 @@ extern crate postgres;
 
 pub mod transport;
 pub mod tick;
+pub mod strategies;
