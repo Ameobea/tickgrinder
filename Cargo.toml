@@ -1,0 +1,9 @@
+[package]
+name = "channel_id_sliding_windows"
+version = "0.0.0"
+authors = ["Casey Primozic <me@ameo.link>"]
+description = "Strategy focused on identifying channels by analyzing minimum/maximum prices over various time periods."
+
+[dependencies]
+futures = { git = "https://github.com/alexcrichton/futures-rs", rev = "fd6bc8b" }
+algobot-util = { path = "../../util", version = "*" }
