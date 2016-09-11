@@ -97,10 +97,8 @@ impl AlertList {
 }
 
 pub struct CommandServer {
-    conn_count: usize, // how many connections to open
     command_queue: CommandQueue, // internal command queue
-    conn_queue: SenderQueue, // senders for idle command-sender threads
-    // alert_list: AlertList // vec of handles to workers waiting for particular Responses
+    conn_queue: SenderQueue, // senders for idle command-sender threadss
 }
 
 /// Locks the CommandQueue and returns a queued command, if there are any.
@@ -252,7 +250,6 @@ impl CommandServer {
         }
 
         CommandServer {
-            conn_count: conn_count,
             command_queue: command_queue,
             conn_queue: Arc::new(Mutex::new(conn_queue))
         }
