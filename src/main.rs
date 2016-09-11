@@ -17,7 +17,6 @@ extern crate algobot_util;
 
 mod transport;
 mod conf;
-mod strategies;
 #[allow(unused_imports, dead_code)]
 mod tests;
 
