@@ -16,7 +16,6 @@ extern crate algobot_util;
 
 mod datafield;
 mod calc;
-mod tick;
 mod transport;
 mod conf;
 mod processor;
@@ -28,10 +27,10 @@ use std::time::Duration;
 use futures::Future;
 use futures::stream::{Stream, MergedItem};
 
-use tick::Tick;
-use transport::postgres::{get_client, reset_db};
 use processor::Processor;
 use conf::CONF;
+use algobot_util::tick::Tick;
+use algobot_util::transport::postgres::{get_client, reset_db, PostgresConf};
 use algobot_util::transport::redis::sub_channel;
 
 fn handle_messages() {
@@ -56,7 +55,14 @@ fn handle_messages() {
 
 fn main() {
     if CONF.reset_db_on_load {
-        reset_db(&get_client().expect("Unable to get postgres client"))
+        let pg_conf = PostgresConf {
+            postgres_user: CONF.postgres_user,
+            postgres_password: CONF.postgres_password,
+            postgres_url: CONF.postgres_url,
+            postgres_port: CONF.postgres_port,
+            postgres_db: CONF.postgres_db
+        };
+        reset_db(&get_client(pg_conf).expect("Unable to get postgres client"), CONF.postgres_user)
             .expect("Unable to reset database");
         println!("Database reset");
     }

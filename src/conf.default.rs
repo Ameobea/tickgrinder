@@ -16,7 +16,9 @@ pub struct Conf {
     pub postgres_port: i32,
     pub postgres_user: &'static str,
     pub postgres_password: &'static str,
-    pub postgres_db: &'static str
+    pub postgres_db: &'static str,
+    // Misc config
+    pub qs_connections: usize
 }
 
 pub const CONF: Conf = Conf {
@@ -34,5 +36,7 @@ pub const CONF: Conf = Conf {
     postgres_port: 5432,
     postgres_user: "username",
     postgres_password: "password",
-    postgres_db: "db_name"
+    postgres_db: "db_name",
+    // Misc config
+    qs_connections: 6
 };
