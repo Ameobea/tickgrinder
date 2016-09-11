@@ -5,17 +5,22 @@
 //! macro trend and watching for new highs in smaller time periods, subtrends and the channels
 //! that they make up can be located and analyzed for trade opportunities.
 
+#![feature(test)]
+
 extern crate futures;
 extern crate algobot_util;
+extern crate test;
+
+mod window_manager;
 
 use futures::Complete;
 
 use algobot_util::strategies::Strategy;
 use algobot_util::tick::SymbolTick;
 
-struct strat{}
+struct SldingWindows{}
 
-impl Strategy for strat {
+impl Strategy for SldingWindows {
     fn process(&mut self, t: SymbolTick) {
 
     }
