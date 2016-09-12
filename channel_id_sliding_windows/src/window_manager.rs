@@ -12,9 +12,23 @@ use test;
 
 use algobot_util::tick::Tick;
 
-/// Contains the ticks with the max/min price, and the tick with the oldest timestamp that fits
-/// in the window along with its index in the master VecDeque.
-type Window = ((Option<Tick>, Option<Tick>), Option<(i64, Tick)>);
+/// Contains the computed information about the ticks in each time monitored time frame.
+#[derive(Debug, Copy, Clone)]
+pub struct Window {
+    pub min_price_t: Option<Tick>,
+    pub max_price_t: Option<Tick>,
+    pub oldest_t:    Option<(i64, Tick)>
+}
+
+impl Window {
+    pub fn new_empty() -> Window {
+        Window {
+            min_price_t: None,
+            max_price_t: None,
+            oldest_t:   None
+        }
+    }
+}
 
 pub struct WindowManager {
     pub data: VecDeque<Tick>,
@@ -23,11 +37,8 @@ pub struct WindowManager {
 }
 
 /// Determines whether a tick is out of range of a window or not
-fn out_of_range(period: i64, oldest_tick: Option<(i64, Tick)>, newest_tick: Tick) -> bool {
-    if oldest_tick.is_none() {
-        return false
-    }
-    newest_tick.timestamp - oldest_tick.unwrap().1.timestamp > period
+fn out_of_range(period: i64, oldest_tick: Tick, newest_tick: Tick) -> bool {
+    newest_tick.timestamp - oldest_tick.timestamp > period
 }
 
 impl WindowManager {
@@ -40,7 +51,7 @@ impl WindowManager {
     }
 
     pub fn add_period(&mut self, period: i64) {
-        self.windows.insert(period, ((None, None), None));
+        self.windows.insert(period, Window::new_empty());
         // update max period
         match self.max_period {
             Some(_max_period) => {
@@ -76,68 +87,97 @@ impl WindowManager {
         }
     }
 
-    pub fn push(&mut self, t: Tick) {
+    // Processes a new tick and returns a Vec containing periods whose mins/maxes have changed.
+    pub fn push(&mut self, t: Tick) -> Vec<(i64, Window)> {
         // data is pushed on the back and popped off the front
         self.data.push_back(t);
-        self.trim_overflow(t);
-
-        // TODO: return info about new mins/maxes for periods
+        self.trim_overflow(t)
     }
 
     /// Removes ticks from the front of the queue until all timestamps are within
     /// the maximum period of the WindowManager.  For each tick that is removed,
     /// check to see if it was the maximum/minimum of any windows.  If it was,
     /// update that window.
-    fn trim_overflow(&mut self, newest_tick: Tick) {
+    fn trim_overflow(&mut self, newest_tick: Tick) -> Vec<(i64, Window)> {
+        let mut altered_periods = Vec::new();
+
         // iterate over all windows and check if the tick is out of their range
         //
         // NOTE: Currently windows are iterated over in an arbitrary order making it impossible to
         // do optimizations like use the max of smaller windows to avoid having to iterate over
         // those parts of larger windows.
-        for (&period, &((mut max_price_t, mut min_price_t), mut oldest_t_opt)) in self.windows.iter() {
-            // if our current oldest tick is no longer in range of the window
-            if out_of_range(period, oldest_t_opt, newest_tick) {
-                oldest_t_opt = None;
-                // index of previous oldest tick
-                let mut i = oldest_t_opt.unwrap().0 + 1;
-                // loop through ticks until we find one that's inside the window
-                while let Some(newer_tick) = self.data.get(i as usize) {
-                    i += 1;
-                    if !out_of_range(period, Some((i, *newer_tick)), newest_tick) {
-                        oldest_t_opt = Some((i, *newer_tick));
-                        break;
-                    } else {
-                        // update the max/min prices if they were in an out-of-range tick
-                        if max_price_t.is_some() && max_price_t.unwrap() == *newer_tick {
-                            max_price_t = None
-                        }
-                        if min_price_t.is_some() && min_price_t.unwrap() == *newer_tick {
-                            min_price_t = None
+        for (&period, &window) in self.windows.iter() {
+            let mut window = window;
+            // println!("Window before: {:?}", window);
+            let mut altered = false;
+            // if it's the first tick
+            if window.oldest_t.is_none() {
+                window.oldest_t = Some((0, newest_tick));
+            } else {
+                // if our current oldest tick is no longer in range of the window
+                if out_of_range(period, window.oldest_t.unwrap().1, newest_tick) {
+                    // index of previous oldest tick
+                    let mut i = window.oldest_t.unwrap().0 + 1;
+
+                    // loop through ticks until we find one that's inside the window
+                    while let Some(newer_tick) = self.data.get(i as usize) {
+                        i += 1;
+                        if !out_of_range(period, *newer_tick, newest_tick) {
+                            window.oldest_t = Some((i, *newer_tick));
+                            break;
+                        } else {
+                            // update the max/min prices if they were in an out-of-range tick
+                            if window.max_price_t.is_some() && window.max_price_t.unwrap() == *newer_tick {
+                                window.max_price_t = None;
+                                altered = true;
+                            }
+                            if window.min_price_t.is_some() && window.min_price_t.unwrap() == *newer_tick {
+                                window.min_price_t = None;
+                                altered = true;
+                            }
                         }
                     }
+                    // at this point the oldest tick for the window is either None or accurate
+                    // (not accounting for the possibility of the newest tick)
                 }
-                // at this point the oldest tick for the window is either None or accurate
-                // (not accounting for the possibility of the newest tick)
             }
 
-            if min_price_t == None || max_price_t == None {
-                // must be at least one tick so we can .unwrap()
-                let (min_price_t, max_price_t) = self.get_extreme_ticks(period).unwrap();
+            if window.min_price_t == None || window.max_price_t == None {
+                // there is at least one tick so we can .unwrap()
+                let extremes = self.get_extreme_ticks(period).unwrap();
+                window.min_price_t = Some(extremes.0);
+                window.max_price_t = Some(extremes.1);
+                altered = true;
             } else {
                 // check if newest_tick is a new max/min tick for the period
-                if newest_tick.mid() < min_price_t.unwrap().mid() {
-                    min_price_t = Some(newest_tick);
+                if newest_tick.mid() < window.min_price_t.unwrap().mid() {
+                    window.min_price_t = Some(newest_tick);
+                    altered = true;
                 }
-                if newest_tick.mid() > max_price_t.unwrap().mid() {
-                    max_price_t = Some(newest_tick);
+                if newest_tick.mid() > window.max_price_t.unwrap().mid() {
+                    window.max_price_t = Some(newest_tick);
+                    altered = true;
                 }
             }
+
+            if altered {
+                // Add the mutated window to the alteration list
+                altered_periods.push((period, window));
+                // println!("Window after: {:?}", window);
+            }
+        }
+
+        // make the alterations queued in the loop
+        for &(period, window) in altered_periods.iter() {
+            self.windows.insert(period, window);
         }
 
         // drop ticks that are outside of the range of the largest window
-        while out_of_range(self.max_period.unwrap(), Some((0, *self.data.front().unwrap())), newest_tick) {
+        while out_of_range(self.max_period.unwrap(), *self.data.front().unwrap(), newest_tick) {
             self.data.pop_front();
         }
+
+        altered_periods
     }
 
     /// Gets the max and min tick in a window by iterating over every tick it contains.
@@ -189,5 +229,25 @@ fn period_addition_removal() {
 fn min_max_accuracy() {
     let mut wm = WindowManager::new();
     wm.add_period(5);
-    // TODO
+    wm.add_period(10);
+    println!("result of push: {:?}", wm.push(Tick{timestamp: 1i64, bid: 1f64, ask: 1f64}));
+    println!("result of push: {:?}", wm.push(Tick{timestamp: 3i64, bid: 2f64, ask: 2f64}));
+    // println!("result of push: {:?}", wm.push(Tick{timestamp: 1i64, bid: 1f64, ask: 1f64}));
+    // println!("result of push: {:?}", wm.push(Tick{timestamp: 1i64, bid: 1f64, ask: 1f64}));
+    panic!("{:?}", "s");
+}
+
+#[bench]
+fn large_wm_processing_speed(b: &mut test::Bencher) {
+    let mut wm = WindowManager::new();
+    wm.add_period(5000000);
+    // preload with 500,000 ticks
+    for i in 0..5000000 {
+        wm.push(Tick{timestamp: i as i64, bid: 1f64, ask: 1f64});
+    }
+    let mut i = 5000000;
+    b.iter(|| {
+        i = i + 1;
+        wm.push(Tick{timestamp: i as i64, bid: 1f64, ask: 1f64});
+    });
 }
