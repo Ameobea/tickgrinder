@@ -17,7 +17,9 @@ use algobot_util::tick::Tick;
 pub struct Window {
     pub min_price_t: Tick,
     pub max_price_t: Tick,
-    pub oldest_t:    Tick
+    pub oldest_t:    Tick,
+    // index is front to back; .front()'s index is 0
+    pub oldest_index:usize
 }
 
 impl Window {
@@ -25,7 +27,8 @@ impl Window {
         Window {
             min_price_t: Tick::null(),
             max_price_t: Tick::null(),
-            oldest_t:    Tick::null()
+            oldest_t:    Tick::null(),
+            oldest_index: 0
         }
     }
 }
@@ -100,20 +103,15 @@ impl WindowManager {
         // data is pushed on the back and popped off the front
         self.data.push_back(t);
 
-        let mut ret = HashMap::new();
-        for (period, window) in self.trim_overflow(t) {
-            ret.insert(period, window);
-        }
-
-        ret
+        self.trim_overflow(t)
     }
 
     /// Removes ticks from the front of the queue until all timestamps are within
     /// the maximum period of the WindowManager.  For each tick that is removed,
     /// check to see if it was the maximum/minimum of any windows.  If it was,
     /// update that window.
-    fn trim_overflow(&mut self, newest_tick: Tick) -> Vec<(i64, Window)> {
-        let mut altered_periods = Vec::new();
+    fn trim_overflow(&mut self, newest_tick: Tick) -> HashMap<i64, Window> {
+        let mut altered_periods = HashMap::new();
 
         // iterate over all windows and check if the tick is out of their range
         //
@@ -133,26 +131,24 @@ impl WindowManager {
                 // if our current oldest tick is no longer in range of the window
                 if out_of_range(period, window.oldest_t, newest_tick) {
                     // have to re-scan the entire array starting at the oldest
-                    let mut i = 0;
+                    let mut i = window.oldest_index + 1;
 
                     // loop through ticks until we find one that's inside the window
                     while let Some(newer_tick) = self.data.get(i as usize) {
-                        i += 1;
-                        if !out_of_range(period, *newer_tick, newest_tick) {
-                            // found the first in-range tick
-                            window.oldest_t = *newer_tick;
-                            if is_max_min(*newer_tick, window) {
-                                window.min_price_t.timestamp = 0;
-                                window.max_price_t.timestamp = 0;
-                            }
-                            break;
-                        }
-
                         // If the tick that went out of range max/min needs updating
                         if is_max_min(*newer_tick, window) {
                             window.min_price_t.timestamp = 0;
                             window.max_price_t.timestamp = 0;
                         }
+
+                        if !out_of_range(period, *newer_tick, newest_tick) {
+                            // found the first in-range tick
+                            window.oldest_t = *newer_tick;
+                            window.oldest_index = i;
+                            break;
+                        }
+
+                        i += 1;
                     }
                     // at this point the oldest tick for the window is either 0 or accurate
                     // (not accounting for the possibility of the newest tick)
@@ -166,11 +162,12 @@ impl WindowManager {
                 altered = true;
             } else {
                 // check if newest_tick is a new max/min tick for the period
-                if newest_tick.mid() < window.min_price_t.mid() {
+                // maxs/mins are updated if they simply match the previous max/min
+                if newest_tick.mid() <= window.min_price_t.mid() {
                     window.min_price_t = newest_tick;
                     altered = true;
                 }
-                if newest_tick.mid() > window.max_price_t.mid() {
+                if newest_tick.mid() >= window.max_price_t.mid() {
                     window.max_price_t = newest_tick;
                     altered = true;
                 }
@@ -178,18 +175,32 @@ impl WindowManager {
 
             if altered {
                 // Add the mutated window to the alteration list
-                altered_periods.push((period, window));
+                altered_periods.insert(period, window);
             }
         }
 
-        // make the alterations queued in the loop
-        for &(period, window) in altered_periods.iter() {
-            self.windows.insert(period, window);
-        }
-
         // drop ticks that are outside of the range of the largest window
+        let mut popped = 0;
         while out_of_range(self.max_period, *self.data.front().unwrap(), newest_tick) {
             self.data.pop_front();
+            popped += 1;
+        }
+
+        if popped > 0 {
+            let mut alter_q = HashMap::new();
+            for (period, window) in altered_periods.iter() {
+                let mut window = window.clone();
+                window.oldest_index = window.oldest_index - popped;
+                alter_q.insert(*period, window);
+            }
+
+            for (period, window) in alter_q.iter() {
+                altered_periods.insert(*period, *window);
+            }
+        }
+
+        for (period, window) in altered_periods.iter() {
+            self.windows.insert(*period, *window);
         }
 
         altered_periods
@@ -243,25 +254,34 @@ fn min_max_accuracy() {
     wm.add_period(2);
     wm.add_period(4);
 
-    let t1 = Tick{timestamp: 1i64, bid: 0.5f64, ask: 0.5f64};
-    let wl = wm.push(t1);
-    assert_eq!(*wl.get(&2).unwrap(), Window{min_price_t: t1, max_price_t: t1, oldest_t: t1});
-    assert_eq!(*wl.get(&4).unwrap(), Window{min_price_t: t1, max_price_t: t1, oldest_t: t1});
+    let t0 = Tick{timestamp: 1i64, bid: 0.5f64, ask: 0.5f64};
+    let wl = wm.push(t0);
+    assert_eq!(*wl.get(&2).unwrap(), Window{min_price_t: t0, max_price_t: t0, oldest_t: t0, oldest_index: 0});
+    assert_eq!(*wl.get(&4).unwrap(), Window{min_price_t: t0, max_price_t: t0, oldest_t: t0, oldest_index: 0});
 
-    let t2 = Tick{timestamp: 2i64, bid: 2f64, ask: 2f64};
-    let w2 = wm.push(t2);
-    assert_eq!(*w2.get(&2).unwrap(), Window{min_price_t: t1, max_price_t: t2, oldest_t: t1});
-    assert_eq!(*w2.get(&4).unwrap(), Window{min_price_t: t1, max_price_t: t2, oldest_t: t1});
+    let t1 = Tick{timestamp: 2i64, bid: 2f64, ask: 2f64};
+    let w2 = wm.push(t1);
+    assert_eq!(*w2.get(&2).unwrap(), Window{min_price_t: t0, max_price_t: t1, oldest_t: t0, oldest_index: 0});
+    assert_eq!(*w2.get(&4).unwrap(), Window{min_price_t: t0, max_price_t: t1, oldest_t: t0, oldest_index: 0});
 
-    let t3 = Tick{timestamp: 3i64, bid: 4f64, ask: 4f64};
-    let w3 = wm.push(t3);
-    assert_eq!(*w3.get(&2).unwrap(), Window{min_price_t: t2, max_price_t: t3, oldest_t: t2});
-    assert_eq!(*w3.get(&4).unwrap(), Window{min_price_t: t1, max_price_t: t3, oldest_t: t1});
+    let t2 = Tick{timestamp: 3i64, bid: 4f64, ask: 4f64};
+    let w3 = wm.push(t2);
+    assert_eq!(*w3.get(&2).unwrap(), Window{min_price_t: t1, max_price_t: t2, oldest_t: t1, oldest_index: 1});
+    assert_eq!(*w3.get(&4).unwrap(), Window{min_price_t: t0, max_price_t: t2, oldest_t: t0, oldest_index: 0});
 
-    let t4 = Tick{timestamp: 6i64, bid: 5f64, ask: 5f64};
-    let w4 = wm.push(t4);
-    assert_eq!(*w4.get(&2).unwrap(), Window{min_price_t: t4, max_price_t: t4, oldest_t: t4});
-    assert_eq!(*w4.get(&4).unwrap(), Window{min_price_t: t3, max_price_t: t4, oldest_t: t3});
+    let t3 = Tick{timestamp: 6i64, bid: 5f64, ask: 5f64};
+    let w4 = wm.push(t3);
+    assert_eq!(*w4.get(&2).unwrap(), Window{min_price_t: t3, max_price_t: t3, oldest_t: t3, oldest_index: 1});
+    assert_eq!(*w4.get(&4).unwrap(), Window{min_price_t: t2, max_price_t: t3, oldest_t: t2, oldest_index: 0});
+}
+
+#[test]
+fn out_of_range_dropping() {
+    let mut wm = WindowManager::new();
+    wm.add_period(2);
+    wm.push(Tick{timestamp: 1, bid: 1f64, ask: 1f64});
+    wm.push(Tick{timestamp: 3, bid: 1f64, ask: 1f64});
+    assert_eq!(wm.data.len(), 1);
 }
 
 #[bench]
@@ -279,19 +299,18 @@ fn small_wm_processing_speed(b: &mut test::Bencher) {
     });
 }
 
-
-// Commented because it takes a while to run
-// #[bench]
-// fn large_wm_processing_speed(b: &mut test::Bencher) {
-//     let mut wm = WindowManager::new();
-//     wm.add_period(5000000);
-//     // preload with 500,000 ticks
-//     for i in 0..5000000 {
-//         wm.push(Tick{timestamp: i as i64, bid: 1f64, ask: 1f64});
-//     }
-//     let mut i = 5000000;
-//     b.iter(|| {
-//         i = i + 1;
-//         wm.push(Tick{timestamp: i as i64, bid: 1f64, ask: 1f64});
-//     });
-// }
+// Tests best-case scenario where array traversal is basically nonexistant.
+#[bench]
+fn large_wm_processing_speed(b: &mut test::Bencher) {
+    let mut wm = WindowManager::new();
+    wm.add_period(5000000);
+    // preload with 500,000 ticks
+    for i in 0..5000000 {
+        wm.push(Tick{timestamp: i as i64, bid: 1f64, ask: 1f64});
+    }
+    let mut i = 5000000;
+    b.iter(|| {
+        i = i + 1;
+        wm.push(Tick{timestamp: i as i64, bid: 1f64, ask: 1f64});
+    });
+}
