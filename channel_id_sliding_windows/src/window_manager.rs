@@ -15,18 +15,17 @@ use algobot_util::tick::Tick;
 /// Contains the computed information about the ticks in each time monitored time frame.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Window {
-    // TODO: These really don't have to be options.
-    pub min_price_t: Option<Tick>,
-    pub max_price_t: Option<Tick>,
-    pub oldest_t:    Option<Tick>
+    pub min_price_t: Tick,
+    pub max_price_t: Tick,
+    pub oldest_t:    Tick
 }
 
 impl Window {
     pub fn new_empty() -> Window {
         Window {
-            min_price_t: None,
-            max_price_t: None,
-            oldest_t:   None
+            min_price_t: Tick::null(),
+            max_price_t: Tick::null(),
+            oldest_t:    Tick::null()
         }
     }
 }
@@ -34,7 +33,7 @@ impl Window {
 pub struct WindowManager {
     pub data: VecDeque<Tick>,
     pub windows: HashMap<i64, Window>,
-    pub max_period: Option<i64>
+    pub max_period: i64
 }
 
 /// Determines whether a tick is out of range of a window or not
@@ -44,11 +43,11 @@ fn out_of_range(period: i64, old_tick: Tick, newest_tick: Tick) -> bool {
 
 /// Checks if a tick is a max/min tick of a Window
 fn is_max_min(t: Tick, window: Window) -> bool {
-    if window.min_price_t.is_none() {
+    if window.min_price_t.timestamp == 0 {
         // doesn't matter since we already have a recalc queued
         return false
     }
-    t == window.min_price_t.unwrap() || t == window.max_price_t.unwrap()
+    t == window.min_price_t || t == window.max_price_t
 }
 
 impl WindowManager {
@@ -56,40 +55,35 @@ impl WindowManager {
         WindowManager {
             data: VecDeque::new(),
             windows: HashMap::new(),
-            max_period: None
+            max_period: 0
         }
     }
 
     pub fn add_period(&mut self, period: i64) {
         self.windows.insert(period, Window::new_empty());
         // update max period
-        match self.max_period {
-            Some(_max_period) => {
-                if period > _max_period {
-                    self.max_period = Some(period);
-                }
-            },
-            None => self.max_period = Some(period)
+        if period > self.max_period {
+            self.max_period = period;
         }
     }
 
     pub fn remove_period(&mut self, period: i64) {
-        let mut o: Option<i64> = None;
+        let mut o = 0;
         for (k, _) in self.windows.iter() {
             if *k == period {
-                o = Some(*k);
+                o = *k;
                 break;
             }
         }
-        if o.is_some() {
-            self.windows.remove(&o.unwrap());
+        if o != 0 {
+            self.windows.remove(&o);
             // assume that max_period is already set since we're removing an element
-            if self.max_period.unwrap() == period {
+            if self.max_period == period {
                 // calculate new max period
-                let mut max: Option<i64> = None;
+                let mut max = 0;
                 for (k, _) in self.windows.iter() {
-                    if max.is_none() || *k > max.unwrap() {
-                        max = Some(*k);
+                    if *k > max{
+                        max = *k;
                     }
                 }
                 self.max_period = max;
@@ -99,10 +93,11 @@ impl WindowManager {
 
     // Processes a new tick and returns a Vec containing periods whose mins/maxes have changed.
     pub fn push(&mut self, t: Tick) -> HashMap<i64, Window> {
-        // data is pushed on the back and popped off the front
+        assert!(self.windows.len() > 0);
         if self.data.len() > 0 {
             assert!(t.timestamp > self.data.back().unwrap().timestamp);
         }
+        // data is pushed on the back and popped off the front
         self.data.push_back(t);
 
         let mut ret = HashMap::new();
@@ -129,14 +124,14 @@ impl WindowManager {
             let mut window = window;
             let mut altered = false;
             // if it's the first tick
-            if window.oldest_t.is_none() {
-                window.oldest_t = Some(newest_tick);
-                window.min_price_t = Some(newest_tick);
-                window.max_price_t = Some(newest_tick);
+            if window.oldest_t.timestamp == 0 {
+                window.oldest_t = newest_tick;
+                window.min_price_t = newest_tick;
+                window.max_price_t = newest_tick;
                 altered = true;
             } else {
                 // if our current oldest tick is no longer in range of the window
-                if out_of_range(period, window.oldest_t.unwrap(), newest_tick) {
+                if out_of_range(period, window.oldest_t, newest_tick) {
                     // have to re-scan the entire array starting at the oldest
                     let mut i = 0;
 
@@ -145,39 +140,38 @@ impl WindowManager {
                         i += 1;
                         if !out_of_range(period, *newer_tick, newest_tick) {
                             // found the first in-range tick
-                            window.oldest_t = Some(*newer_tick);
+                            window.oldest_t = *newer_tick;
                             if is_max_min(*newer_tick, window) {
-                                window.min_price_t = None;
-                                window.max_price_t = None;
+                                window.min_price_t.timestamp = 0;
+                                window.max_price_t.timestamp = 0;
                             }
                             break;
                         }
 
                         // If the tick that went out of range max/min needs updating
                         if is_max_min(*newer_tick, window) {
-                            window.min_price_t = None;
-                            window.max_price_t = None;
+                            window.min_price_t.timestamp = 0;
+                            window.max_price_t.timestamp = 0;
                         }
                     }
-                    // at this point the oldest tick for the window is either None or accurate
+                    // at this point the oldest tick for the window is either 0 or accurate
                     // (not accounting for the possibility of the newest tick)
                 }
             }
 
-            if window.min_price_t.is_none() || window.max_price_t.is_none() {
-                // there is at least one tick so we can .unwrap()
-                let extremes = self.get_extreme_ticks(period).unwrap();
-                window.min_price_t = Some(extremes.0);
-                window.max_price_t = Some(extremes.1);
+            if window.min_price_t.timestamp == 0 || window.max_price_t.timestamp == 0 {
+                let extremes = self.get_extreme_ticks(period);
+                window.min_price_t = extremes.0;
+                window.max_price_t = extremes.1;
                 altered = true;
             } else {
                 // check if newest_tick is a new max/min tick for the period
-                if newest_tick.mid() < window.min_price_t.unwrap().mid() {
-                    window.min_price_t = Some(newest_tick);
+                if newest_tick.mid() < window.min_price_t.mid() {
+                    window.min_price_t = newest_tick;
                     altered = true;
                 }
-                if newest_tick.mid() > window.max_price_t.unwrap().mid() {
-                    window.max_price_t = Some(newest_tick);
+                if newest_tick.mid() > window.max_price_t.mid() {
+                    window.max_price_t = newest_tick;
                     altered = true;
                 }
             }
@@ -194,7 +188,7 @@ impl WindowManager {
         }
 
         // drop ticks that are outside of the range of the largest window
-        while out_of_range(self.max_period.unwrap(), *self.data.front().unwrap(), newest_tick) {
+        while out_of_range(self.max_period, *self.data.front().unwrap(), newest_tick) {
             self.data.pop_front();
         }
 
@@ -203,8 +197,8 @@ impl WindowManager {
 
     /// Gets the max and min tick in a window by iterating over every tick it contains.
     ///
-    /// Returns Some(min_tick, max_tick)
-    fn get_extreme_ticks(&self, period: i64) -> Option<(Tick, Tick)> {
+    /// Returns (min_tick, max_tick)
+    fn get_extreme_ticks(&self, period: i64) -> (Tick, Tick) {
         let newest_timestamp = self.data.back().unwrap().timestamp;
         let mut max_tick = Tick::null();
         let mut min_tick = Tick::null();
@@ -229,11 +223,7 @@ impl WindowManager {
             }
         }
 
-        if min_price == 0f64 {
-            return None
-        }
-
-        Some((min_tick, max_tick))
+        (min_tick, max_tick)
     }
 }
 
@@ -255,25 +245,42 @@ fn min_max_accuracy() {
 
     let t1 = Tick{timestamp: 1i64, bid: 0.5f64, ask: 0.5f64};
     let wl = wm.push(t1);
-    assert_eq!(*wl.get(&2).unwrap(), Window{min_price_t: Some(t1), max_price_t: Some(t1), oldest_t: Some(t1)});
-    assert_eq!(*wl.get(&4).unwrap(), Window{min_price_t: Some(t1), max_price_t: Some(t1), oldest_t: Some(t1)});
+    assert_eq!(*wl.get(&2).unwrap(), Window{min_price_t: t1, max_price_t: t1, oldest_t: t1});
+    assert_eq!(*wl.get(&4).unwrap(), Window{min_price_t: t1, max_price_t: t1, oldest_t: t1});
 
     let t2 = Tick{timestamp: 2i64, bid: 2f64, ask: 2f64};
     let w2 = wm.push(t2);
-    assert_eq!(*w2.get(&2).unwrap(), Window{min_price_t: Some(t1), max_price_t: Some(t2), oldest_t: Some(t1)});
-    assert_eq!(*w2.get(&4).unwrap(), Window{min_price_t: Some(t1), max_price_t: Some(t2), oldest_t: Some(t1)});
+    assert_eq!(*w2.get(&2).unwrap(), Window{min_price_t: t1, max_price_t: t2, oldest_t: t1});
+    assert_eq!(*w2.get(&4).unwrap(), Window{min_price_t: t1, max_price_t: t2, oldest_t: t1});
 
     let t3 = Tick{timestamp: 3i64, bid: 4f64, ask: 4f64};
     let w3 = wm.push(t3);
-    assert_eq!(*w3.get(&2).unwrap(), Window{min_price_t: Some(t2), max_price_t: Some(t3), oldest_t: Some(t2)});
-    assert_eq!(*w3.get(&4).unwrap(), Window{min_price_t: Some(t1), max_price_t: Some(t3), oldest_t: Some(t1)});
+    assert_eq!(*w3.get(&2).unwrap(), Window{min_price_t: t2, max_price_t: t3, oldest_t: t2});
+    assert_eq!(*w3.get(&4).unwrap(), Window{min_price_t: t1, max_price_t: t3, oldest_t: t1});
 
     let t4 = Tick{timestamp: 6i64, bid: 5f64, ask: 5f64};
     let w4 = wm.push(t4);
-    assert_eq!(*w4.get(&2).unwrap(), Window{min_price_t: Some(t4), max_price_t: Some(t4), oldest_t: Some(t4)});
-    assert_eq!(*w4.get(&4).unwrap(), Window{min_price_t: Some(t3), max_price_t: Some(t4), oldest_t: Some(t3)});
+    assert_eq!(*w4.get(&2).unwrap(), Window{min_price_t: t4, max_price_t: t4, oldest_t: t4});
+    assert_eq!(*w4.get(&4).unwrap(), Window{min_price_t: t3, max_price_t: t4, oldest_t: t3});
 }
 
+#[bench]
+fn small_wm_processing_speed(b: &mut test::Bencher) {
+    let mut wm = WindowManager::new();
+    wm.add_period(500);
+    // preload with 500,000 ticks
+    for i in 0..500 {
+        wm.push(Tick{timestamp: i as i64, bid: 1f64, ask: 1f64});
+    }
+    let mut i = 500;
+    b.iter(|| {
+        i = i + 1;
+        wm.push(Tick{timestamp: i as i64, bid: 1f64, ask: 1f64});
+    });
+}
+
+
+// Commented because it takes a while to run
 // #[bench]
 // fn large_wm_processing_speed(b: &mut test::Bencher) {
 //     let mut wm = WindowManager::new();
