@@ -1,6 +1,6 @@
 //! Utility functions for use by all parts of the algobot trading system
 
-#![feature(custom_derive, plugin)]
+#![feature(custom_derive, plugin, conservative_impl_trait)]
 #![plugin(serde_macros)]
 
 extern crate redis;

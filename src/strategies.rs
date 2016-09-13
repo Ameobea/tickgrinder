@@ -15,8 +15,13 @@
 use futures;
 
 use tick::SymbolTick;
+use transport::command_server::CommandServer;
+use transport::query_server::QueryServer;
 
 pub trait Strategy {
+    /// Make sure that all strategies include ways to interact with the optimizer in a standardized way
+    fn new(cs: CommandServer, qs: QueryServer);
+
     /// Called for every new tick received
     fn process(&mut self, t: SymbolTick);
 
