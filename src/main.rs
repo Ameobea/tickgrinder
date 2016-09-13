@@ -24,11 +24,21 @@ use std::thread;
 use std::time::Duration;
 
 use futures::Future;
-use transport::command_server::CommandServer;
+use algobot_util::transport::command_server::{CommandServer, CsSettings};
 use algobot_util::transport::commands::*;
 
+use conf::CONF;
+
 fn main() {
-    let mut command_server = CommandServer::new(15);
+    let settings = CsSettings {
+        redis_host: CONF.redis_host,
+        redis_channel: CONF.redis_response_channel,
+        conn_count: CONF.conn_senders,
+        timeout: CONF.cs_timeout,
+        max_retries: CONF.cs_max_retries
+    };
+    let mut command_server = CommandServer::new(settings);
+
     let mut i = 1;
     loop {
         let mut command_server = &mut command_server;
