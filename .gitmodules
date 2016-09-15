@@ -1,0 +1,3 @@
+[submodule "strategies"]
+	path = strategies
+	url = git@github.com:Ameobea/bot4-strategies.git
