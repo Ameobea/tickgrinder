@@ -15,8 +15,8 @@ var manager = exports;
 manager.start = function(port){
   var app = express();
 
-  // var index = require('./routes/index');
-  // var api = require("./routes/api");
+  var index = require('./routes/index');
+  var api = require("./routes/api");
 
   app.engine('html', require('ejs').renderFile);
   app.set('views', path.join(__dirname, 'views'));
@@ -26,8 +26,8 @@ manager.start = function(port){
   app.listen(port);
   console.log("Manager webserver started!");
 
-  // app.use('/', index);
-  // app.use("/api", api);
+  app.use('/', index);
+  app.use("/api", api);
 
   var socketServer = ws.createServer(function(conn){
     socketServer.on('error', function(err){
@@ -68,4 +68,4 @@ manager.start = function(port){
   });
 };
 
-manager.start();
+manager.start(conf.mmPort);

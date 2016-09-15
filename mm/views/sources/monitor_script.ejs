@@ -21,7 +21,7 @@ var resetAndUpdate = (range, callback)=>{
 
   var pair = $("#pairInput").val();
   var loadTicks = $("#loadTicks").is(":checked");
-  
+
   var averages = [];
   var averageBoxes = [].slice.call($(".averageInput"));
   averageBoxes.forEach((box)=>{
@@ -182,7 +182,7 @@ var drawSMADistGraph = function(pair, range, distPeriod, distCompPeriods){
     if(distData.length > 0){
       distCompPeriods.forEach(function(compPeriod){
         var dataSeries = {data: [], yAxis: "distAxis", name: "Period " + distPeriod + "," + compPeriod + " Distance", type: "area"};
-        
+
         distData.forEach(function(cross){
           if(cross.compPeriod == compPeriod){
             dataSeries.data.push([cross.timestamp * 1000, cross.diff]);

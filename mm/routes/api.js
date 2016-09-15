@@ -6,9 +6,9 @@ var http = require("http");
 var redis = require("redis");
 
 var conf = require("../conf");
-var backtest = require("../../backtest/backtest");
-var dbUtils = require("../../db_utils/utils");
-var spawner = require("../../utils/instance_spawner");
+// var backtest = require("../../backtest/backtest");
+// var dbUtils = require("../../db_utils/utils");
+// var spawner = require("../../utils/instance_spawner");
 
 //URL: [ip]/api/backtest/[fast/live]/[pair]
 //POST params: pair, startTime, [interval]
