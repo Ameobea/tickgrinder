@@ -58,6 +58,14 @@ impl Tick {
         // Asynchronously store the tick in the database
         qs.execute(query);
     }
+
+    pub fn from_symboltick(st: SymbolTick) -> Tick {
+        Tick {
+            timestamp: st.timestamp,
+            bid: st.bid,
+            ask: st.ask
+        }
+    }
 }
 
 impl SymbolTick {

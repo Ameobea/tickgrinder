@@ -14,18 +14,17 @@ extern crate serde;
 extern crate serde_json;
 
 extern crate algobot_util;
+extern crate channel_id_sliding_windows;
 
-mod transport;
 mod conf;
-#[allow(unused_imports, dead_code)]
-mod tests;
 
-use std::thread;
-use std::time::Duration;
-
-use futures::Future;
 use algobot_util::transport::command_server::{CommandServer, CsSettings};
-use algobot_util::transport::commands::*;
+use algobot_util::transport::postgres::PostgresConf;
+use algobot_util::transport::query_server::QueryServer;
+use algobot_util::strategies::Strategy;
+
+// Set this line to the strategy to be used
+use channel_id_sliding_windows::SlidingWindows as ActiveStrategy;
 
 use conf::CONF;
 
@@ -37,18 +36,17 @@ fn main() {
         timeout: CONF.cs_timeout,
         max_retries: CONF.cs_max_retries
     };
-    let mut command_server = CommandServer::new(settings);
+    let command_server = CommandServer::new(settings);
 
-    let mut i = 1;
-    loop {
-        let mut command_server = &mut command_server;
-        thread::sleep(Duration::new(0, 4000000));
-        println!("{:?}", i);
-        let prom = command_server.execute(Command::Ping);
-        prom.and_then(|res| {
-            println!("{:?}", res);
-            Ok(())
-        });
-        i+=1;
-    }
+    let pg_conf = PostgresConf {
+        postgres_user: CONF.postgres_user,
+        postgres_password: CONF.postgres_password,
+        postgres_url: CONF.postgres_url,
+        postgres_port: CONF.postgres_port,
+        postgres_db: CONF.postgres_db
+    };
+    let query_server = QueryServer::new(CONF.conn_senders, pg_conf);
+
+    // initialize the strategy
+    let mut strat = ActiveStrategy::new(command_server, query_server);
 }

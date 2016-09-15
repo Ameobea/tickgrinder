@@ -5,5 +5,9 @@ struct Processor {
 }
 
 impl Processor {
-    pub fn process_tick()
+    pub fn process_tick();
+
+    pub fn new() -> Processor {
+        Processor {}
+    }
 }

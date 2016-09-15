@@ -20,10 +20,14 @@ use transport::query_server::QueryServer;
 
 pub trait Strategy {
     /// Make sure that all strategies include ways to interact with the optimizer in a standardized way
-    fn new(cs: CommandServer, qs: QueryServer);
+    fn new(cs: CommandServer, qs: QueryServer) -> Self;
 
     /// Called for every new tick received
     fn process(&mut self, t: SymbolTick);
+
+    /// Indicates that the strategy should save a copy of its internal state of its internal state to
+    /// the database.  The supplied future should be resolved when the dump is complete.
+    fn dump_state(&mut self, done: futures::Complete<()>);
 
     /// Indicates that the platform is going into an inoperable state and that
     /// the strategy should do whatever necessary to exit as soon as possible.
