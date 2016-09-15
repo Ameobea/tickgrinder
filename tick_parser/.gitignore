@@ -1,0 +1,4 @@
+*.lock
+target
+dump.rdb
+conf.rs
