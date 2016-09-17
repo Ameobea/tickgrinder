@@ -1,12 +1,10 @@
-"use strict";
-/*jslint node: true */
-/*jslint browser: true*/ /*global Highcharts, $*/
+//! This is a library of functions that can be used to plot data on charts.
+//! Data from the platform can come in many different formats each of which
+//! is represented differently on charts.  These functions take input data
+//! from serialization/aggregation functions and plot it on HighCharts charts.
 
-// This is a library of functions that can be used to plot data on charts.
-//
-// Data from the platform can come in many different formats each of which
-// is represented differently on charts.  These functions take input data
-// from serialization/aggregation functions and plot it on HighCharts charts.
+"use strict";
+/*jslint browser: true*/ /*global Highcharts, $*/
 
 /// Plots a simple linear set of data consisting of a single array of points
 /// with increasing timestamps.
@@ -23,5 +21,12 @@ function AreafillLinearPlot(chart, data) {
 /// Plots a Bollinger Bands style of data consisting of two arrays of data
 /// representing the upper and lower bounds, shadingthe area in the middle.
 function BollingerStylePlot(chart, data) {
+
+}
+
+/// Plots opened trades and currently open positions on a chart.  These are
+/// represented by lines from the price the trade was opened at to where the
+/// trade was closed at colored to represent the success of the trade.
+function tradesPlot(chart, data) {
 
 }

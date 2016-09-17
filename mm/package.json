@@ -20,7 +20,8 @@
     "body-parser": "1.15.0",
     "ejs": "2.4.1",
     "nodejs-websocket": "1.5.0",
-    "bluebird": "3.3.4"
+    "bluebird": "3.3.4",
+    "pg": "6.1.0"
   },
   "homepage": "https://github.com/Ameobea/bot4-mm#readme"
 }

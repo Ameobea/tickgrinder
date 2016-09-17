@@ -17,6 +17,7 @@ manager.start = function(port){
 
   var index = require('./routes/index');
   var api = require("./routes/api");
+  var data = require("./routes/data");
 
   app.engine('html', require('ejs').renderFile);
   app.set('views', path.join(__dirname, 'views'));
@@ -26,8 +27,9 @@ manager.start = function(port){
   app.listen(port);
   console.log("Manager webserver started!");
 
-  app.use('/', index);
+  app.use("/", index);
   app.use("/api", api);
+  app.use("/data", data);
 
   var socketServer = ws.createServer(function(conn){
     socketServer.on('error', function(err){

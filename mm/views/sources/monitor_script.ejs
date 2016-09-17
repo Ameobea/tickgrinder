@@ -319,163 +319,60 @@ var drawSeries = finalPromiseArray_=>{
   });
 };
 
+/// Holds references to all open charts
+var openCharts = [];
+
+/// Clear all plotted data from all open charts
 var clearChart = chart=>{
-  while(mainGraph.series.length > 0)
-    mainGraph.series[0].remove(true);
-  while(momentumGraph.series.length > 0)
-    momentumGraph.series[0].remove(true);
-  while(smaDistGraph.series.length > 0)
-    smaDistGraph.series[0].remove(true);
-  mainGraph.xAxis[0].removePlotBand("band");
+  for(var i=0;i<openCharts.length;i++){
+    while(openCharts[i].series.length > 0)
+      openCharts[i].series[0].remove(true);
+  }
 };
 
+/// Parses the supplied macro and adds a new graph to the bottom of the page.
+function loadMacro(macroString) {
+  if(macroString[0] == "{"){
+    var macro = JSON.parse(macroString);
+  }else{
+    // TODO: Load saved macro string from database based on macro code
+  }
+
+  // make request to macro data endpoint
+  $.get(`http://<%= ip %>data/${macro.indicator}/${macro.symbol}/${macro.startTime}` +
+      `/${macro.endTime}/${JSON.stringify(macro.data)}`, res=>{
+    console.log(res);
+  });
+}
+
+/// Generates a macro string based on the supplied inputs
+function generateMacro() {
+  var indicator = $("#indicator").val();
+  var symbol = $("#pairInput").val();
+  var timeRange = $("#timeRange").val();
+
+  var macro = {};
+  macro.indicator = indicator;
+  macro.symbol = symbol;
+  macro.startTime = Date.now() - (timeRange*1000);
+  macro.endTime = Date.now();
+  macro.data = {};
+
+  return JSON.stringify(macro);
+}
+
+/// initialize listeners for all of the buttons
 var setupConfigListeners = ()=>{
-  $(".averageExtend").off().click(()=>{
-    buttonHTML = '<input type="button" class="averageRemove" value="Remove One"><input type="button" class="averageExtend" value="Add Another">';
-    oldHTML = $("#averages").html().split(buttonHTML)[0];
-    $("#averages").html(oldHTML + '<input type="text" class="averageInput"><br>\n' + buttonHTML);
-    setupConfigListeners();
+  $("#generateMacro").off().click(()=>{
+    var macroString = generateMacro();
+    $("#generatedMacro").val(macroString);
   });
 
-  $(".averageRemove").off().click(()=>{
-    buttonHTML = '<input type="button" class="averageRemove" value="Remove One"><input type="button" class="averageExtend" value="Add Another">';
-    lastHTML = '<input type="text" class="averageInput"><br>\n' + buttonHTML;
-    oldHTML = $("#averages").html().split(lastHTML)[0];
-    $("#averages").html(oldHTML + buttonHTML);
-    setupConfigListeners();
-  });
-
-  $(".momentumExtend").off().click(()=>{
-    buttonHTML = '<input type="button" class="momentumRemove" value="Remove One"><input type="button" class="momentumExtend" value="Add Another">';
-    oldHTML = $("#momentums").html().split(buttonHTML)[0];
-    $("#momentums").html(oldHTML + '<input type="text" class="momentumInput"><br>\n' + buttonHTML);
-    setupConfigListeners();
-  });
-
-  $(".momentumRemove").off().click(()=>{
-    var buttonHTML = '<input type="button" class="momentumRemove" value="Remove One"><input type="button" class="momentumExtend" value="Add Another">';
-    var lastHTML = '<input type="text" class="momentumInput"><br>\n' + buttonHTML;
-    var oldHTML = $("#momentums").html().split(lastHTML)[0];
-    $("#momentums").html(oldHTML + buttonHTML);
-    setupConfigListeners();
-  });
-
-  $(".smaDistCompExtend").off().click(()=>{
-    var buttonHTML = '<input type="button" class="smaDistCompRemove" value="Remove One"><input type="button" class="smaDistCompExtend" value="Add Another">';
-    var lastHTML = '<input type="text" class="smaDistCompInput"><br>\n' + buttonHTML;
-    var oldHTML = $("#momentums").html().split(lastHTML)[0];
-    $("#momentums").html(oldHTML + buttonHTML);
-    setupConfigListeners();
-  });
-
-  $(".smaDistCompRemove").off().click(()=>{
-    var buttonHTML = '<input type="button" class="smaDistCompRemove" value="Remove One"><input type="button" class="smaDistCompExtend" value="Add Another">';
-    var lastHTML = '<input type="text" class="smaDistCompInput"><br>\n' + buttonHTML;
-    var oldHTML = $("#momentums").html().split(lastHTML)[0];
-    $("#momentums").html(oldHTML + buttonHTML);
-    setupConfigListeners();
-  });
-
-  $("#update").off().click(()=>{
-    resetAndUpdate(parseInt($("#timeRange").val()));
+  $("#loadMacro").off().click(()=>{
+    loadMacro($("#macroInput").val());
   });
 };
 
 $(document).ready(()=>{
-  mainGraph = new Highcharts.Chart({
-    chart: {
-      renderTo: 'mainGraph',
-      zoomType: "x"
-    },
-    title: {
-      text: 'Main Chart'
-    },
-    xAxis: {
-      type: 'datetime',
-      tickPixelInterval: 150,
-      maxZoom: 20 * 1000
-    },
-    plotOptions: {
-      series: {
-        animation: false
-      }
-    },
-    yAxis: {
-      id: "priceAverageAxis",
-      minPadding: 0.2,
-      maxPadding: 0.2,
-      title: {
-        text: 'Price',
-        margin: 80
-      }
-    },
-    series: [{
-      name: 'Average Rate of Change',
-      data: []
-    }]
-  });
-
-  momentumGraph = new Highcharts.Chart({ //TODO: Change colors to varying shades of red/green if it's above/below 0
-    chart: {
-      renderTo: 'momentumGraph',
-      zoomType: "x"
-    },
-    title: {
-      text: 'Momentum Chart'
-    },
-    xAxis: {
-      type: 'datetime',
-      tickPixelInterval: 150,
-      maxZoom: 20 * 1000
-    },
-    plotOptions: {
-      series: {
-        animation: false
-      }
-    },
-    yAxis: {
-      id: "momentumAxis",
-      title: {
-        text: "Momentum",
-        margin: 80
-      }
-    },
-    series: [{
-      name: 'Average Rate of Change',
-      data: []
-    }]
-  });
-
-  smaDistGraph = new Highcharts.Chart({ //TODO: Change colors to varying shades of red/green if it's above/below 0
-    chart: {
-      renderTo: 'smaDistGraph',
-      zoomType: "x"
-    },
-    title: {
-      text: 'SMA Distances Chart'
-    },
-    xAxis: {
-      type: 'datetime',
-      tickPixelInterval: 150,
-      maxZoom: 20 * 1000
-    },
-    plotOptions: {
-      series: {
-        animation: false
-      }
-    },
-    yAxis: {
-      id: "distAxis",
-      title: {
-        text: "Distance",
-        margin: 80
-      }
-    },
-    series: [{
-      name: 'SMA Distances',
-      data: []
-    }]
-  });
-
   setupConfigListeners();
 });

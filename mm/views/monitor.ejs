@@ -1,34 +1,56 @@
 <html>
 <head>
-<title>Algobot Monitoring Interface</title>
-<script type="text/javascript" src="http://code.jquery.com/jquery-1.10.1.js"></script>
-<script src="https://code.highcharts.com/highcharts.js"></script>
-<script src="../sources/monitor_script.js"></script>
-<link rel="stylesheet" href="sources/monitor_css.css">
+  <title>Algobot Monitoring Interface</title>
+  <script type="text/javascript" src="http://code.jquery.com/jquery-1.10.1.js"></script>
+  <script src="https://code.highcharts.com/highcharts.js"></script>
+  <script src="../sources/monitor_script.js"></script>
+  <link rel="stylesheet" href="sources/monitor_css.css">
 </head>
+
 <body>
 <% include ./partials/header %>
 <h1><center>Algobot Monitoring Interface</center></h1>
-<div id="graph1" style="width: 100%; height: 475px; margin: 0 auto"></div>
-<div id="config">
-  <h2>Chart Config</h2>
-  <table>
+<!-- All charts are contained in here -->
+<div id="charts"></div>
+<!-- <div id="graph1" style="width: 100%; height: 475px; margin: 0 auto"></div> -->
+
+<table width="100%" style="text-align: center;"><tr><td>
+  <h2>Add a Chart</h2>
+  <table width="100%">
   <tr>
-  <td>Symbol</td>
+    <td>Symbol</td>
+    <td>Indicator</td>
   </tr>
   <tr>
-  <td>
-    <input type="text" id="pairInput" value="usdcad"><br>
-  </td>
+    <td><input type="text" id="pairInput" value="usdcad"><br></td>
+    <td><p><input type="text" id="indicator" value="ticks"></p></td>
   </tr>
-  <tr><td><p><input type="checkbox" name="rawTicks" id="loadTicks">Plot raw ticks</p></td></tr>
-  <tr><td><p>Time Range</p></td></tr>
-  <tr><td><input type="text" id="timeRange" value="100000"></td></tr>
   <tr>
-    <td><input type="button" id="update" value="Update and Reset"></td>
-    <td><input type="button" id="update" value="Save Graph"></td>
+    <td><p>Time Range (Seconds)</p></td>
+    <td>blank</td>
+  </tr>
+  <tr>
+  </tr>
+  <tr>
+    <td><input type="text" id="timeRange" value="100000"></td>
+    <td>blank</td>
+  </tr>
+  <tr>
+    <td><input type="button" id="generateMacro" value="Generate Macro"></td>
+    <td>blank</td>
+  </tr>
+  <tr>
+    <td colspan="2"><textarea id="generatedMacro" style="width: 100%;"">Generated macro string will appear here.</textarea></td>
   </tr>
   </table>
+</td><td>
+  <h2>Load a Chart</h2>
+  <table width="100%" >
+    <tr><td><p>Name of Chart</p></td></tr>
+    <tr><td><textarea id="macroInput" style="width: 100%;"">Type macro code or paste generated macro string here.</textarea></td></tr>
+    <tr><td><input type="button" id="loadMacro" value="Load Macro"></td></tr>
+  </table>
+</td></tr></table>
 </div>
 </body>
 </html>
