@@ -6,22 +6,38 @@
 "use strict";
 /*jslint browser: true*/ /*global Highcharts, $*/
 
+/// Takes the name of the indicator as an argument and plots the corresponding
+/// chart.
+function matchPlot(indicator, chart, data) {
+  switch(indicator) {
+    case "ticks":
+      simpleLinearPlot(chart, data);
+      break;
+    case "bidask":
+      bollingerStylePlot(chart, data);
+  }
+}
+
 /// Plots a simple linear set of data consisting of a single array of points
 /// with increasing timestamps.
-function SimpleLinearPlot(chart, data) {
-
+function simpleLinearPlot(chart, data) {
+  var series = {data: data.data, name: `${data.name}`};
+  chart.addSeries(series);
 }
 
 /// Plots a set of data representing deviation from zero with the area under
 /// the curve being shaded.
-function AreafillLinearPlot(chart, data) {
+function areafillLinearPlot(chart, data) {
 
 }
 
 /// Plots a Bollinger Bands style of data consisting of two arrays of data
 /// representing the upper and lower bounds, shadingthe area in the middle.
-function BollingerStylePlot(chart, data) {
-
+function bollingerStylePlot(chart, data) {
+  var lower_series = {data: data.lower, name: data.lower_name};
+  var upper_series = {data: data.upper, name: data.upper_name};
+  chart.addSeries(lower_series);
+  chart.addSeries(upper_series);
 }
 
 /// Plots opened trades and currently open positions on a chart.  These are

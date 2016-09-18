@@ -322,6 +322,43 @@ var drawSeries = finalPromiseArray_=>{
 /// Holds references to all open charts
 var openCharts = [];
 
+/// Appends a new chart to the bottom of the page and returns a reference to its DOM object
+function createChart() {
+  var html = $("#charts").html();
+  var i = openCharts.length;
+  var chart_code = `<div id="chart_${i}_wrapper"><div id="chart_${i}"></div>
+    <center><button id="chart_${i}_delete">Delete Chart</button></center>
+    </div>`;
+  html += chart_code;
+  $("#charts").html(html);
+
+  // set up chart deletion listener
+  $(`#chart_${i}_delete`).click(()=>{
+    $(`#chart_${i}_wrapper`).remove();
+    openCharts[i] = null;
+  });
+
+  var new_chart = new Highcharts.Chart({
+    chart: {
+      renderTo: `chart_${i}`,
+      zoomType: "x"
+    },
+    xAxis: {
+      type: 'datetime',
+      tickPixelInterval: 150,
+      maxZoom: 20 * 1000
+    },
+    plotOptions: {
+      series: {
+        animation: false
+      }
+    }
+  });
+
+  openCharts.push(new_chart);
+  return new_chart;
+}
+
 /// Clear all plotted data from all open charts
 var clearChart = chart=>{
   for(var i=0;i<openCharts.length;i++){
@@ -341,7 +378,8 @@ function loadMacro(macroString) {
   // make request to macro data endpoint
   $.get(`http://<%= ip %>data/${macro.indicator}/${macro.symbol}/${macro.startTime}` +
       `/${macro.endTime}/${JSON.stringify(macro.data)}`, res=>{
-    console.log(res);
+    var new_chart = createChart();
+    matchPlot(macro.indicator, new_chart, res);
   });
 }
 

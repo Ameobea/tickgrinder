@@ -1,4 +1,4 @@
-conf = {
+var conf = {
   // MM Config
   mmUrl: "localhost",
   mmPort: 8002,
@@ -10,7 +10,9 @@ conf = {
   postgresPort: 5432
   postgresUser: "user",
   postgresPassword: "password",
-  postgresDatabase: "algobot"
+  postgresDatabase: "algobot",
+  // Redis Config
+  redisUrl: "localhost"
 };
 
 module.exports = conf;
