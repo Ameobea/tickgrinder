@@ -4,10 +4,10 @@ var conf = {
   mmPort: 8002,
   // Websockets Config
   websocketUrl: "localhost",
-  websocketPort: 7037
+  websocketPort: 7037,
   // Postgres Config
   postgresUrl: "localhost",
-  postgresPort: 5432
+  postgresPort: 5432,
   postgresUser: "user",
   postgresPassword: "password",
   postgresDatabase: "algobot",
