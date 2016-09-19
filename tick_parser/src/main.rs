@@ -23,13 +23,14 @@ mod tests;
 
 use std::thread;
 use std::time::Duration;
+use std::str::FromStr;
 
 use futures::Future;
 use futures::stream::{Stream, MergedItem};
 
 use processor::Processor;
 use conf::CONF;
-use algobot_util::tick::Tick;
+use algobot_util::tick::{Tick, SymbolTick};
 use algobot_util::transport::postgres::{get_client, reset_db, PostgresConf};
 use algobot_util::transport::redis::sub_channel;
 
@@ -37,14 +38,14 @@ fn handle_messages() {
     // subscribe to live ticks channel
     let ticks_rx = sub_channel(CONF.redis_url, CONF.redis_ticks_channel);
 
-    let mut processor = Processor::new(CONF.symbol);
+    let mut processor = Processor::new(String::from_str(CONF.symbol).unwrap());
     // listen for new commands
     let cmds_rx = sub_channel(CONF.redis_url, CONF.redis_control_channel);
 
     ticks_rx.merge(cmds_rx).for_each(move |mi| {
         match mi {
             MergedItem::First(raw_string) =>
-                processor.process(Tick::from_json_string(raw_string)),
+                processor.process(SymbolTick::from_json_string(raw_string)),
             MergedItem::Second(raw_string) =>
                 processor.execute_command(raw_string),
             MergedItem::Both(_, _) => ()

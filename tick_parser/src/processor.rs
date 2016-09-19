@@ -9,13 +9,14 @@ use algobot_util::transport::commands::*;
 
 use datafield::DataField;
 use calc::sma::SMAList;
-use algobot_util::tick::Tick;
+use algobot_util::tick::{Tick, SymbolTick};
 use algobot_util::transport::postgres::{get_client, init_tick_table, PostgresConf};
 use algobot_util::transport::query_server::QueryServer;
 use algobot_util::transport::redis::get_client as get_redis_client;
 use conf::CONF;
 
 pub struct Processor {
+    pub symbol: String,
     pub ticks: DataField<Tick>,
     pub smas: SMAList,
     qs: QueryServer,
@@ -32,7 +33,7 @@ pub fn send_response(res: &WrappedResponse, client: &redis::Client) {
 }
 
 impl Processor {
-    pub fn new(symbol: &str) -> Processor {
+    pub fn new(symbol: String) -> Processor {
         let pg_conf = PostgresConf {
             postgres_user: CONF.postgres_user,
             postgres_password: CONF.postgres_password,
@@ -44,9 +45,10 @@ impl Processor {
         let pg_client = get_client(pg_conf.clone()).expect("Could not connect to Postgres");
 
         println!("Successfully connected to Postgres");
-        init_tick_table(symbol, &pg_client, CONF.postgres_user);
+        init_tick_table(symbol.as_str(), &pg_client, CONF.postgres_user);
 
         Processor {
+            symbol: symbol,
             ticks: DataField::new(),
             smas: SMAList::new(),
             qs: QueryServer::new(CONF.qs_connections, pg_conf),
@@ -55,7 +57,12 @@ impl Processor {
     }
 
     // Called for each new tick received by the tick processor
-    pub fn process(&mut self, t: Tick) {
+    pub fn process(&mut self, st: SymbolTick) {
+        if st.symbol != self.symbol {
+            return
+        }
+
+        let t = Tick::from_symboltick(st);
         // Add to internal tick data field
         self.ticks.push(t);
         // Calculate smas

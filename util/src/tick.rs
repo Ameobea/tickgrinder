@@ -18,34 +18,34 @@ pub struct SymbolTick {
 }
 
 impl Tick {
-    // returns a dummy placeholder tick
+    /// Returns a dummy placeholder tick
     pub fn null() -> Tick {
         Tick {bid: 0f64, ask: 0f64, timestamp: 0i64}
     }
 
-    // converts a JSON-encoded String into a Tick
+    /// Converts a JSON-encoded String into a Tick
     pub fn from_json_string(s: String) -> Tick {
         serde_json::from_str(s.as_str()).expect("Unable to parse tick from string")
     }
 
-    // generates a JSON string containing the data of the tick
+    /// generates a JSON string containing the data of the tick
     pub fn to_json_string(&self, symbol :String) -> String {
         serde_json::to_string(&SymbolTick::from_tick(*self, symbol))
             .expect("Couldn't convert tick to json string")
     }
 
-    // returns the difference between the bid and the ask
+    /// Returns the difference between the bid and the ask
     pub fn spread(&self) -> f64 {
         self.bid - self.ask
     }
 
-    // returns the average of the bid and ask price
+    /// Returns the average of the bid and ask price
     pub fn mid(&self) -> f64 {
         (self.bid + self.ask) / 2f64
     }
 
-    // saves the tick in the database
-    // the table "ticks_SYMBOL" must exist.
+    /// Saves the tick in the database.
+    /// The table "ticks_SYMBOL" must exist.
     pub fn store(&self, symbol: &str, qs: &mut QueryServer) {
         let query = format!(
             "INSERT INTO ticks_{} (tick_time, bid, ask) VALUES ({}, {}, {});",
@@ -59,6 +59,7 @@ impl Tick {
         qs.execute(query);
     }
 
+    /// Converts a SymbolTick into a Tick, dropping the symbol
     pub fn from_symboltick(st: SymbolTick) -> Tick {
         Tick {
             timestamp: st.timestamp,
@@ -69,8 +70,13 @@ impl Tick {
 }
 
 impl SymbolTick {
-    // creates a SymbolTick given a Tick and a SymbolTick
+    /// creates a SymbolTick given a Tick and a SymbolTick
     pub fn from_tick(tick: Tick, symbol: String) -> SymbolTick {
         SymbolTick {bid: tick.bid, ask: tick.ask, timestamp: tick.timestamp, symbol: symbol}
+    }
+
+    /// Converts a JSON-encoded String into a Tick
+    pub fn from_json_string(s: String) -> SymbolTick {
+        serde_json::from_str(s.as_str()).expect("Unable to parse tick from string")
     }
 }
