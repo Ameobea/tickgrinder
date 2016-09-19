@@ -11,7 +11,8 @@ var lastHTML;
 //TODO: Add in live updating.
 
 var getData = (pair, type, props, range, callback)=>{
-  $.post("http://<%= ip %>" + "api/data/" + pair + "/" + type + "/" + range, {props: JSON.stringify(props)}, (res)=>{
+  $.post("http://<%= ip %>" + "api/data/" + pair + "/" + type + "/" +
+      range, {props: JSON.stringify(props)}, (res)=>{
     callback(JSON.parse(res));
   });
 };
@@ -72,7 +73,8 @@ var resetAndUpdate = (range, callback)=>{
     params = params.split(",");
     momentumData.data.push(
       new Promise((fulfill, reject)=>{
-        getData(pair, "momentums", {averagePeriod: parseInt(params[0]), momentumPeriod: parseInt(params[1])}, range, (momentumData)=>{
+        getData(pair, "momentums", {averagePeriod: parseInt(params[0]),
+          momentumPeriod: parseInt(params[1])}, range, (momentumData)=>{
           fulfill(momentumData);
         });
       })
@@ -117,7 +119,8 @@ var resetAndUpdate = (range, callback)=>{
     var drawDownBands = $("#drawDownBands").is(":checked");
     var drawUpBands =   $("#drawUpBands").is(":checked");
 
-    drawCrossBands(pair, range, stripePeriod, realCompUpPeriods, realCompDnPeriods, drawDownBands, drawUpBands);
+    drawCrossBands(pair, range, stripePeriod, realCompUpPeriods,
+      realCompDnPeriods, drawDownBands, drawUpBands);
 
     var smaDistPeriod     = $("#smaDistInput").val();
     var smaDistCompPeriod = $(".smaDistCompInput").val().split(",").map((x)=> parseInt(x));
@@ -147,7 +150,8 @@ var tradeIterator = function(trades){
     if(trades.length > 0){
       var tradeStop = trades[0];
       trades.shift();
-      drawTradeLine(tradeStart.timestamp, tradeStop.timestamp, tradeStart.openPrice, tradeStop.closePrice, tradeStart.direction);
+      drawTradeLine(tradeStart.timestamp, tradeStop.timestamp, tradeStart.openPrice,
+        tradeStop.closePrice, tradeStart.direction);
 
       tradeIterator(trades);
     }else{
@@ -181,7 +185,8 @@ var drawSMADistGraph = function(pair, range, distPeriod, distCompPeriods){
 
     if(distData.length > 0){
       distCompPeriods.forEach(function(compPeriod){
-        var dataSeries = {data: [], yAxis: "distAxis", name: "Period " + distPeriod + "," + compPeriod + " Distance", type: "area"};
+        var dataSeries = {data: [], yAxis: "distAxis", name: "Period " + distPeriod +
+          "," + compPeriod + " Distance", type: "area"};
 
         distData.forEach(function(cross){
           if(cross.compPeriod == compPeriod){
@@ -294,7 +299,8 @@ var drawSeries = finalPromiseArray_=>{
 
     finalValues[2].forEach(momentumArray=>{
       if(momentumArray.length > 0){
-        var momentumSeries = {data: [], yAxis: "momentumAxis", name: "Period " + momentumArray[0].averagePeriod + "," + momentumArray[0].momentumPeriod + " Momentum", type: "area"};
+        var momentumSeries = {data: [], yAxis: "momentumAxis", name: "Period " +
+          momentumArray[0].averagePeriod + "," + momentumArray[0].momentumPeriod + " Momentum", type: "area"};
         momentumArray.forEach(momentum=>{
           momentumSeries.data.push([momentum.timestamp * 1000, momentum.momentum]);
         });
@@ -327,7 +333,7 @@ function createChart() {
   var html = $("#charts").html();
   var i = openCharts.length;
   var chart_code = `<div id="chart_${i}_wrapper"><div id="chart_${i}"></div>
-    <center><button id="chart_${i}_delete">Delete Chart</button></center>
+    <center><br><button id="chart_${i}_delete">Delete Chart</button></center>
     </div>`;
   html += chart_code;
   $("#charts").html(html);
@@ -369,17 +375,30 @@ var clearChart = chart=>{
 
 /// Parses the supplied macro and adds a new graph to the bottom of the page.
 function loadMacro(macroString) {
-  if(macroString[0] == "{"){
-    var macro = JSON.parse(macroString);
-  }else{
-    // TODO: Load saved macro string from database based on macro code
-  }
+  var new_chart = createChart();
+  var macro = JSON.parse(macroString);
 
-  // make request to macro data endpoint
+  // Macro is saved
+  if(typeof macro == "string") {
+    // TODO: Load saved macro string from database based on macro code
+  // Macro is a single indicator
+  } else if(macro.indicator) {
+    new_chart.setTitle({text: macro.chart_name});
+    plot_indicator(new_chart, macro);
+  // Macro is a list of indicators
+  } else if(macro.macros) {
+    new_chart.setTitle({text: macro.chart_name});
+    for(var i=0;i<macro.macros.length;i++) {
+      plot_indicator(new_chart, macro.macros[i]);
+    }
+  }
+}
+
+/// Makes a request to macro data endpoint and plots the resulting data on the given chart
+function plot_indicator(chart, macro) {
   $.get(`http://<%= ip %>data/${macro.indicator}/${macro.symbol}/${macro.startTime}` +
       `/${macro.endTime}/${JSON.stringify(macro.data)}`, res=>{
-    var new_chart = createChart();
-    matchPlot(macro.indicator, new_chart, res);
+    matchPlot(macro.indicator, chart, res);
   });
 }
 

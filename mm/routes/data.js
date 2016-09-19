@@ -28,7 +28,8 @@ router.get("/ticks/:symbol/:start/:end/:data", (req, res, next)=>{
 
   // Use dummy data during development
   res.json({data: [[10000,2],[20000,2.31],[30000,3.12]],
-    name: req.params.symbol + " Prices"});
+    name: req.params.symbol + " Prices",
+    chart_title: `Prices for ${req.params.symbol}`});
 
   // pool.connect((err, client, done)=>{
   //   client.query(query, (err, _res)=>{
@@ -48,13 +49,16 @@ router.get("/bidask/:symbol/:start/:end/:data", (req, res, next)=>{
   res.json({lower: [[10000,2],[20000,2.31],[30000,3.12]],
     upper: [[10000,2.1],[20000,2.41],[30000,3.22]],
     lower_name: req.params.symbol + " Bids",
-    upper_name: req.params.symbol + " Asks"});
+    upper_name: req.params.symbol + " Asks",
+    chart_title: `Bid/Asks for ${req.params.symbol}`});
 });
 
 /// Returns SMA with the given period (if it exists in the database)
 router.get("/sma/:symbol/:start/:end/:data", (req, res, next)=>{
   // Use dummy data during development
-  res.json({data: [[10000,2],[20000,2.31],[30000,3.12]]});
+  var data = JSON.parse(req.params.data);
+  res.json({data: [[10000,2],[20000,2.31],[30000,3.12]],
+    chart_title: `Period ${data.period} SMA for ${req.params.symbol}`});
 });
 
 module.exports = router;

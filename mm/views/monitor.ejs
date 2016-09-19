@@ -3,9 +3,11 @@
   <title>Algobot Monitoring Interface</title>
   <script type="text/javascript" src="http://code.jquery.com/jquery-1.10.1.js"></script>
   <script src="https://code.highcharts.com/highcharts.js"></script>
+  <script src="../sources/hc_theme.js"></script>
   <script src="../sources/plotting.js"></script>
   <script src="../sources/monitor_script.js"></script>
-  <link rel="stylesheet" href="sources/monitor_css.css">
+  <link rel="stylesheet" href="../sources/global_style.css">
+  <link rel="stylesheet" href="../sources/monitor_css.css">
 </head>
 
 <body>
@@ -48,7 +50,7 @@
   <h2>Load a Chart</h2>
   <table width="100%" >
     <tr><td><p>Name of Chart</p></td></tr>
-    <tr><td><textarea id="macroInput" style="width: 100%;"">Type macro code or paste generated macro string here.</textarea></td></tr>
+    <tr><td><textarea id="macroInput" style="width: 100%;" placeholder='{"chart_name": "complex", "macros": [{"indicator":"ticks","symbol":"usdcad","startTime":1474133033644,"endTime":1474233033644,"data":{}},{"indicator":"bidask","symbol":"usdcad","startTime":1474133045034,"endTime":1474233045034,"data":{}}]}'></textarea></td></tr>
     <tr><td><input type="button" id="loadMacro" value="Load Macro"></td></tr>
   </table>
 </td></tr></table>

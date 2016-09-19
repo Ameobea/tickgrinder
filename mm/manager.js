@@ -48,13 +48,13 @@ manager.start = function(port){
   }).listen(parseInt(conf.websocketPort));
 
   // forwards messages from redis to the websocket
-  var redisClient = redis.createClient();
-  redisClient.subscribe("tickParserOutput");
-  redisClient.on("message", (channel, message)=>{
-    socketServer.connections.forEach(conn=>{
-      conn.sendText(JSON.stringify({channel: channel, data: message}));
-    });
-  });
+  // var redisClient = redis.createClient();
+  // redisClient.subscribe("tickParserOutput");
+  // redisClient.on("message", (channel, message)=>{
+  //   socketServer.connections.forEach(conn=>{
+  //     conn.sendText(JSON.stringify({channel: channel, data: message}));
+  //   });
+  // });
 
   app.use(function(err, req, res, next) {
     res.status(err.status || 500);
