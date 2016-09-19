@@ -30,6 +30,7 @@ manager.start = function(port){
   app.use("/", index);
   app.use("/api", api);
   app.use("/data", data);
+  app.use("/sources", express.static(__dirname + "sources"));
 
   var socketServer = ws.createServer(function(conn){
     socketServer.on('error', function(err){
