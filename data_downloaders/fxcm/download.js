@@ -1,17 +1,17 @@
+//! FXCM Historical Data Downloader
+//!
+//! Using the FXCM Broker API, this utility pulls down historical ticks from their trade servers
+//! in conjunction with the tick_recorder java application which serves as the link to their API.
+//!
+//! 1. Queue up many requests and save their unique ids to RequestQueue
+//! 2. java connector returns a new chunkID when the API accepts the request, save that to DownloadQueue
+//! 3. new segment returned with segment's data; add success to SuccessQueue
+//! 4. after it's been 1 second since last response from the server, re-queue up any un-recieved requests.
+//! 5. repeat step 4 until all chunks in the superSegment are recieved; then move on to next superSegment.
+
 /*jslint node: true */
 "use strict";
-/*
-FXCM Historical Data Downloader
 
-Using the FXCM Broker API, this utility pulls down historical ticks from their trade servers
-in conjunction with the tick_recorder java application which serves as the link to their API.
-
-1. Queue up many requests and save their unique ids to RequestQueue
-2. java connector returns a new chunkID when the API accepts the request, save that to DownloadQueue
-3. new segment returned with segment's data; add success to SuccessQueue
-4. after it's been 1 second since last response from the server, re-queue up any un-recieved requests.
-5. repeat step 4 until all chunks in the superSegment are recieved; then move on to next superSegment.
-*/
 var redis = require("redis"); //TODO: Intelligently skip weekends
 var fs = require("fs");
 var uuid64 = require("uuid64");
@@ -21,15 +21,15 @@ Promise.onPossiblyUnhandledRejection(function(error){
     throw error;
 });
 
-var conf = require("../../conf/conf");
+//var conf = require("../../conf/conf");
 
 //TODO: Enable resuming from last tick in output file
 //TODO: Make start/stop time cli arguments or create config file
 
 //unix timestamp format.
-var pair = "usdcad"; //like "usdcad"
-var startTime = 1452290337645; //like 1393826400 * 1000
-var endTime = 1460955600 * 1000;
+var symbol = "usdcad"; //like "usdcad"
+var startTime = 1467766209497; //like 1393826400 * 1000
+var endTime = 1473757200 * 1000;
 
 //time between data requests
 var downloadDelay = 50;
@@ -79,9 +79,9 @@ redisSubClient.on("message", (channel, message)=>{
   }
 });
 
-var formatPair = rawPair=>{
-  var currencyOne = rawPair.toUpperCase().substring(0,3);
-  var currencyTwo = rawPair.toUpperCase().substring(3,6);
+var formatSymbol = rawSymbol=>{
+  var currencyOne = rawSymbol.toUpperCase().substring(0,3);
+  var currencyTwo = rawSymbol.toUpperCase().substring(3,6);
   return currencyOne + "/" +  currencyTwo;
 };
 
@@ -91,7 +91,7 @@ var downloadSegment = (startTime, delay)=>{
     var uuid = uuid64();
     //console.log(uuid);
 
-    var toSend = {uuid: uuid, pair: formatPair(pair), startTime: startTime, endTime: startTime + 10000, resolution: "t1"};
+    var toSend = {uuid: uuid, symbol: formatSymbol(symbol), startTime: startTime, endTime: startTime + 10000, resolution: "t1"};
     requestQueue.push(toSend);
 
     redisPubclient.publish("priceRequests", JSON.stringify([toSend]));
@@ -188,15 +188,15 @@ var storeTick = (tick)=>{
   }
 
   new Promise((fulfill, reject)=>{
-    if(!existingFiles[pair]){
-      fs.stat(conf.private.tickRecorderOutputPath + pair + ".csv", (err, res)=>{
+    if(!existingFiles[symbol]){
+      fs.stat("./" + symbol + ".csv", (err, res)=>{
         if(err){
-          initFile(pair, ()=>{
-            existingFiles[pair] = true;
+          initFile(symbol, ()=>{
+            existingFiles[symbol] = true;
             fulfill();
           });
         }else{
-          existingFiles[pair] = true;
+          existingFiles[symbol] = true;
           fulfill();
         }
       });
@@ -205,14 +205,15 @@ var storeTick = (tick)=>{
     }
   }).then(()=>{
     toAppend = "\n" + tick.timestamp + ", " + tick.bid + ", " + tick.ask;
-    fs.appendFile(conf.private.tickRecorderOutputPath + pair + ".csv", toAppend, (err, res)=>{});
+    fs.appendFile("./" + symbol + ".csv", toAppend, (err, res)=>{});
   });
 };
 
-var initFile = (pair, callback)=>{
-  fs.writeFile(conf.private.tickRecorderOutputPath + pair + ".csv", "timestamp, bid, ask", (err, res)=>{
+var initFile = (symbol, callback)=>{
+  fs.writeFile("./" + symbol + ".csv", "timestamp, bid, ask", (err, res)=>{
     callback();
   });
 };
 
 downloadSuperSegment(startTime); //initiate segment downloading
+

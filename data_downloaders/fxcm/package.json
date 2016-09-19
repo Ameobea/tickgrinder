@@ -1,0 +1,16 @@
+{
+  "name": "fxcm_data_downloader",
+  "version": "1.0.0",
+  "description": "Client that interfaces with the FXCM Java server (../TickRecorder) to download historical data.",
+  "main": "download.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Casey Primozic <me@ameo.link>",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "redis": "2.4.2",
+    "uuid64": "0.0.1",
+    "bluebird": "3.3.4"
+  }
+}

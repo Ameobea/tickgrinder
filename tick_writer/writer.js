@@ -13,8 +13,8 @@ var fs = require("fs");
 var redisClient = redis.createClient();
 redisClient.subscribe("ticks");
 
-var initFile = (pair, callback)=>{
-  fs.writeFile("./" + pair + ".csv", "timestamp, bid, ask", (err, res)=>{
+var initFile = (symbol, callback)=>{
+  fs.writeFile("./" + symbol + ".csv", "timestamp, bid, ask", (err, res)=>{
     callback();
   });
 };
@@ -28,15 +28,15 @@ redisClient.on("message", (channel, message)=>{
 
   if(parsed.real){
     new Promise((fulfill, reject)=>{
-      if(!existingFiles[parsed.pair]){
-        fs.stat("./" + parsed.pair + ".csv", (err, stat)=>{
+      if(!existingFiles[parsed.symbol]){
+        fs.stat("./" + parsed.symbol + ".csv", (err, stat)=>{
           if(err){
-            initFile(parsed.pair, ()=>{
-              existingFiles[parsed.pair] = true;
+            initFile(parsed.symbol, ()=>{
+              existingFiles[parsed.symbol] = true;
               fulfill();
             });
           }else{
-            existingFiles[parsed.pair] = true;
+            existingFiles[parsed.symbol] = true;
             fulfill();
           }
         });
@@ -45,7 +45,8 @@ redisClient.on("message", (channel, message)=>{
       }
     }).then(()=>{
       var appendString = "\n" + parsed.timestamp.toString() + ", " + parsed.bid.toString() + ", " + parsed.ask.toString();
-      fs.appendFile("./" + parsed.pair + ".csv", appendString, (err, res)=>{});
+      fs.appendFile("./" + parsed.symbol + ".csv", appendString, (err, res)=>{});
     });
   }
 });
+

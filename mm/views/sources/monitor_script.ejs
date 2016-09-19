@@ -1,329 +1,48 @@
 "use strict";
 /*jslint node: true */
 /*jslint browser: true*/ /*global Highcharts, $*/
-var mainGraph;
-var momentumGraph;
-var smaDistGraph;
-var buttonHTML;
-var oldHTML;
-var lastHTML;
 
-//TODO: Add in live updating.
+// var drawTrades = function(pair, range){
+//   var params = {pair: pair};
 
-var getData = (pair, type, props, range, callback)=>{
-  $.post("http://<%= ip %>" + "api/data/" + pair + "/" + type + "/" +
-      range, {props: JSON.stringify(props)}, (res)=>{
-    callback(JSON.parse(res));
-  });
-};
+//   getData(pair, "tradeHistory", params, range, function(tradeData){
+//     var filtered = tradeData.filter(function(trade){
+//       return trade.pair == pair;
+//     });
+//     tradeIterator(filtered);
+//   });
+// };
 
-var resetAndUpdate = (range, callback)=>{
-  clearChart(mainGraph);
+// var tradeIterator = function(trades){
+//   if(trades.length > 0){
+//     var tradeStart = trades[0];
+//     trades.shift();
 
-  var pair = $("#pairInput").val();
-  var loadTicks = $("#loadTicks").is(":checked");
+//     if(trades.length > 0){
+//       var tradeStop = trades[0];
+//       trades.shift();
+//       drawTradeLine(tradeStart.timestamp, tradeStop.timestamp, tradeStart.openPrice, tradeStop.closePrice, tradeStart.direction);
 
-  var averages = [];
-  var averageBoxes = [].slice.call($(".averageInput"));
-  averageBoxes.forEach((box)=>{
-    averages.push(box.value);
-  });
-  var momentums = [];
-  var momentumBoxes = [].slice.call($(".momentumInput"));
-  momentumBoxes.forEach((box)=>{
-    if(box.value !== ""){
-      momentums.push(box.value);
-    }
-  });
+//       tradeIterator(trades);
+//     }else{
+//       //TODO: draw trade line to current price
+//     }
+//   }
+// };
 
-  var tickData = {type: "ticks", data: []};
-  var priceData = {type: "prices", data: []};
-  var averageData = {type: "smas", data: []};
-  var momentumData = {type: "momentums", data: []};
+// var drawTradeLine = function(startTime, stopTime, startPrice, stopPrice, direction){
+//   var color;
+//   if(direction){
+//     color = "blue";
+//   }else{
+//     color = "red";
+//   }
 
-  if(loadTicks){
-    tickData.data.push(
-      new Promise((fulfill, reject)=>{
-        getData(pair, "ticks", {}, range, (tickData)=>{
-          fulfill(tickData);
-        });
-      })
-    );
-  }
+//   var series = {yAxis: "priceAverageAxis", showInLegend: false, type: "line", color: color};
+//   series.data = [[startTime * 1000, startPrice], [stopTime * 1000, stopPrice]];
 
-  priceData.data.push(
-    new Promise((fulfill, reject)=>{
-      getData(pair, "prices", {}, range, (priceData)=>{
-        fulfill(priceData);
-      });
-    })
-  );
-
-  averages.forEach((period)=>{
-    averageData.data.push(
-      new Promise((fulfill, reject)=>{
-        getData(pair, "smas", {period: parseInt(period)}, range, (smaData)=>{
-          fulfill(smaData);
-        });
-      })
-    );
-  });
-
-  momentums.forEach((params)=>{
-    params = params.split(",");
-    momentumData.data.push(
-      new Promise((fulfill, reject)=>{
-        getData(pair, "momentums", {averagePeriod: parseInt(params[0]),
-          momentumPeriod: parseInt(params[1])}, range, (momentumData)=>{
-          fulfill(momentumData);
-        });
-      })
-    );
-  });
-
-  var toPromisify = [priceData, averageData, momentumData];
-  if(loadTicks){
-    toPromisify.push(tickData);
-  }
-  var finalPromiseArray = [];
-
-  toPromisify.forEach((promiseObject)=>{
-    finalPromiseArray.push(
-      new Promise((fulfill, reject)=>{
-        Promise.all(promiseObject.data).then((values)=>{// evalulate one of the three promise arrays
-          fulfill(values);
-        });
-      })
-    );
-  });
-
-  //TODO: Reduce number of points that are plotted to make it easier on client cpu
-  drawSeries(finalPromiseArray).then(()=>{
-    var stripePeriod = parseInt($("#maxMinStripePeriod").val());
-
-    var compUpPeriods = $("#compUpPeriods").val();
-    var compDnPeriods = $("#compDownPeriods").val();
-    compUpPeriods = compUpPeriods.split(",");
-    compDnPeriods = compDnPeriods.split(",");
-
-    var realCompUpPeriods = [];
-    var realCompDnPeriods = [];
-
-    compUpPeriods.forEach((pd2)=>{
-      realCompUpPeriods.push(parseInt(pd2));
-    });
-    compDnPeriods.forEach((pd2)=>{
-      realCompDnPeriods.push(parseInt(pd2));
-    });
-
-    var drawDownBands = $("#drawDownBands").is(":checked");
-    var drawUpBands =   $("#drawUpBands").is(":checked");
-
-    drawCrossBands(pair, range, stripePeriod, realCompUpPeriods,
-      realCompDnPeriods, drawDownBands, drawUpBands);
-
-    var smaDistPeriod     = $("#smaDistInput").val();
-    var smaDistCompPeriod = $(".smaDistCompInput").val().split(",").map((x)=> parseInt(x));
-
-    drawSMADistGraph(pair, range, smaDistPeriod, smaDistCompPeriod);
-
-    drawTrades(pair, range);
-  });
-};
-
-var drawTrades = function(pair, range){
-  var params = {pair: pair};
-
-  getData(pair, "tradeHistory", params, range, function(tradeData){
-    var filtered = tradeData.filter(function(trade){
-      return trade.pair == pair;
-    });
-    tradeIterator(filtered);
-  });
-};
-
-var tradeIterator = function(trades){
-  if(trades.length > 0){
-    var tradeStart = trades[0];
-    trades.shift();
-
-    if(trades.length > 0){
-      var tradeStop = trades[0];
-      trades.shift();
-      drawTradeLine(tradeStart.timestamp, tradeStop.timestamp, tradeStart.openPrice,
-        tradeStop.closePrice, tradeStart.direction);
-
-      tradeIterator(trades);
-    }else{
-      //TODO: draw trade line to current price
-    }
-  }
-};
-
-var drawTradeLine = function(startTime, stopTime, startPrice, stopPrice, direction){
-  var color;
-  if(direction){
-    color = "blue";
-  }else{
-    color = "red";
-  }
-
-  var series = {yAxis: "priceAverageAxis", showInLegend: false, type: "line", color: color};
-  series.data = [[startTime * 1000, startPrice], [stopTime * 1000, stopPrice]];
-
-  mainGraph.addSeries(series);
-};
-
-var drawSMADistGraph = function(pair, range, distPeriod, distCompPeriods){
-  var params = {pair: pair, maPeriod: parseInt(distPeriod), $or: []};
-
-  distCompPeriods.forEach(function(compPeriod){
-    params.$or.push({compPeriod: compPeriod});
-  });
-
-  getData(pair, "smaDists", params, range, function(distData){
-
-    if(distData.length > 0){
-      distCompPeriods.forEach(function(compPeriod){
-        var dataSeries = {data: [], yAxis: "distAxis", name: "Period " + distPeriod +
-          "," + compPeriod + " Distance", type: "area"};
-
-        distData.forEach(function(cross){
-          if(cross.compPeriod == compPeriod){
-            dataSeries.data.push([cross.timestamp * 1000, cross.diff]);
-          }
-        });
-
-        smaDistGraph.addSeries(dataSeries);
-      });
-    }
-  });
-};
-
-var mapColors = function(compPeriods){
-  var colorArray = [{}, {}];
-
-  compPeriods.forEach(function(compPeriod, index){
-    var lightness = 100-(((index + 1)/compPeriods.length)*50);
-    colorArray[0][compPeriod.toString()] = "hsl(360, 100%, " + lightness.toString() + "%)";
-  });
-
-  compPeriods.forEach(function(compPeriod, index){
-    var lightness = 100-(((index + 1)/compPeriods.length)*50);
-    colorArray[1][compPeriod.toString()] = "hsl(240, 100%, " + lightness.toString() + "%)";
-  });
-
-  return colorArray;
-};
-
-var drawCrossBands = (pair, range, stripePeriod, compUpPeriods, compDownPeriods, drawDownBands, drawUpBands)=>{
-  //TODO: Make it so that you can draw up bands for one compPeriod and down bands for a different compPeriod
-  //TODO: See if you can make them transluscent or something better than using zindexes
-  var params = {period: stripePeriod, $or: []};
-
-  compUpPeriods.forEach(pd=>{
-    params.$or.push({compPeriod: pd});
-  });
-
-  compDownPeriods.forEach(pd=>{
-    params.$or.push({compPeriod: pd});
-  });
-
-  getData(pair, "smaCrosses", params, range, (crossData)=>{
-    if(crossData.length > 0){
-      var includedCompPeriods = [];
-
-      crossData.forEach(cross=>{
-        if(includedCompPeriods.indexOf(cross.compPeriod) == -1){
-          includedCompPeriods.push(cross.compPeriod);
-        }
-      });
-
-      includedCompPeriods.sort().reverse();
-      var colorsMap = mapColors(includedCompPeriods);
-
-      crossData.forEach((cross, index)=>{
-        var pairIndex = false;
-
-        for(var i=index+1;i<crossData.length;i++){
-          if(crossData[i].compPeriod == cross.compPeriod){
-            pairIndex = i;
-            break;
-          }
-        }
-
-        if(pairIndex && cross.period == stripePeriod && index < crossData.length-1){
-          if(cross.direction && drawUpBands && compUpPeriods.indexOf(cross.compPeriod) != -1){//it's a cross up
-            mainGraph.xAxis[0].addPlotBand({
-              from: cross.timestamp * 1000,
-              to: crossData[pairIndex].timestamp * 1000,
-              color: colorsMap[1][cross.compPeriod.toString()],
-              id: "band",
-              zIndex: -1*cross.compPeriod
-            });
-          }else if(!cross.direction && drawDownBands && compDownPeriods.indexOf(cross.compPeriod) != -1){//it's a cross down
-            mainGraph.xAxis[0].addPlotBand({
-              from: cross.timestamp * 1000,
-              to: crossData[pairIndex].timestamp * 1000,
-              color: colorsMap[0][cross.compPeriod.toString()],
-              id: "band",
-              zIndex: -1*cross.compPeriod
-            });
-          }
-        }
-      });
-    }
-  });
-};
-
-var drawSeries = finalPromiseArray_=>{
-  return Promise.all(finalPromiseArray_).then((finalValues)=>{ //prices, smas, momentums
-
-    finalValues[0].forEach(priceArray=>{
-      var priceSeries = {data: [], yAxis: "priceAverageAxis", name: "Price"};
-      priceArray.forEach(price=>{
-        priceSeries.data.push([price.timestamp * 1000, price.price]);
-      });
-      mainGraph.addSeries(priceSeries);
-    });
-
-      finalValues[1].forEach(smaArray=>{
-        if(smaArray.length > 0){
-          var smaSeries = {data: [], yAxis: "priceAverageAxis", name: "Period " + smaArray[0].period + " Average"};
-          smaArray.forEach(sma=>{
-            smaSeries.data.push([sma.timestamp * 1000, sma.value]);
-          });
-          mainGraph.addSeries(smaSeries);
-        }
-      });
-
-    finalValues[2].forEach(momentumArray=>{
-      if(momentumArray.length > 0){
-        var momentumSeries = {data: [], yAxis: "momentumAxis", name: "Period " +
-          momentumArray[0].averagePeriod + "," + momentumArray[0].momentumPeriod + " Momentum", type: "area"};
-        momentumArray.forEach(momentum=>{
-          momentumSeries.data.push([momentum.timestamp * 1000, momentum.momentum]);
-        });
-        momentumGraph.addSeries(momentumSeries);
-      }
-    });
-
-    if(finalValues[3]){
-      finalValues[3].forEach(tickArray=>{
-        if(tickArray.length > 0){
-          var tickBidSeries = {data: [], yAxies: "priceAverageAxis", name: "Raw Bids"};
-          var tickAskSeries = {data: [], yAxies: "priceAverageAxis", name: "Raw Asks"};
-          tickArray.forEach(tick=>{
-            tickBidSeries.data.push([tick.timestamp * 1000, tick.bid]);
-            tickAskSeries.data.push([tick.timestamp * 1000, tick.ask]);
-          });
-          mainGraph.addSeries(tickBidSeries);
-          mainGraph.addSeries(tickAskSeries);
-        }
-      });
-    }
-  });
-};
+//   mainGraph.addSeries(series);
+// };
 
 /// Holds references to all open charts
 var openCharts = [];
@@ -375,30 +94,19 @@ var clearChart = chart=>{
 
 /// Parses the supplied macro and adds a new graph to the bottom of the page.
 function loadMacro(macroString) {
-  var new_chart = createChart();
-  var macro = JSON.parse(macroString);
-
-  // Macro is saved
-  if(typeof macro == "string") {
+  if(macroString[0] == "{"){
+    var macro = JSON.parse(macroString);
+  }else{
     // TODO: Load saved macro string from database based on macro code
-  // Macro is a single indicator
-  } else if(macro.indicator) {
-    new_chart.setTitle({text: macro.chart_name});
-    plot_indicator(new_chart, macro);
-  // Macro is a list of indicators
-  } else if(macro.macros) {
-    new_chart.setTitle({text: macro.chart_name});
-    for(var i=0;i<macro.macros.length;i++) {
-      plot_indicator(new_chart, macro.macros[i]);
-    }
   }
-}
 
-/// Makes a request to macro data endpoint and plots the resulting data on the given chart
-function plot_indicator(chart, macro) {
+  // make request to macro data endpoint
   $.get(`http://<%= ip %>data/${macro.indicator}/${macro.symbol}/${macro.startTime}` +
       `/${macro.endTime}/${JSON.stringify(macro.data)}`, res=>{
-    matchPlot(macro.indicator, chart, res);
+    console.log(res);
+    var new_chart = createChart();
+    new_chart.setTitle(macro.chart_title || "Unnamed Chart");
+    matchPlot(macro.indicator, new_chart, res);
   });
 }
 

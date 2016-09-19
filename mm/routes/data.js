@@ -23,42 +23,62 @@ var pool = new pg.Pool(config);
 
 /// Returns raw ticks with price being the average of the bid and ask.
 router.get("/ticks/:symbol/:start/:end/:data", (req, res, next)=>{
-  var query = `SELECT * FROM ticks_${req.params.symbol} WHERE tick_time > ${req.params.start} AND tick_time < ${req.params.end};`;
+  var query = `SELECT * FROM ticks_${req.params.symbol} WHERE tick_time > \
+    ${req.params.start} AND tick_time < ${req.params.end} ORDER BY tick_time;`;
   console.log(query);
 
-  // Use dummy data during development
-  res.json({data: [[10000,2],[20000,2.31],[30000,3.12]],
-    name: req.params.symbol + " Prices",
-    chart_title: `Prices for ${req.params.symbol}`});
+  pool.connect((err, client, done)=>{
+    client.query(query, (err, _res)=>{
+      if(!err){
+        var data = [];
+        var rows = _res.rows;
 
-  // pool.connect((err, client, done)=>{
-  //   client.query(query, (err, _res)=>{
-  //     if(!err){
-  //       res.send(_res);
-  //     } else {
-  //       res.send(err);
-  //     }
-  //     done();
-  //   });
-  // });
+        for(var i=0;i<_res.rows.length;i++){
+          data.push([parseInt(rows[i].tick_time * 1000), (rows[i].bid + rows[i].ask) / 2]);
+        }
+        res.json({data: data, name: req.params.symbol + " Prices"});
+      } else {
+        console.log(err);
+        res.json({error: err});
+      }
+      done();
+    });
+  });
 });
 
 /// Returns two sets of data, one for both the bid and ask.
 router.get("/bidask/:symbol/:start/:end/:data", (req, res, next)=>{
-  // Use dummy data during development
-  res.json({lower: [[10000,2],[20000,2.31],[30000,3.12]],
-    upper: [[10000,2.1],[20000,2.41],[30000,3.22]],
-    lower_name: req.params.symbol + " Bids",
-    upper_name: req.params.symbol + " Asks",
-    chart_title: `Bid/Asks for ${req.params.symbol}`});
+  // // Use dummy data during development
+  // res.json({data: [[10000,2,2.1],[20000,2.31,2.41],[30000,3.12,3.22]],
+  //   name: "Bid/Ask Spread"});
+
+  var query = `SELECT * FROM ticks_${req.params.symbol} WHERE tick_time > \
+    ${req.params.start} AND tick_time < ${req.params.end} ORDER BY tick_time;`;
+  console.log(query);
+
+  pool.connect((err, client, done)=>{
+    client.query(query, (err, _res)=>{
+      if(!err){
+        var data = [];
+        var rows = _res.rows;
+
+        for(var i=0;i<_res.rows.length;i++){
+          data.push([parseInt(rows[i].tick_time * 1000), rows[i].bid, rows[i].ask]);
+        }
+        res.json({data: data, name: req.params.symbol + " Bid/Ask Spread"});
+      } else {
+        console.log(err);
+        res.json({error: err});
+      }
+      done();
+    });
+  });
 });
 
 /// Returns SMA with the given period (if it exists in the database)
 router.get("/sma/:symbol/:start/:end/:data", (req, res, next)=>{
   // Use dummy data during development
-  var data = JSON.parse(req.params.data);
-  res.json({data: [[10000,2],[20000,2.31],[30000,3.12]],
-    chart_title: `Period ${data.period} SMA for ${req.params.symbol}`});
+  res.json({data: [[10000,2],[20000,2.31],[30000,3.12]]});
 });
 
 module.exports = router;
