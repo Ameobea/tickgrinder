@@ -48,10 +48,6 @@ router.get("/ticks/:symbol/:start/:end/:data", (req, res, next)=>{
 
 /// Returns two sets of data, one for both the bid and ask.
 router.get("/bidask/:symbol/:start/:end/:data", (req, res, next)=>{
-  // // Use dummy data during development
-  // res.json({data: [[10000,2,2.1],[20000,2.31,2.41],[30000,3.12,3.22]],
-  //   name: "Bid/Ask Spread"});
-
   var query = `SELECT * FROM ticks_${req.params.symbol} WHERE tick_time > \
     ${req.params.start} AND tick_time < ${req.params.end} ORDER BY tick_time;`;
   console.log(query);

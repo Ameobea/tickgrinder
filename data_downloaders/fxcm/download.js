@@ -27,8 +27,8 @@ Promise.onPossiblyUnhandledRejection(function(error){
 //TODO: Make start/stop time cli arguments or create config file
 
 //unix timestamp format.
-var symbol = "usdcad"; //like "usdcad"
-var startTime = 1467766209497; //like 1393826400 * 1000
+var symbol = "eurusd"; //like "eurusd"
+var startTime = 1459544340109; //like 1393826400 * 1000
 var endTime = 1473757200 * 1000;
 
 //time between data requests
