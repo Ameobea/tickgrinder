@@ -3,20 +3,31 @@
 //! Responsible for spawning, destroying, and managing all instances of the bot4
 //! platform's modules and reporting on their status.
 
+#![feature(test)]
+
 extern crate uuid;
+extern crate redis;
 extern crate algobot_util;
+extern crate futures;
+extern crate test;
 
 mod conf;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 use conf::CONF;
 
 use uuid::Uuid;
-use algobot_util::transport::redis::sub_channel;
+use futures::{Future, oneshot, Oneshot, Complete};
+use futures::stream::Stream;
+use algobot_util::transport::redis::{sub_channel, get_client};
+use algobot_util::transport::commands::*;
 
 /// Represents an instance of a platform module.  Contains a Uuid to identify it
 /// as well as some information about its spawning parameters and its type.
+#[derive(Debug)]
 struct Instance {
     // TODO: Spawning parameters
     instance_type: String,
@@ -24,15 +35,16 @@ struct Instance {
 }
 
 /// Holds a list of all instances that the spawner has spawned and thinks are alive
+#[derive(Clone)]
 struct InstanceManager {
-    living: Mutex<Vec<Instance>>
+    living: Arc<Mutex<Vec<Instance>>>
 }
 
 impl InstanceManager {
     /// Creates a new spawner instance.
     pub fn new() -> InstanceManager {
         InstanceManager {
-            living: Mutex::new(Vec::new())
+            living: Arc::new(Mutex::new(Vec::new()))
         }
     }
 
@@ -45,15 +57,63 @@ impl InstanceManager {
         self.spawn_mm();
         // start ping heartbeat
         loop {
+            // blocks until all instances return their expected responses or time out
             let res = self.ping_all();
+            match res {
+                Some(dead_instances) => {
+                    println!("Dead instances: {:?}", dead_instances);
+                },
+                None => {},
+            }
+
+            thread::sleep(Duration::new(1,0));
         }
     }
 
     /// Starts listening for new commands on the control channel
     pub fn listen(&mut self) {
-        // sub to spawer control channel
-        let cmds_rx = sub_channel(CONF.redis_url, CONF.redis_control_channel);
-        // TODO
+        let mut dup = self.clone();
+
+        thread::spawn(move || {
+            // sub to spawer control channel
+            let cmds_rx = sub_channel(CONF.redis_url, CONF.redis_control_channel);
+            let mut redis_client = get_client(CONF.redis_url);
+
+            cmds_rx.for_each(move |cmd_string| {
+                match WrappedCommand::from_str(cmd_string.as_str()) {
+                    Ok(wr_cmd) => {
+                        let (c, o) = oneshot::<Response>();
+                        dup.handle_command(wr_cmd.cmd, c);
+
+                        let uuid = wr_cmd.uuid.clone();
+                        o.and_then(|status: Response| {
+                            redis::cmd("PUBLISH")
+                                .arg(CONF.redis_responses_channel)
+                                .arg(status.wrap(uuid).to_string().unwrap().as_str())
+                                .execute(&mut redis_client);
+                            Ok(())
+                        }).wait();
+                    },
+                    Err(_) => {
+                        println!("Couldn't parse WrappedCommand from: {:?}", cmd_string);
+                    },
+                }
+
+                Ok(())
+            }).wait();
+        });
+    }
+
+    /// Processes an incoming command, doing whatever it instructs and fulfills the future
+    /// that it fulfills with the status once it's finished.
+    fn handle_command(&mut self, cmd: Command, c: Complete<Response>) {
+        let res = match cmd {
+            Command::Ping => Response::Pong,
+            _ => Response::Error{
+                status: "Command not accepted by the instance spawner.".to_string()
+            }
+        };
+        c.complete(res);
     }
 
     /// Spawns a new MM server instance and inserts its Uuid into the living instances list
@@ -87,4 +147,26 @@ impl InstanceManager {
 fn main() {
     let mut spawner = InstanceManager::new();
     spawner.init();
+}
+
+/// Tests the instance manager's ability to process incoming Commands.
+#[test]
+fn spawner_command_processing() {
+    let mut spawner = InstanceManager::new();
+    spawner.listen();
+
+    let mut client = get_client(CONF.redis_url);
+    let cmd = Command::Ping.wrap();
+    let cmd_string = cmd.to_string().unwrap();
+
+    let rx = sub_channel(CONF.redis_url, CONF.redis_responses_channel);
+    // send a Ping command
+    redis::cmd("PUBLISH")
+        .arg(CONF.redis_control_channel)
+        .arg(cmd_string.as_str())
+        .execute(&mut client);
+
+    // Wait for a Pong to be received
+    let res = rx.wait().next().unwrap().unwrap();
+    assert_eq!(WrappedResponse::from_str(res.as_str()).unwrap().res, Response::Pong);
 }

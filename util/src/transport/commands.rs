@@ -1,3 +1,6 @@
+//! Contains the definitions of all commands in the Command intermodular communication
+//! system as well as helper functions for Serialization/Deserialization and unwrapping.
+
 use serde_json;
 use uuid::Uuid;
 #[allow(unused_imports)]
@@ -13,12 +16,48 @@ pub enum Command {
     RemoveSMA{period: f64},
 }
 
+impl Command {
+    pub fn from_str(raw: &str) -> Result<Command, ()> {
+        serde_json::from_str(raw).map_err(|_| { () } )
+    }
+
+    pub fn to_string(&self) -> Result<String, ()> {
+        serde_json::to_string(self).map_err(|_| { () } )
+    }
+
+    /// Generates a new Uuid and creates a new WrappedCommand
+    pub fn wrap(&self) -> WrappedCommand {
+        WrappedCommand {
+            uuid: Uuid::new_v4(),
+            cmd: self.clone()
+        }
+    }
+}
+
 /// Represents a command bound to a unique identifier that can be
 /// used to link it with a Response
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct WrappedCommand {
     pub uuid: Uuid,
     pub cmd: Command
+}
+
+impl WrappedCommand {
+    pub fn from_str(raw: &str) -> Result<WrappedCommand, ()> {
+        serde_json::from_str(raw).map_err(|_| { () } )
+    }
+
+    pub fn to_string(&self) -> Result<String, ()> {
+        serde_json::to_string(self).map_err(|_| { () } )
+    }
+
+    /// Creates a new WrappedCommand with the given command as an inner
+    pub fn from_command(cmd: Command) -> WrappedCommand {
+        WrappedCommand {
+            uuid: Uuid::new_v4(),
+            cmd: cmd.clone()
+        }
+    }
 }
 
 /// Converts a String into a WrappedCommand
@@ -37,6 +76,24 @@ pub enum Response {
     Pong
 }
 
+impl Response {
+    pub fn from_str(raw: &str) -> Result<Response, ()> {
+        serde_json::from_str(raw).map_err(|_| { () } )
+    }
+
+    pub fn to_string(&self) -> Result<String, ()> {
+        serde_json::to_string(self).map_err(|_| { () } )
+    }
+
+    /// Creates a new WrappedResponse from a Command and a Uuid
+    pub fn wrap(&self, uuid: Uuid) -> WrappedResponse {
+        WrappedResponse {
+            uuid: uuid,
+            res: self.clone()
+        }
+    }
+}
+
 /// A Response bound to a UUID
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct WrappedResponse {
@@ -44,7 +101,27 @@ pub struct WrappedResponse {
     pub res: Response
 }
 
+impl WrappedResponse {
+    pub fn from_str(raw: &str) -> Result<WrappedResponse, ()> {
+        serde_json::from_str(raw).map_err(|_| { () } )
+    }
+
+    pub fn to_string(&self) -> Result<String, ()> {
+        serde_json::to_string(self).map_err(|_| { () } )
+    }
+
+    /// Creates a new WrappedResponse from a Response and a Uuid
+    pub fn from_response(res: Response, uuid: Uuid) -> WrappedResponse {
+        WrappedResponse {
+            uuid: uuid,
+            res: res
+        }
+    }
+}
+
 /// Parses a String into a WrappedResponse
+///
+/// Left in for backwards compatability
 pub fn parse_wrapped_response(raw_res: String) -> WrappedResponse {
     serde_json::from_str::<WrappedResponse>(raw_res.as_str())
         .expect("Unable to parse WrappedResponse from String")
