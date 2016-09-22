@@ -30,7 +30,7 @@ use futures::stream::{Stream, MergedItem};
 
 use processor::Processor;
 use conf::CONF;
-use algobot_util::tick::{Tick, SymbolTick};
+use algobot_util::tick::{SymbolTick};
 use algobot_util::transport::postgres::{get_client, reset_db, PostgresConf};
 use algobot_util::transport::redis::sub_channel;
 

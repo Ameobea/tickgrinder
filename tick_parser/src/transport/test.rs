@@ -5,7 +5,7 @@ use redis;
 use algobot_util::transport;
 use algobot_util::transport::postgres::{self, PostgresConf};
 use algobot_util::transport::query_server::QueryServer;
-use algobot_util::tick::Tick;
+use algobot_util::tick::{Tick, SymbolTick};
 use conf::CONF;
 use processor::Processor;
 use algobot_util::transport::redis::*;
@@ -44,14 +44,14 @@ fn postgres_db_reset() {
 /// through and make sure they're stored and processed.
 #[test]
 fn tick_ingestion() {
-    let mut processor = Processor::new("temp1");
+    let mut processor = Processor::new("eurusd".to_string());
     let rx = sub_channel(CONF.redis_url, CONF.redis_ticks_channel);
     let mut client = get_client(CONF.redis_url);
 
     // send 5 ticks to through the redis channel
-    for timestamp in 0..5 {
+    for timestamp in 1..6 {
         let client = &mut client;
-        let tick_string = format!("{{\"bid\": 1, \"ask\": 1, \"timestamp\": {}}}", timestamp);
+        let tick_string = format!("{{\"symbol\": \"eurusd\", \"bid\": 1, \"ask\": 1, \"timestamp\": {}}}", timestamp);
         redis::cmd("PUBLISH")
             .arg(CONF.redis_ticks_channel)
             .arg(tick_string)
@@ -60,7 +60,7 @@ fn tick_ingestion() {
 
     // process the 5 ticks
     for json_tick in rx.wait().take(5) {
-        processor.process(Tick::from_json_string(json_tick.expect("unable to unwrap json_tick")));
+        processor.process(SymbolTick::from_json_string(json_tick.expect("unable to unwrap json_tick")));
     }
     assert_eq!(processor.ticks.len(), 5);
 }
@@ -69,7 +69,7 @@ fn tick_ingestion() {
 /// insert one SMA into the processor then remove it
 #[test]
 fn sma_commands() {
-    let mut processor = Processor::new("temp2");
+    let mut processor = Processor::new("temp2".to_string());
     let rx = sub_channel(CONF.redis_url, CONF.redis_control_channel);
     let mut client = get_client(CONF.redis_url);
     let command_string = "{\"uuid\":\"2f663301-5b73-4fa0-b231-09ab196ec5fd\",\
