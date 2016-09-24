@@ -55,6 +55,8 @@ impl InstanceManager {
     /// Starts listening for commands on the control channel, spawns a new MM instance,
     /// and initializes the ping heartbeat.
     pub fn init(&mut self) {
+        // Look for old running instances and either take control of them or kill them depending on conf
+        // TODO
         // listen for new commands and setup callbacks
         self.listen();
         // spawn a MM instance
