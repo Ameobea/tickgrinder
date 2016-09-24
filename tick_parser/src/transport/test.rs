@@ -3,13 +3,18 @@ use futures::stream::Stream;
 use redis;
 use uuid::Uuid;
 
+use std::thread;
+use std::time::Duration;
+
 use algobot_util::transport;
+use algobot_util::transport::redis::*;
+use algobot_util::transport::commands::*;
 use algobot_util::transport::postgres::{self, PostgresConf};
 use algobot_util::transport::query_server::QueryServer;
+use algobot_util::transport::command_server::*;
 use algobot_util::tick::{Tick, SymbolTick};
 use conf::CONF;
 use processor::Processor;
-use algobot_util::transport::redis::*;
 
 #[test]
 fn postgres_tick_insertion() {
@@ -73,13 +78,13 @@ fn sma_commands() {
     let mut processor = Processor::new("temp2".to_string(), Uuid::new_v4());
     let rx = sub_channel(CONF.redis_url, CONF.redis_control_channel);
     let mut client = get_client(CONF.redis_url);
-    let command_string = "{\"uuid\":\"2f663301-5b73-4fa0-b231-09ab196ec5fd\",\
+    let command_str = "{\"uuid\":\"2f663301-5b73-4fa0-b231-09ab196ec5fd\",\
         \"cmd\":{\"AddSMA\":{\"period\":5.2342}}}";
     assert_eq!(processor.smas.smas.len(), 0);
 
     redis::cmd("PUBLISH")
         .arg(CONF.redis_control_channel)
-        .arg(command_string)
+        .arg(command_str)
         .execute(&mut client);
     // block until the message is received and processed
     let msg = rx.wait().next();
@@ -87,13 +92,46 @@ fn sma_commands() {
     assert_eq!(processor.smas.smas.len(), 1);
 
     let rx2 = sub_channel(CONF.redis_url, CONF.redis_control_channel);
-    let command_string = "{\"uuid\":\"2f663301-5b73-4fa0-b201-09ab196ec5fd\",\
+    let command_str = "{\"uuid\":\"2f663301-5b73-4fa0-b201-09ab196ec5fd\",\
         \"cmd\":{\"RemoveSMA\":{\"period\":5.2342}}}";
     redis::cmd("PUBLISH")
         .arg(CONF.redis_control_channel)
-        .arg(command_string)
+        .arg(command_str)
         .execute(&mut client);
     let msg = rx2.wait().next();
     processor.execute_command(msg.expect("3").expect("4"));
     assert_eq!(processor.smas.smas.len(), 0);
+}
+
+#[test]
+fn command_server_broadcast() {
+    let settings = CsSettings {
+        redis_host: CONF.redis_url,
+        commands_channel: "broadcast_test_cmd",
+        responses_channel: "broadcast_test_res",
+        conn_count: 3,
+        timeout: 3999,
+        max_retries: 3
+    };
+
+    let mut cs = CommandServer::new(settings);
+    let mut client = get_client(CONF.redis_url);
+    let rx = sub_channel(CONF.redis_url, "broadcast_test_cmd");
+
+    let cmd = Command::Ping;
+    let responses_future = cs.broadcast(cmd);
+
+    let recvd_cmd_str = rx.wait().next().unwrap().unwrap();
+    let recvd_cmd = WrappedCommand::from_str(recvd_cmd_str.as_str()).unwrap();
+    let res = Response::Pong{uuid: Uuid::new_v4()};
+    for _ in 0..2 {
+        redis::cmd("PUBLISH")
+            .arg("broadcast_test_res")
+            .arg(res.wrap(recvd_cmd.uuid).to_string().unwrap().as_str())
+            .execute(&mut client);
+    }
+
+    let responses = responses_future.wait().unwrap().unwrap();
+    assert_eq!(responses.len(), 2);
+    thread::sleep(Duration::new(3,0));
 }

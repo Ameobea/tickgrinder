@@ -15,7 +15,7 @@
 use std::collections::VecDeque;
 use std::thread::{self, Thread};
 use std::time::Duration;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::str::FromStr;
 
 use futures::stream::{Stream, channel, Sender, Receiver, Wait};
@@ -32,7 +32,8 @@ use transport::commands::*;
 pub struct CsSettings {
     pub conn_count: usize,
     pub redis_host: &'static str,
-    pub redis_channel: &'static str,
+    pub commands_channel: &'static str,
+    pub responses_channel: &'static str,
     pub timeout: u64,
     pub max_retries: usize
 }
@@ -66,16 +67,22 @@ struct AlertList {
     pub list: RegisteredList
 }
 
-/// Send out the Response to any workers that registered interest ot its Uuid
+/// Send out the Response to any workers that registered interest to its Uuid
 fn send_messages(res: WrappedResponse, al: &Mutex<AlertList>) {
-    let mut al_inner = al.lock().expect("Unable to unlock al n send_messages");
-    let pos_opt = al_inner.list.iter_mut().position(|ref x| x.0 == res.uuid );
-    match pos_opt {
-        Some(pos) => {
-            let (_, complete) = al_inner.list.remove(pos);
-            complete.complete(Ok(res.res));
-        },
-        None => ()
+    let mut to_complete = Vec::new();
+    {
+        let mut al_inner = al.lock().expect("Unable to unlock al n send_messages");
+        let pos_opt = al_inner.list.iter_mut().position(|ref x| x.0 == res.uuid );
+        match pos_opt {
+            Some(pos) => {
+                let (_, complete) = al_inner.list.remove(pos);
+                to_complete.push( (complete, res.res) );
+            },
+            None => ()
+        }
+    }
+    for (c, res) in to_complete {
+        c.complete( Ok(res) );
     }
 }
 
@@ -106,6 +113,7 @@ impl AlertList {
 
 #[derive(Clone)]
 pub struct CommandServer {
+    al: Arc<Mutex<AlertList>>,
     settings: CsSettings,
     command_queue: CommandQueue, // internal command queue
     conn_queue: SenderQueue, // senders for idle command-sender threadss
@@ -120,31 +128,23 @@ fn try_get_new_command(command_queue: CommandQueue) -> Option<CommandRequest> {
 
 /// Asynchronously sends off a command to the Tick Processor without
 /// waiting to see if it was received or sent properly
-fn send_command(cmd: &WrappedCommand, client: &mut redis::Client, channel: &'static str) {
+fn send_command(cmd: &WrappedCommand, client: &mut redis::Client, commands_channel: &'static str) {
     let command_string = serde_json::to_string(cmd)
         .expect("Unable to parse command into JSON String");
     redis::cmd("PUBLISH")
-        .arg(channel)
+        .arg(commands_channel)
         .arg(command_string)
         .execute(client);
 }
 
-/// Returns a WrappedCommand that binds a UUID to a command so that
-/// Responses can be matched to it
-fn wrap_command(cmd: Command) -> WrappedCommand {
-    WrappedCommand {
-        uuid: Uuid::new_v4(),
-        cmd: cmd
-    }
-}
-
 fn send_command_outer(
-    al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand,
+    al: &Mutex<AlertList>, command: &Command,
     client: &mut redis::Client, sleeper_tx: Sender<TimeoutRequest, ()>,
     res_c: Complete<Result<Response, String>>, command_queue: CommandQueue,
     mut attempts: usize, s: &CsSettings
 ) -> Result<Sender<TimeoutRequest, ()>, ()> {
-    send_command(wrapped_cmd, client, s.redis_channel);
+    let wr_cmd = command.wrap();
+    send_command(&wr_cmd, client, s.commands_channel);
 
     let (sleepy_c, sleepy_o) = oneshot::<Thread>();
     let (awake_c, awake_o) = oneshot::<Result<Response, ()>>();
@@ -158,8 +158,10 @@ fn send_command_outer(
         // oneshot for sending the Response back
         let (res_recvd_c, res_recvd_o) = oneshot::<Result<Response, ()>>();
         // register interest in new Responses coming in with our Command's Uuid
-        al.lock().expect("Unlock to lock al in send_command_outer")
-            .register(&wrapped_cmd.uuid, res_recvd_c);
+        {
+            al.lock().expect("Unlock to lock al in send_command_outer")
+                .register(&wr_cmd.uuid, res_recvd_c);
+        }
         let al_clone = al.clone();
         return res_recvd_o.select(awake_o).map(move |res| {
             let (status, _) = res;
@@ -172,8 +174,10 @@ fn send_command_outer(
                     return Ok(new_sleeper_tx)
                 },
                 Err(_) => { // timed out
-                    al_clone.lock().expect("Couldn't lock al in Err(_)")
-                        .deregister(&wrapped_cmd.uuid);
+                    {
+                        al_clone.lock().expect("Couldn't lock al in Err(_)")
+                            .deregister(&wr_cmd.uuid);
+                    }
                     attempts += 1;
                     if attempts >= s.max_retries {
                         // Let the main thread know it's safe to use the sender again
@@ -183,7 +187,7 @@ fn send_command_outer(
                         return Ok(new_sleeper_tx)
                     } else { // re-send the command
                         // we can do this recursively since it's only a few retries
-                        return send_command_outer(al, &wrapped_cmd, client, new_sleeper_tx,
+                        return send_command_outer(al, &wr_cmd.cmd, client, new_sleeper_tx,
                             res_c, command_queue.clone(), attempts, s)
                     }
                 }
@@ -196,17 +200,19 @@ fn send_command_outer(
 fn dispatch_worker(mut iter: &mut Wait<Receiver<WorkerTask, ()>>, al: &Mutex<AlertList>,
         mut client: &mut redis::Client, sleeper_tx: Sender<TimeoutRequest, ()>,
         command_queue: CommandQueue, s: &CsSettings) -> Sender<TimeoutRequest, ()>{
-    let ((cmd, res_c), idle_c) = iter.next()
-        .expect("Coudln't unwrap #1").expect("Couldn't unwrap #2");
-    // create a Uuid and bind it to the command
-    let wrapped_cmd = WrappedCommand{uuid: Uuid::new_v4(), cmd: cmd};
+    let wrapped = iter.next();
+    if wrapped.is_none() {
+        println!("Internal structures have been dropped; we must be exiting.");
+    }
+
+    let ((cmd, res_c), idle_c) = wrapped.expect("Couldn't unwrap #1").expect("Couldn't unwrap #2");
     // completes initial command and internall iterates until queue is empty
-    let mut new_sleeper_tx = send_command_outer(al, &wrapped_cmd, &mut client, sleeper_tx,
+    let mut new_sleeper_tx = send_command_outer(al, &cmd, &mut client, sleeper_tx,
             res_c, command_queue.clone(), 0, s)
         .expect("Couldn't unwrap new_sleeper_tx");
     // keep trying to get queued commands to execute until the queue is empty;
     while let Some((new_cmd, new_res_c)) = try_get_new_command(command_queue.clone()) {
-        new_sleeper_tx = send_command_outer(al, &wrap_command(new_cmd),
+        new_sleeper_tx = send_command_outer(al, &new_cmd,
             client, new_sleeper_tx, new_res_c, command_queue.clone(), 0, s).unwrap();
     }
     idle_c.complete(());
@@ -250,12 +256,13 @@ impl CommandServer {
         let command_queue = Arc::new(Mutex::new(VecDeque::new()));
         let al = Arc::new(Mutex::new(AlertList::new()));
         let al_clone = al.clone();
+        let al_clone2 = al.clone();
 
         // Handle newly received Responses
-        let rx = sub_channel(s.redis_host, s.redis_channel);
+        let rx = sub_channel(s.redis_host, s.responses_channel);
         rx.for_each(move |raw_res| {
             let parsed_res = parse_wrapped_response(raw_res);
-            send_messages(parsed_res, &*al_clone);
+            send_messages(parsed_res, &*al_clone.clone());
             Ok(())
         }).forget();
 
@@ -274,6 +281,7 @@ impl CommandServer {
         }
 
         CommandServer {
+            al: al_clone2,
             settings: s,
             command_queue: command_queue,
             conn_queue: Arc::new(Mutex::new(conn_queue))
@@ -324,49 +332,59 @@ impl CommandServer {
         let (sleepy_c, _) = oneshot::<Thread>();
         // awake_o fulfills when the timeout expires
         let (awake_c, awake_o) = oneshot::<Result<Response, ()>>();
-        // threadsafe atomic bool for marking whether the timeout is expired or not.
-        let expired = Arc::new(RwLock::new(false));
-        let expired_c = expired.clone();
+        let wr_cmd = command.wrap();
+        let wr_cmd_c = wr_cmd.clone();
+        let mut client = get_client(self.settings.redis_host);
+        // threadsafe Vec for holding returned commands
+        let responses = Arc::new(Mutex::new(Vec::new()));
+        let responses_c = responses.clone();
+        // Oneshot for sending received responses back with.
+        let (all_responses_c, all_responses_o) = oneshot::<Result<Vec<Response>, String>>();
+        let alc = self.al.clone();
 
+        // Broadcast the command
+        send_command(&wr_cmd, &mut client, self.settings.commands_channel);
+
+        // when a timeout happens, send all received responses back to caller.
         awake_o.and_then(move |_| {
-            let mut expired_write = (*expired_c).write().expect("Unable to lock expired");
-            *expired_write = true;
+            let rr_inner = responses_c.lock().expect("Unable to lock responses_clone");
+            let mut alc_inner = alc.lock().expect("Unable to lock alc");
+            alc_inner.deregister(&wr_cmd_c.uuid);
+            all_responses_c.complete( Ok( (*rr_inner).clone() ) );
             Ok(())
         }).forget();
 
         let timeout_msg = (dur, sleepy_c, awake_c);
         // initiate timeout
         let _ = sleeper_tx.send(Ok(timeout_msg)).wait();
-        // Oneshot for sending received responses back with.
-        let (res_recvd_c, res_recvd_o) = oneshot::<Result<Vec<Response>, String>>();
-        // threadsafe Vec for holding returned commands
-        let recvd_ress = Arc::new(Mutex::new(Vec::new()));
 
-        // keep trying to get new responses until timeout is triggered
-        fn await_message(
-            mut new_cc: CommandServer, cmd_clone: Command, rr_ref: Arc<Mutex<Vec<Response>>>,
-            expired: Arc<RwLock<bool>>, res_recvd_c: Complete<Result<Vec<Response>, String>>
+        fn collect_messages(
+            wr_cmd: WrappedCommand, responses: Arc<Mutex<Vec<Response>>>,
+            al: Arc<Mutex<AlertList>>
         ) {
-            let ccc = cmd_clone.clone();
-            let rrc = rr_ref.clone();
-            new_cc.execute(cmd_clone).and_then(move |response| {
-                let mut rr_inner = rrc.lock().expect("Unable to lock rr_ref");
-                rr_inner.push(response.unwrap());
+            let rrc = responses.clone();
+            let alc = al.clone();
 
-                let timed_out = *expired.read().unwrap();
-                if timed_out {
-                    res_recvd_c.complete( Ok( (*rr_inner).clone() ) );
-                } else {
-                    await_message(new_cc, ccc, rr_ref, expired, res_recvd_c);
+            // oneshot triggered with matching message received
+            let (res_recvd_c, res_recvd_o) = oneshot::<Result<Response, ()>>();
+            // register interest in new Responses coming in with our Command's Uuid
+            {
+                let mut al_inner = al.lock().expect("Unable to unlock to lock al in broadcast");
+                al_inner.register(&wr_cmd.uuid.clone(), res_recvd_c);
+            }
+
+            res_recvd_o.and_then(move |response| {
+                {
+                    let mut rr_inner = rrc.lock().expect("Unable to lock responses_clone");
+                    rr_inner.push(response.unwrap());
                 }
-
+                collect_messages(wr_cmd, rrc.clone(), alc);
                 Ok(())
             }).forget();
-        };
+        }
 
-        await_message(self.clone(), command.clone(), recvd_ress.clone(), expired.clone(), res_recvd_c);
+        collect_messages(wr_cmd.clone(), responses.clone(), self.al.clone());
 
-        // once the Sender gets dropped the Receiver gets dropped as well.
-        res_recvd_o
+        all_responses_o
     }
 }
