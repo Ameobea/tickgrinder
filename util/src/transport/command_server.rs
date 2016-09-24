@@ -39,9 +39,9 @@ pub struct CsSettings {
 
 /// A command waiting to be sent plus a Complete to send the Response/Errorstring through
 type CommandRequest = (Command, Complete<Result<Response, String>>);
-/// Contains a CommandRequest for a worker and and a Complete that resolves when the worker
-/// becomes idle.
-type WorkerTask = (CommandRequest, Complete<()>);
+/// Contains a CommandRequest for a worker, a Complete that resolves when the worker
+/// becomes idle, and a bool signifying whether it's a brodacast command or not.
+type WorkerTask = (CommandRequest, Complete<()>, bool);
 /// Threadsafe queue containing handles to idle command-sender threads in the form of Senders
 type SenderQueue = Arc<Mutex<VecDeque<Sender<WorkerTask, ()>>>>;
 /// Threadsafe queue containing commands waiting to be sent
@@ -66,13 +66,13 @@ struct AlertList {
     pub list: RegisteredList
 }
 
-/// Send out the Response to any workers that registered interest ot its Uuid
+/// Send out the Response to any workers that registered interest to its Uuid
 fn send_messages(res: WrappedResponse, al: &Mutex<AlertList>) {
     let mut al_inner = al.lock().expect("Unable to unlock al n send_messages");
     let pos_opt = al_inner.list.iter_mut().position(|ref x| x.0 == res.uuid );
     match pos_opt {
         Some(pos) => {
-            let (_, complete) = al_inner.list.remove(pos);
+            let (_, complete) = al_inner.list[pos];
             complete.complete(Ok(res.res));
         },
         None => ()
@@ -106,7 +106,8 @@ impl AlertList {
 
 pub struct CommandServer {
     command_queue: CommandQueue, // internal command queue
-    conn_queue: SenderQueue, // senders for idle command-sender threadss
+    broadcast_queue: CommandQueue, // queue for broadcast-style commands
+    conn_queue: SenderQueue, // senders for idle command-sender threads
 }
 
 /// Locks the CommandQueue and returns a queued command, if there are any.
@@ -138,10 +139,11 @@ fn wrap_command(cmd: Command) -> WrappedCommand {
 fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand,
         client: &mut redis::Client, sleeper_tx: Sender<TimeoutRequest, ()>,
         res_c: Complete<Result<Response, String>>, command_queue: CommandQueue,
-        mut attempts: usize, s: &CsSettings)
+        mut attempts: usize, s: &CsSettings, is_broadcast: bool)
         -> Result<Sender<TimeoutRequest, ()>, ()> {
     send_command(wrapped_cmd, client, s.redis_channel);
     let (sleepy_c, sleepy_o) = oneshot::<Thread>();
+    // awake_o fulfills with Err(()) once the timeout occurs
     let (awake_c, awake_o) = oneshot::<Result<Response, ()>>();
     // start the timeout timer on a separate thread
     let dur = Duration::from_millis(s.timeout);
@@ -157,6 +159,14 @@ fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand,
         let al_clone = al.clone();
         return res_recvd_o.select(awake_o).map(move |res| {
             let (status, _) = res;
+            // no longer looking for responses so deregister interest
+            al_clone.lock().expect("Couldn't lock al in Err(_)").deregister(&wrapped_cmd.uuid);
+
+            // TODO: if it's a broadcast and a response was received, store it in a vec and
+            // immediately re-register interest.  Once the timeout is triggered, fulfill with
+            // the Vec of collected responses.  This may require some modifications to the way
+            // tha the AlertList works.
+
             match status {
                 Ok(wrapped_res) => { // command received
                     // end the timeout now so that we can re-use sleeper thread
@@ -166,7 +176,6 @@ fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand,
                     return Ok(new_sleeper_tx)
                 },
                 Err(_) => { // timed out
-                    al_clone.lock().expect("Couldn't lock al in Err(_)").deregister(&wrapped_cmd.uuid);
                     attempts += 1;
                     if attempts >= s.max_retries {
                         // Let the main thread know it's safe to use the sender again
@@ -177,7 +186,7 @@ fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand,
                     } else { // re-send the command
                         // we can do this recursively since it's only a few retries
                         return send_command_outer(al, &wrapped_cmd, client, new_sleeper_tx,
-                            res_c, command_queue.clone(), attempts, s)
+                            res_c, command_queue.clone(), attempts, s, false)
                     }
                 }
             }
@@ -189,18 +198,23 @@ fn send_command_outer(al: &Mutex<AlertList>, wrapped_cmd: &WrappedCommand,
 fn dispatch_worker(mut iter: &mut Wait<Receiver<WorkerTask, ()>>, al: &Mutex<AlertList>,
         mut client: &mut redis::Client, sleeper_tx: Sender<TimeoutRequest, ()>,
         command_queue: CommandQueue, s: &CsSettings) -> Sender<TimeoutRequest, ()>{
-    let ((cmd, res_c), idle_c) = iter.next().expect("Coudln't unwrap #1").expect("Couldn't unwrap #2");
+    let ((cmd, res_c), idle_c, is_broadcast) = iter.next().expect("Coudln't unwrap #1").expect("Couldn't unwrap #2");
     // create a Uuid and bind it to the command
     let wrapped_cmd = WrappedCommand{uuid: Uuid::new_v4(), cmd: cmd};
-    // completes initial command and internall iterates until queue is empty
+    // completes initial command and internally iterates until queue is empty
     let mut new_sleeper_tx = send_command_outer(al, &wrapped_cmd, &mut client, sleeper_tx,
-            res_c, command_queue.clone(), 0, s)
+            res_c, command_queue.clone(), 0, s, is_broadcast)
         .expect("Couldn't unwrap new_sleeper_tx");
+
     // keep trying to get queued commands to execute until the queue is empty;
     while let Some((new_cmd, new_res_c)) = try_get_new_command(command_queue.clone()) {
         new_sleeper_tx = send_command_outer(al, &wrap_command(new_cmd),
-            client, new_sleeper_tx, new_res_c, command_queue.clone(), 0, s).unwrap();
+            client, new_sleeper_tx, new_res_c, command_queue.clone(), 0, s, false).unwrap();
     }
+
+    // keep trying to get queued broadcast commands and drain that queue as well
+    // TODO
+
     idle_c.complete(());
     new_sleeper_tx
 }
@@ -238,6 +252,7 @@ impl CommandServer {
     pub fn new(s: CsSettings) -> CommandServer {
         let mut conn_queue = VecDeque::with_capacity(s.conn_count);
         let command_queue = Arc::new(Mutex::new(VecDeque::new()));
+        let broadcast_queue = Arc::new(Mutex::new(VecDeque::new()));
         let al = Arc::new(Mutex::new(AlertList::new()));
         let al_clone = al.clone();
 
@@ -265,6 +280,7 @@ impl CommandServer {
 
         CommandServer {
             command_queue: command_queue,
+            broadcast_queue: broadcast_queue,
             conn_queue: Arc::new(Mutex::new(conn_queue))
         }
     }
@@ -276,19 +292,56 @@ impl CommandServer {
         // Force the guard locking conn_queue to go out of scope
         // this prevents the lock from being held through the entire if/else
         let copy_res = temp_lock_res.clone();
+
         // future for handing back to the caller that resolves to Response/Error
         let (res_c, res_o) = oneshot::<Result<Response, String>>();
         // future for notifying main thread when command is done and worker is idle
         let (idle_c, idle_o) = oneshot::<()>();
+
         if copy_res {
             self.command_queue.lock().unwrap().push_back((command, res_c));
-        }else{
+        } else {
             let _tx = self.conn_queue.lock().unwrap().pop_front().unwrap();
             // re-assign to unlock
             let tx = _tx;
             let cq_clone = self.conn_queue.clone();
             // type WorkerTask
-            let req = ((command, res_c), idle_c);
+            let req = ((command, res_c), idle_c, false);
+            tx.send(Ok(req)).and_then(move |new_tx| {
+                // Wait until the worker thread signals that it is idle
+                idle_o.and_then(move |_| {
+                    // Put the Sender for the newly idle worker into the connection queue
+                    cq_clone.lock().unwrap().push_back(new_tx);
+                    Ok(())
+                }).forget();
+                Ok(())
+            }).forget();
+        }
+
+        res_o
+    }
+
+    /// Queues up a command that may have more than one response.  Returns a future
+    /// that resolves to a Rsesult<Vec> containing any responses received within the
+    /// supplied timeout period.
+    pub fn broadcast(&mut self, command: Command) -> Oneshot<Result<Vec<Response>, String>> {
+        let temp_lock_res = self.conn_queue.lock().unwrap().is_empty();
+        let copy_res = temp_lock_res.clone();
+
+        // future for handing back to the caller that resolves to Response/Error
+        let (res_c, res_o) = oneshot::<Result<Vec<Response>, String>>();
+        // future for notifying main thread when command is done and worker is idle
+        let (idle_c, idle_o) = oneshot::<()>();
+
+        if copy_res {
+            self.broadcast_queue.lock().unwrap().push_back((command, res_c));
+        } else {
+            let _tx = self.conn_queue.lock().unwrap().pop_front().unwrap();
+            // re-assign to unlock
+            let tx = _tx;
+            let cq_clone = self.conn_queue.clone();
+            // type WorkerTask
+            let req = ((command, res_c), idle_c, true);
             tx.send(Ok(req)).and_then(move |new_tx| {
                 // Wait until the worker thread signals that it is idle
                 idle_o.and_then(move |_| {

@@ -27,6 +27,7 @@ use std::str::FromStr;
 
 use futures::Future;
 use futures::stream::{Stream, MergedItem};
+use uuid::Uuid;
 
 use processor::Processor;
 use conf::CONF;
@@ -38,7 +39,7 @@ fn handle_messages() {
     // subscribe to live ticks channel
     let ticks_rx = sub_channel(CONF.redis_url, CONF.redis_ticks_channel);
 
-    let mut processor = Processor::new(String::from_str(CONF.symbol).unwrap());
+    let mut processor = Processor::new(String::from_str(CONF.symbol).unwrap(), Uuid::new_v4());
     // listen for new commands
     let cmds_rx = sub_channel(CONF.redis_url, CONF.redis_control_channel);
 

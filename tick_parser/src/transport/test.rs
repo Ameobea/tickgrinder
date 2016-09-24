@@ -1,6 +1,7 @@
 use futures::Future;
 use futures::stream::Stream;
 use redis;
+use uuid::Uuid;
 
 use algobot_util::transport;
 use algobot_util::transport::postgres::{self, PostgresConf};
@@ -22,7 +23,7 @@ fn postgres_tick_insertion() {
     let mut qs = QueryServer::new(5, pg_conf);
     for i in 0..10 {
         let t = Tick {timestamp: i, bid: 1f64, ask: 1f64};
-        t.store("eurusd", &mut qs);
+        t.store("test0", &mut qs);
     }
     // todo 🔜: make sure they were actually inserted
 }
@@ -44,14 +45,14 @@ fn postgres_db_reset() {
 /// through and make sure they're stored and processed.
 #[test]
 fn tick_ingestion() {
-    let mut processor = Processor::new("eurusd".to_string());
+    let mut processor = Processor::new("test8".to_string(), Uuid::new_v4());
     let rx = sub_channel(CONF.redis_url, CONF.redis_ticks_channel);
     let mut client = get_client(CONF.redis_url);
 
     // send 5 ticks to through the redis channel
     for timestamp in 1..6 {
         let client = &mut client;
-        let tick_string = format!("{{\"symbol\": \"eurusd\", \"bid\": 1, \"ask\": 1, \"timestamp\": {}}}", timestamp);
+        let tick_string = format!("{{\"symbol\": \"test8\", \"bid\": 1, \"ask\": 1, \"timestamp\": {}}}", timestamp);
         redis::cmd("PUBLISH")
             .arg(CONF.redis_ticks_channel)
             .arg(tick_string)
@@ -69,7 +70,7 @@ fn tick_ingestion() {
 /// insert one SMA into the processor then remove it
 #[test]
 fn sma_commands() {
-    let mut processor = Processor::new("temp2".to_string());
+    let mut processor = Processor::new("temp2".to_string(), Uuid::new_v4());
     let rx = sub_channel(CONF.redis_url, CONF.redis_control_channel);
     let mut client = get_client(CONF.redis_url);
     let command_string = "{\"uuid\":\"2f663301-5b73-4fa0-b231-09ab196ec5fd\",\

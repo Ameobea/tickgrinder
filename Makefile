@@ -2,25 +2,25 @@ build:
 	cd optimizer && cargo build
 	cd spawner && cargo build
 
-	cd strategies
-	# Build each strategy
-	for dir in ./strategies/*/; \
-	do \
-		cd $$dir && cargo build; \
-	done
+	# cd strategies
+	# # Build each strategy
+	# for dir in ./strategies/*/; \
+	# do \
+	# 	cd $$dir && cargo build; \
+	# done
 
 	cd tick_parser && cargo build
 	cd util && cargo build
 	# TODO: Collect the results into a nice format
 
-build-release:
+release:
 	cd optimizer && cargo build --release
 	cd spawner && cargo build --release
 
-	for dir in ./strategies/*/; \
-	do \
-		cd $$dir && cargo build --release; \
-	done
+	# for dir in ./strategies/*/; \
+	# do \
+	# 	cd $$dir && cargo build --release; \
+	# done
 
 	cd tick_parser && cargo build --release
 	cd util && cargo build --release
@@ -37,6 +37,7 @@ clean:
 
 	rm tick_parser/target -rf
 	rm util/target -rf
+	rm dist -rf
 
 test:
 	cd optimizer && cargo test
@@ -62,4 +63,8 @@ bench:
 	# TODO: Collect the results into a nice format
 
 install:
-	echo "Not yet implemented." # TODO
+	mkdir -p dist
+	cp optimizer/target/release/optimizer dist
+	cp ./mm dist -r
+	cp spawner/target/release/spawner dist
+	cp tick_parser/target/release/tick_processor dist

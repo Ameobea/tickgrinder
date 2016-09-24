@@ -16,6 +16,7 @@ mod conf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::process;
 
 use conf::CONF;
 
@@ -24,6 +25,7 @@ use futures::{Future, oneshot, Oneshot, Complete};
 use futures::stream::Stream;
 use algobot_util::transport::redis::{sub_channel, get_client};
 use algobot_util::transport::commands::*;
+use algobot_util::transport::command_server::*;
 
 /// Represents an instance of a platform module.  Contains a Uuid to identify it
 /// as well as some information about its spawning parameters and its type.
@@ -37,13 +39,15 @@ struct Instance {
 /// Holds a list of all instances that the spawner has spawned and thinks are alive
 #[derive(Clone)]
 struct InstanceManager {
-    living: Arc<Mutex<Vec<Instance>>>
+    pub uuid: Uuid,
+    pub living: Arc<Mutex<Vec<Instance>>>
 }
 
 impl InstanceManager {
     /// Creates a new spawner instance.
     pub fn new() -> InstanceManager {
         InstanceManager {
+            uuid: Uuid::new_v4(),
             living: Arc::new(Mutex::new(Vec::new()))
         }
     }
@@ -108,7 +112,8 @@ impl InstanceManager {
     /// that it fulfills with the status once it's finished.
     fn handle_command(&mut self, cmd: Command, c: Complete<Response>) {
         let res = match cmd {
-            Command::Ping => Response::Pong,
+            Command::Ping => Response::Pong{uuid: self.uuid},
+            Command::KillAllInstances => self.kill_all(),
             _ => Response::Error{
                 status: "Command not accepted by the instance spawner.".to_string()
             }
@@ -118,19 +123,37 @@ impl InstanceManager {
 
     /// Spawns a new MM server instance and inserts its Uuid into the living instances list
     fn spawn_mm(&mut self) {
-        unimplemented!();
+        let mod_uuid = Uuid::new_v4();
+        let _ = process::Command::new(CONF.node_binary_path)
+                                .arg("../mm/manager.js")
+                                .arg(mod_uuid.to_string().as_str())
+                                .spawn()
+                                .expect("Unable to spawn MM");
+        self.add_instance(Instance{instance_type: "MM".to_string(), uuid: mod_uuid});
     }
 
     /// Spawns a new Tick Processor instance with the given symbol andinserts its Uuid into
     /// the living instances list
-    fn spawn_tick_processor(&mut self, symbol: String) {
-        unimplemented!();
+    fn spawn_tick_parser(&mut self, symbol: String) {
+        let mod_uuid = Uuid::new_v4();
+        let _ = process::Command::new("../tick_parser/target/debug/tick_processor")
+                                .arg(mod_uuid.to_string().as_str())
+                                .arg(symbol.as_str())
+                                .spawn()
+                                .expect("Unable to spawn Tick Parser");
+        self.add_instance(Instance{instance_type: "Tick Parser".to_string(), uuid: mod_uuid});
     }
 
     /// Spawns a new Optimizer instance with the specified strategy andinserts its Uuid into
     /// the living instances list
     fn spawn_optimizer(&mut self, strategy: String) {
-        unimplemented!();
+        let mod_uuid = Uuid::new_v4();
+        let _ = process::Command::new("../optimizer/target/debug/optimizer")
+                                .arg(mod_uuid.to_string().as_str())
+                                .arg(strategy.as_str())
+                                .spawn()
+                                .expect("Unable to spawn Optimizer");
+        self.add_instance(Instance{instance_type: "Optimizer".to_string(), uuid: mod_uuid});
     }
 
     /// Sends a Ping command to all instances that the spawner thinks are running.  After
@@ -142,6 +165,34 @@ impl InstanceManager {
         unimplemented!();
     }
 
+    /// Kills all currently running instances managed by this spawner
+    fn kill_all(&mut self) -> Response {
+
+    }
+
+    /// Adds an instance to the internal living instances list
+    fn add_instance(&mut self, inst: Instance) {
+        let l = self.living.clone();
+        let mut ll = l.lock().unwrap();
+        ll.push(inst);
+    }
+
+    /// Removes an instance with the given Uuid from the internal instances list
+    fn remove_instance(&mut self, uuid: Uuid) {
+        let l = self.living.clone();
+        let mut ll = l.lock().unwrap();
+
+        let mut _i: Option<usize> = None;
+        for (i, inst) in (*ll).iter().enumerate() {
+            if inst.uuid == uuid {
+                _i = Some(i);
+            }
+        }
+
+        if _i.is_some() {
+            ll.remove(_i.unwrap());
+        }
+    }
 }
 
 fn main() {
@@ -168,5 +219,15 @@ fn spawner_command_processing() {
 
     // Wait for a Pong to be received
     let res = rx.wait().next().unwrap().unwrap();
-    assert_eq!(WrappedResponse::from_str(res.as_str()).unwrap().res, Response::Pong);
+    assert_eq!(WrappedResponse::from_str(res.as_str()).unwrap().res, Response::Pong{uuid: spawner.uuid});
+}
+
+#[test]
+fn tick_processor_spawning() {
+    let mut spawner = InstanceManager::new();
+    spawner.spawn_tick_parser("_test3".to_string());
+
+    let living = spawner.living.clone();
+    let living_inner = living.lock().unwrap();
+    assert_eq!((*living_inner).len(), 1);
 }

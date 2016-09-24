@@ -2,18 +2,28 @@
 //! system as well as helper functions for Serialization/Deserialization and unwrapping.
 
 use serde_json;
+use redis;
 use uuid::Uuid;
 #[allow(unused_imports)]
 use test;
 
-/// Represents a command sent to the Tick Processor
+/// Represents a Command that can be serde'd and sent over Redis.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum Command {
+    // Generic Commands
     Ping,
     Restart,
     Shutdown,
+    // Tick Parser Commands
     AddSMA{period: f64},
     RemoveSMA{period: f64},
+    // Spawner Commands
+    SpawnMM,
+    ListAlive,
+    SpawnOptimizer{strategy: String},
+    SpawnTickParser{symbol: String},
+    KillInstance{uuid: Uuid},
+    KillAllInstances,
 }
 
 impl Command {
@@ -71,9 +81,10 @@ pub fn parse_wrapped_command(cmd: String) -> WrappedCommand {
 /// to it at some earlier point.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum Response {
+    // Generic Responses
     Ok,
     Error{status: String},
-    Pong
+    Pong{uuid: Uuid}
 }
 
 impl Response {
@@ -117,6 +128,15 @@ impl WrappedResponse {
             res: res
         }
     }
+}
+
+pub fn send_response(res: &WrappedResponse, client: &redis::Client, channel: &str) {
+    let ser = serde_json::to_string(res).expect("Couldn't serialize WrappedResponse into String");
+    let res_str = ser.as_str();
+    let _ = redis::cmd("PUBLISH")
+        .arg(channel)
+        .arg(res_str)
+        .execute(client);
 }
 
 /// Parses a String into a WrappedResponse

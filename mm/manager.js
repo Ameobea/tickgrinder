@@ -72,3 +72,9 @@ manager.start = function(port){
 };
 
 manager.start(conf.mmPort);
+commandListen(process.argv[2]);
+
+/// Listens for commands from other modules and fabricates responses
+function commandListen(uuid) {
+    // TODO
+}

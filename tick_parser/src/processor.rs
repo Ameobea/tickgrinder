@@ -3,8 +3,8 @@
 // deterine a trading signal.  The main goal is to produce a result as quickly as
 // possible, so non-essential operations should be deferred asynchronously.
 
-use serde_json;
 use redis;
+use uuid::Uuid;
 use algobot_util::transport::commands::*;
 
 use datafield::DataField;
@@ -16,6 +16,7 @@ use algobot_util::transport::redis::get_client as get_redis_client;
 use conf::CONF;
 
 pub struct Processor {
+    pub uuid: Uuid,
     pub symbol: String,
     pub ticks: DataField<Tick>,
     pub smas: SMAList,
@@ -23,17 +24,8 @@ pub struct Processor {
     redis_client: redis::Client
 }
 
-pub fn send_response(res: &WrappedResponse, client: &redis::Client) {
-    let ser = serde_json::to_string(res).expect("Couldn't serialize WrappedResponse into String");
-    let res_str = ser.as_str();
-    let _ = redis::cmd("PUBLISH")
-        .arg(CONF.redis_responses_channel)
-        .arg(res_str)
-        .execute(client);
-}
-
 impl Processor {
-    pub fn new(symbol: String) -> Processor {
+    pub fn new(symbol: String, uuid: Uuid) -> Processor {
         let pg_conf = PostgresConf {
             postgres_user: CONF.postgres_user,
             postgres_password: CONF.postgres_password,
@@ -48,6 +40,7 @@ impl Processor {
         init_tick_table(symbol.as_str(), &pg_client, CONF.postgres_user);
 
         Processor {
+            uuid: uuid,
             symbol: symbol,
             ticks: DataField::new(),
             smas: SMAList::new(),
@@ -79,12 +72,19 @@ impl Processor {
             Command::AddSMA{period: pd} => {
                 self.smas.add(pd);
                 let wr = WrappedResponse{uuid: wrapped_cmd.uuid, res: Response::Ok};
-                send_response(&wr, &self.redis_client);
+                send_response(&wr, &self.redis_client, CONF.redis_responses_channel);
             },
             Command::RemoveSMA{period: pd} => self.smas.remove(pd),
             Command::Ping => {
-                let wr = WrappedResponse{uuid: wrapped_cmd.uuid, res: Response::Pong};
-                send_response(&wr, &self.redis_client);
+                let wr = WrappedResponse{uuid: wrapped_cmd.uuid, res: Response::Pong{uuid: self.uuid}};
+                send_response(&wr, &self.redis_client, CONF.redis_responses_channel);
+            },
+            _ => {
+                let wr = WrappedResponse{
+                    uuid: wrapped_cmd.uuid,
+                    res: Response::Error{status: "Command not recognized".to_string()}
+                };
+                send_response(&wr, &self.redis_client, CONF.redis_responses_channel);
             }
         }
     }
