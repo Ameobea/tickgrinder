@@ -40,15 +40,25 @@ struct Instance {
 #[derive(Clone)]
 struct InstanceManager {
     pub uuid: Uuid,
-    pub living: Arc<Mutex<Vec<Instance>>>
+    pub living: Arc<Mutex<Vec<Instance>>>,
+    pub cs: CommandServer
 }
 
 impl InstanceManager {
     /// Creates a new spawner instance.
     pub fn new() -> InstanceManager {
+        let settings = CsSettings {
+            redis_host: CONF.redis_url,
+            responses_channel: CONF.redis_responses_channel,
+            conn_count: 3,
+            timeout: 3999,
+            max_retries: 3
+        };
+
         InstanceManager {
             uuid: Uuid::new_v4(),
-            living: Arc::new(Mutex::new(Vec::new()))
+            living: Arc::new(Mutex::new(Vec::new())),
+            cs: CommandServer::new(settings)
         }
     }
 
@@ -169,7 +179,17 @@ impl InstanceManager {
 
     /// Kills all currently running instances managed by this spawner
     fn kill_all(&mut self) -> Response {
+        // TODO: Maybe make this actually verify the responses before returning Ok.
+        let mut instances_inner = self.living.lock().unwrap();
+        for inst in instances_inner.drain(..) {
+            let prom = self.cs.execute(Command::Kill, inst.uuid.hyphenated().to_string());
+            prom.and_then(|response| {
+                println!("{:?}", response);
+                Ok(())
+            }).forget();
+        }
 
+        Response::Ok
     }
 
     /// Adds an instance to the internal living instances list

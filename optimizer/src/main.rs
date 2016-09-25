@@ -31,7 +31,7 @@ use conf::CONF;
 fn main() {
     let settings = CsSettings {
         redis_host: CONF.redis_host,
-        redis_channel: CONF.redis_response_channel,
+        responses_channel: CONF.redis_response_channel,
         conn_count: CONF.conn_senders,
         timeout: CONF.cs_timeout,
         max_retries: CONF.cs_max_retries

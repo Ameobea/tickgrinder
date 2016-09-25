@@ -22,7 +22,6 @@ use futures::stream::{Stream, channel, Sender, Receiver, Wait};
 use futures::{Future, oneshot, Complete, Oneshot};
 use uuid::Uuid;
 use redis;
-use serde_json;
 
 use transport::redis::{get_client, sub_channel};
 use transport::commands::*;
@@ -32,15 +31,15 @@ use transport::commands::*;
 pub struct CsSettings {
     pub conn_count: usize,
     pub redis_host: &'static str,
-    pub commands_channel: &'static str,
     pub responses_channel: &'static str,
     pub timeout: u64,
     pub max_retries: usize
 }
 
-/// A command waiting to be sent plus a Complete to send the Response/Errorstring through
-type CommandRequest = (Command, Complete<Result<Response, String>>);
-/// Contains a CommandRequest for a worker and and a Complete that resolves when the worker
+/// A command waiting to be sent plus a Complete to send the Response/Error String
+/// through and the channel on which to broadcast the Command.
+type CommandRequest = (Command, Complete<Result<Response, String>>, String);
+/// Contains a CommandRequest for a worker and a Complete that resolves when the worker
 /// becomes idle.
 type WorkerTask = (CommandRequest, Complete<()>);
 /// Threadsafe queue containing handles to idle command-sender threads in the form of Senders
@@ -126,25 +125,14 @@ fn try_get_new_command(command_queue: CommandQueue) -> Option<CommandRequest> {
     qq_inner.pop_front()
 }
 
-/// Asynchronously sends off a command to the Tick Processor without
-/// waiting to see if it was received or sent properly
-fn send_command(cmd: &WrappedCommand, client: &mut redis::Client, commands_channel: &'static str) {
-    let command_string = serde_json::to_string(cmd)
-        .expect("Unable to parse command into JSON String");
-    redis::cmd("PUBLISH")
-        .arg(commands_channel)
-        .arg(command_string)
-        .execute(client);
-}
-
 fn send_command_outer(
-    al: &Mutex<AlertList>, command: &Command,
-    client: &mut redis::Client, sleeper_tx: Sender<TimeoutRequest, ()>,
-    res_c: Complete<Result<Response, String>>, command_queue: CommandQueue,
-    mut attempts: usize, s: &CsSettings
+    al: &Mutex<AlertList>, command: &Command, client: &mut redis::Client,
+    sleeper_tx: Sender<TimeoutRequest, ()>, res_c: Complete<Result<Response, String>>,
+    command_queue: CommandQueue, mut attempts: usize, s: &CsSettings,
+    commands_channel: String
 ) -> Result<Sender<TimeoutRequest, ()>, ()> {
     let wr_cmd = command.wrap();
-    send_command(&wr_cmd, client, s.commands_channel);
+    send_command(&wr_cmd, client, commands_channel.as_str());
 
     let (sleepy_c, sleepy_o) = oneshot::<Thread>();
     let (awake_c, awake_o) = oneshot::<Result<Response, ()>>();
@@ -187,8 +175,8 @@ fn send_command_outer(
                         return Ok(new_sleeper_tx)
                     } else { // re-send the command
                         // we can do this recursively since it's only a few retries
-                        return send_command_outer(al, &wr_cmd.cmd, client, new_sleeper_tx,
-                            res_c, command_queue.clone(), attempts, s)
+                        return send_command_outer(al, &wr_cmd.cmd, client, new_sleeper_tx, res_c,
+                            command_queue.clone(), attempts, s, commands_channel.clone())
                     }
                 }
             }
@@ -197,23 +185,30 @@ fn send_command_outer(
 }
 
 /// Manually loop over the converted Stream of commands
-fn dispatch_worker(mut iter: &mut Wait<Receiver<WorkerTask, ()>>, al: &Mutex<AlertList>,
-        mut client: &mut redis::Client, sleeper_tx: Sender<TimeoutRequest, ()>,
-        command_queue: CommandQueue, s: &CsSettings) -> Sender<TimeoutRequest, ()>{
+fn dispatch_worker(
+    mut iter: &mut Wait<Receiver<WorkerTask, ()>>, al: &Mutex<AlertList>,
+    mut client: &mut redis::Client, sleeper_tx: Sender<TimeoutRequest, ()>,
+    command_queue: CommandQueue, s: &CsSettings
+) -> Sender<TimeoutRequest, ()>{
     let wrapped = iter.next();
     if wrapped.is_none() {
         println!("Internal structures have been dropped; we must be exiting.");
     }
 
-    let ((cmd, res_c), idle_c) = wrapped.expect("Couldn't unwrap #1").expect("Couldn't unwrap #2");
+    let ((cmd, res_c, commands_channel), idle_c) =
+        wrapped.expect("Couldn't unwrap #1").expect("Couldn't unwrap #2");
     // completes initial command and internall iterates until queue is empty
-    let mut new_sleeper_tx = send_command_outer(al, &cmd, &mut client, sleeper_tx,
-            res_c, command_queue.clone(), 0, s)
-        .expect("Couldn't unwrap new_sleeper_tx");
+    let mut new_sleeper_tx = send_command_outer(
+        al, &cmd, &mut client, sleeper_tx, res_c, command_queue.clone(), 0,
+        s, commands_channel
+    ).expect("Couldn't unwrap new_sleeper_tx");
     // keep trying to get queued commands to execute until the queue is empty;
-    while let Some((new_cmd, new_res_c)) = try_get_new_command(command_queue.clone()) {
-        new_sleeper_tx = send_command_outer(al, &new_cmd,
-            client, new_sleeper_tx, new_res_c, command_queue.clone(), 0, s).unwrap();
+    while let Some((new_cmd, new_res_c, commands_channel)) =
+            try_get_new_command(command_queue.clone()) {
+        new_sleeper_tx = send_command_outer(
+            al, &new_cmd, client, new_sleeper_tx, new_res_c, command_queue.clone(), 0, s,
+            commands_channel
+        ).unwrap();
     }
     idle_c.complete(());
     new_sleeper_tx
@@ -235,18 +230,21 @@ fn init_sleeper(rx: Receiver<TimeoutRequest, ()>,) {
 /// Creates a command processor that awaits requests
 fn init_command_processor(
     cmd_rx: Receiver<WorkerTask, ()>, command_queue: CommandQueue,
-    al: &Mutex<AlertList>, s: &CsSettings)
-{
+    al: &Mutex<AlertList>, s: &CsSettings
+) {
     let mut client = get_client(s.redis_host);
     // channel for communicating with the sleeper thread
     let (sleeper_tx, sleeper_rx) = channel::<TimeoutRequest, ()>();
     thread::spawn(move || init_sleeper(sleeper_rx) );
     let mut iter = cmd_rx.wait();
-    let mut new_sleeper_tx = dispatch_worker(&mut iter, al, &mut client,
-        sleeper_tx, command_queue.clone(), &s);
+    let mut new_sleeper_tx = dispatch_worker(
+        &mut iter, al, &mut client, sleeper_tx, command_queue.clone(), &s
+    );
+
     loop {
-        new_sleeper_tx = dispatch_worker(&mut iter, al, &mut client,
-            new_sleeper_tx, command_queue.clone(), s);
+        new_sleeper_tx = dispatch_worker(
+            &mut iter, al, &mut client, new_sleeper_tx, command_queue.clone(), s
+        );
     }
 }
 
@@ -290,7 +288,9 @@ impl CommandServer {
 
     /// Queues up a command to send to the Tick Processor.  Returns a future
     /// that resolves to the Response returned from the Tick Processor.
-    pub fn execute(&mut self, command: Command) -> Oneshot<Result<Response, String>> {
+    pub fn execute(
+        &mut self, command: Command, commands_channel: String
+    ) -> Oneshot<Result<Response, String>> {
         let temp_lock_res = self.conn_queue.lock().unwrap().is_empty();
         // Force the guard locking conn_queue to go out of scope
         // this prevents the lock from being held through the entire if/else
@@ -301,14 +301,14 @@ impl CommandServer {
         let (idle_c, idle_o) = oneshot::<()>();
 
         if copy_res {
-            self.command_queue.lock().unwrap().push_back((command, res_c));
+            self.command_queue.lock().unwrap().push_back((command, res_c, commands_channel));
         }else{
             let _tx = self.conn_queue.lock().unwrap().pop_front().unwrap();
             // re-assign to unlock
             let tx = _tx;
             let cq_clone = self.conn_queue.clone();
             // type WorkerTask
-            let req = ((command, res_c), idle_c);
+            let req = ((command, res_c, commands_channel), idle_c);
             tx.send(Ok(req)).and_then(move |new_tx| {
                 // Wait until the worker thread signals that it is idle
                 idle_o.and_then(move |_| {
@@ -323,7 +323,9 @@ impl CommandServer {
         res_o
     }
 
-    pub fn broadcast(&mut self, command: Command) -> Oneshot<Result<Vec<Response>, String>> {
+    pub fn broadcast(
+        &mut self, command: Command, commands_channel: String
+    ) -> Oneshot<Result<Vec<Response>, String>> {
         // spawn a new timeout thread just for this request
         let (sleeper_tx, sleeper_rx) = channel::<TimeoutRequest, ()>();
         thread::spawn(move || init_sleeper(sleeper_rx) );
@@ -343,7 +345,7 @@ impl CommandServer {
         let alc = self.al.clone();
 
         // Broadcast the command
-        send_command(&wr_cmd, &mut client, self.settings.commands_channel);
+        send_command(&wr_cmd, &mut client, commands_channel.as_str());
 
         // when a timeout happens, send all received responses back to caller.
         awake_o.and_then(move |_| {

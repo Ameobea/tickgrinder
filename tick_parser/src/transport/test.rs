@@ -107,7 +107,6 @@ fn sma_commands() {
 fn command_server_broadcast() {
     let settings = CsSettings {
         redis_host: CONF.redis_url,
-        commands_channel: "broadcast_test_cmd",
         responses_channel: "broadcast_test_res",
         conn_count: 3,
         timeout: 3999,
@@ -119,7 +118,7 @@ fn command_server_broadcast() {
     let rx = sub_channel(CONF.redis_url, "broadcast_test_cmd");
 
     let cmd = Command::Ping;
-    let responses_future = cs.broadcast(cmd);
+    let responses_future = cs.broadcast(cmd, "broadcast_test_cmd".to_string());
 
     let recvd_cmd_str = rx.wait().next().unwrap().unwrap();
     let recvd_cmd = WrappedCommand::from_str(recvd_cmd_str.as_str()).unwrap();

@@ -14,6 +14,8 @@ pub enum Command {
     Ping,
     Restart,
     Shutdown,
+    Kill,
+    Register{channel: String},
     // Tick Parser Commands
     AddSMA{period: f64},
     RemoveSMA{period: f64},
@@ -128,6 +130,17 @@ impl WrappedResponse {
             res: res
         }
     }
+}
+
+/// Asynchronously sends off a command to the Tick Processor without
+/// waiting to see if it was received or sent properly
+pub fn send_command(cmd: &WrappedCommand, client: &mut redis::Client, commands_channel: &str) {
+    let command_string = serde_json::to_string(cmd)
+        .expect("Unable to parse command into JSON String");
+    redis::cmd("PUBLISH")
+        .arg(commands_channel)
+        .arg(command_string)
+        .execute(client);
 }
 
 pub fn send_response(res: &WrappedResponse, client: &redis::Client, channel: &str) {
