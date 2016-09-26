@@ -3,7 +3,7 @@
 //! Responsible for spawning, destroying, and managing all instances of the bot4
 //! platform's modules and reporting on their status.
 
-#![feature(test)]
+#![feature(test, conservative_impl_trait)]
 
 extern crate uuid;
 extern crate redis;
@@ -72,14 +72,36 @@ impl InstanceManager {
         // spawn a MM instance
         self.spawn_mm();
         // start ping heartbeat
+
+        // find any disconnected instances
+        // TODO: Register self in living instances
+        let stragglers = self.ping_all().wait().unwrap().unwrap();
+
+        if CONF.kill_stragglers {
+            for straggler_response in stragglers {
+                match straggler_response {
+                    Response::Pong{uuid: uuid} => {
+                        self.cs.execute(
+                            Command::Kill,
+                            uuid.hyphenated().to_string()
+                        );
+                    },
+                    _ => {
+                        println!("Unrecognized response received: {:?}", straggler_response);
+                    }
+                }
+            }
+        } else {
+            // TODO
+        }
+
         loop {
             // blocks until all instances return their expected responses or time out
-            let res = self.ping_all();
-            match res {
-                Some(dead_instances) => {
-                    println!("Dead instances: {:?}", dead_instances);
-                },
-                None => {},
+            let res = self.ping_all().wait().ok().unwrap().unwrap();
+            let living = self.living.lock().unwrap();
+            if res.len() != living.len() {
+                println!("Expected: {:?}", *living);
+                println!("Actual: {:?}", res);
             }
 
             thread::sleep(Duration::new(1,0));
@@ -95,14 +117,14 @@ impl InstanceManager {
             let cmds_rx = sub_channel(CONF.redis_url, CONF.redis_control_channel);
             let mut redis_client = get_client(CONF.redis_url);
 
-            cmds_rx.for_each(move |cmd_string| {
+            let _ = cmds_rx.for_each(move |cmd_string| {
                 match WrappedCommand::from_str(cmd_string.as_str()) {
                     Ok(wr_cmd) => {
                         let (c, o) = oneshot::<Response>();
                         dup.handle_command(wr_cmd.cmd, c);
 
                         let uuid = wr_cmd.uuid.clone();
-                        o.and_then(|status: Response| {
+                        let _ = o.and_then(|status: Response| {
                             redis::cmd("PUBLISH")
                                 .arg(CONF.redis_responses_channel)
                                 .arg(status.wrap(uuid).to_string().unwrap().as_str())
@@ -168,13 +190,13 @@ impl InstanceManager {
         self.add_instance(Instance{instance_type: "Optimizer".to_string(), uuid: mod_uuid});
     }
 
-    /// Sends a Ping command to all instances that the spawner thinks are running.  After
-    /// 1 second.  If an instance is nonresponsive after 5 retries, it is assumed to be
-    /// dead and is respawned.  Also sends a message to the logger when this happens.
-    ///
-    /// Returns Some([dead_instance, ...]) or None
-    fn ping_all(&mut self) -> Option<Vec<Instance>> {
-        unimplemented!();
+    /// Broadcasts a Ping message on the broadcast channel to all running instances.  Returns
+    /// a future that fulfills to a Vec containing the uuids of all running instances.
+    fn ping_all(&mut self) -> impl Future<Item = Result<Vec<Response>, String>, Error = futures::Canceled> {
+        self.cs.broadcast(
+            Command::Ping,
+            CONF.redis_control_channel.to_string()
+        )
     }
 
     /// Kills all currently running instances managed by this spawner
