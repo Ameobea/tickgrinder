@@ -12,6 +12,7 @@ $(document).ready(()=>{
     spawnInstance(type, data);
   });
 
+  // TODO: Update to dynamically determined ip
   var serverAddress = "http://<%= ip %>";
 
   var socket = new WebSocket("ws://<%= websocketIp %>");

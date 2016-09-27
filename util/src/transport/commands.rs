@@ -10,12 +10,12 @@ use test;
 /// Represents a Command that can be serde'd and sent over Redis.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum Command {
-    // Generic Commands
+    // Generic Commands; all instances must implement responses for these commands.
     Ping,
-    Restart,
     Shutdown,
     Kill,
     Register{channel: String},
+    Type, // returns what kind of instance this is
     // Tick Parser Commands
     AddSMA{period: f64},
     RemoveSMA{period: f64},
@@ -26,6 +26,17 @@ pub enum Command {
     SpawnTickParser{symbol: String},
     KillInstance{uuid: Uuid},
     KillAllInstances,
+}
+
+/// Represents a response from the Tick Processor to a Command sent
+/// to it at some earlier point.
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub enum Response {
+    // Generic Responses
+    Ok,
+    Error{status: String},
+    Pong{uuid: Uuid},
+    Info{info: String}
 }
 
 impl Command {
@@ -77,16 +88,6 @@ impl WrappedCommand {
 pub fn parse_wrapped_command(cmd: String) -> WrappedCommand {
     serde_json::from_str::<WrappedCommand>(cmd.as_str())
         .expect("Unable to parse WrappedCommand from String")
-}
-
-/// Represents a response from the Tick Processor to a Command sent
-/// to it at some earlier point.
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub enum Response {
-    // Generic Responses
-    Ok,
-    Error{status: String},
-    Pong{uuid: Uuid}
 }
 
 impl Response {

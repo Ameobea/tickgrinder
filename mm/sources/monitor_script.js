@@ -101,7 +101,7 @@ function loadMacro(macroString) {
   }
 
   // make request to macro data endpoint
-  $.get(`http://<%= ip %>data/${macro.indicator}/${macro.symbol}/${macro.startTime}` +
+  $.get(`../data/${macro.indicator}/${macro.symbol}/${macro.startTime}` +
       `/${macro.endTime}/${JSON.stringify(macro.data)}`, res=>{
     console.log(res);
     var new_chart = createChart();

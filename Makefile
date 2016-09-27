@@ -68,3 +68,16 @@ install:
 	cp ./mm dist -r
 	cp spawner/target/release/spawner dist
 	cp tick_parser/target/release/tick_processor dist
+
+update:
+	cd optimizer && cargo update
+	cd spawner && cargo update
+
+	# Build each strategy
+	for dir in ./strategies/*/; \
+	do \
+		cd $$dir && cargo update; \
+	done
+
+	cd tick_parser && cargo update
+	cd util && cargo update

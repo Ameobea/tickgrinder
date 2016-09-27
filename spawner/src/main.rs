@@ -81,6 +81,7 @@ impl InstanceManager {
             for straggler_response in stragglers {
                 match straggler_response {
                     Response::Pong{uuid: uuid} => {
+                        println!("Sending Kill message to straggler with uuid {:?}", uuid);
                         self.cs.execute(
                             Command::Kill,
                             uuid.hyphenated().to_string()
@@ -95,13 +96,40 @@ impl InstanceManager {
             // TODO
         }
 
+        // TODO: Actually check the Uuids of resultant responses rather than just checking length
         loop {
             // blocks until all instances return their expected responses or time out
             let res = self.ping_all().wait().ok().unwrap().unwrap();
             let living = self.living.lock().unwrap();
-            if res.len() != living.len() {
+
+            // re-broadcast ping 3 times and take action if instance is still dead
+            let mut i = 0;
+            while res.len() != living.len() {
+                if i == 3 {
+                    // TODO: Determine uuid of the dead instance
+                    let uuid = Uuid::new_v4();
+                    println!("Instance is really dead; attempting respawn");
+                    // deregister the old instance
+                    self.remove_instance(uuid);
+
+                    let response = self.cs.execute(
+                        Command::Type,
+                        uuid.hyphenated().to_string()
+                    ).wait().unwrap().ok().unwrap();
+                    match response {
+                        Response::Info{info: info} => {
+                            self.add_instance(Instance{instance_type: info, uuid: uuid});
+                        },
+                        _ => {
+                            println!("Received unexpected response from Type query: {:?}", response);
+                        }
+                    }
+                    break;
+                }
+
                 println!("Expected: {:?}", *living);
                 println!("Actual: {:?}", res);
+                i += 1;
             }
 
             thread::sleep(Duration::new(1,0));
@@ -215,14 +243,14 @@ impl InstanceManager {
     }
 
     /// Adds an instance to the internal living instances list
-    fn add_instance(&mut self, inst: Instance) {
+    fn add_instance(&self, inst: Instance) {
         let l = self.living.clone();
         let mut ll = l.lock().unwrap();
         ll.push(inst);
     }
 
     /// Removes an instance with the given Uuid from the internal instances list
-    fn remove_instance(&mut self, uuid: Uuid) {
+    fn remove_instance(&self, uuid: Uuid) {
         let l = self.living.clone();
         let mut ll = l.lock().unwrap();
 
