@@ -67,7 +67,6 @@ impl Processor {
     pub fn execute_command(&mut self, raw_cmd: String) {
         let wrapped_cmd: WrappedCommand = parse_wrapped_command(raw_cmd);
         match wrapped_cmd.cmd {
-            Command::Restart => unimplemented!(),
             Command::Shutdown => unimplemented!(),
             Command::AddSMA{period: pd} => {
                 self.smas.add(pd);

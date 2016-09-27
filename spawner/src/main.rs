@@ -21,7 +21,7 @@ use std::process;
 use conf::CONF;
 
 use uuid::Uuid;
-use futures::{Future, oneshot, Oneshot, Complete};
+use futures::{Future, oneshot, Complete};
 use futures::stream::Stream;
 use algobot_util::transport::redis::{sub_channel, get_client};
 use algobot_util::transport::commands::*;
@@ -80,7 +80,7 @@ impl InstanceManager {
         if CONF.kill_stragglers {
             for straggler_response in stragglers {
                 match straggler_response {
-                    Response::Pong{uuid: uuid} => {
+                    Response::Pong{uuid} => {
                         println!("Sending Kill message to straggler with uuid {:?}", uuid);
                         self.cs.execute(
                             Command::Kill,
@@ -100,11 +100,17 @@ impl InstanceManager {
         loop {
             // blocks until all instances return their expected responses or time out
             let res = self.ping_all().wait().ok().unwrap().unwrap();
-            let living = self.living.lock().unwrap();
+
+            let mut len;
+            {
+                let living = self.living.lock().unwrap();
+                len = living.len();
+            }
 
             // re-broadcast ping 3 times and take action if instance is still dead
             let mut i = 0;
-            while res.len() != living.len() {
+            // TODO: Change to check content rather than length
+            while res.len() != len {
                 if i == 3 {
                     // TODO: Determine uuid of the dead instance
                     let uuid = Uuid::new_v4();
@@ -117,7 +123,7 @@ impl InstanceManager {
                         uuid.hyphenated().to_string()
                     ).wait().unwrap().ok().unwrap();
                     match response {
-                        Response::Info{info: info} => {
+                        Response::Info{info} => {
                             self.add_instance(Instance{instance_type: info, uuid: uuid});
                         },
                         _ => {
@@ -127,9 +133,8 @@ impl InstanceManager {
                     break;
                 }
 
-                println!("Expected: {:?}", *living);
-                println!("Actual: {:?}", res);
                 i += 1;
+                len = self.ping_all().wait().ok().unwrap().unwrap().len();
             }
 
             thread::sleep(Duration::new(1,0));
@@ -176,15 +181,19 @@ impl InstanceManager {
         let res = match cmd {
             Command::Ping => Response::Pong{uuid: self.uuid},
             Command::KillAllInstances => self.kill_all(),
+            Command::SpawnMM => self.spawn_mm(),
+            Command::SpawnOptimizer{strategy} => self.spawn_optimizer(strategy),
+            Command::SpawnTickParser{symbol} => self.spawn_tick_parser(symbol),
             _ => Response::Error{
-                status: "Command not accepted by the instance spawner.".to_string()
+                status: "Command not accepted by the instance spawner".to_string()
             }
         };
+
         c.complete(res);
     }
 
     /// Spawns a new MM server instance and inserts its Uuid into the living instances list
-    fn spawn_mm(&mut self) {
+    fn spawn_mm(&mut self) -> Response {
         let mod_uuid = Uuid::new_v4();
         let _ = process::Command::new(CONF.node_binary_path)
                                 .arg("../mm/manager.js")
@@ -192,11 +201,13 @@ impl InstanceManager {
                                 .spawn()
                                 .expect("Unable to spawn MM");
         self.add_instance(Instance{instance_type: "MM".to_string(), uuid: mod_uuid});
+
+        Response::Ok
     }
 
     /// Spawns a new Tick Processor instance with the given symbol andinserts its Uuid into
     /// the living instances list
-    fn spawn_tick_parser(&mut self, symbol: String) {
+    fn spawn_tick_parser(&mut self, symbol: String) -> Response {
         let mod_uuid = Uuid::new_v4();
         let _ = process::Command::new("../tick_parser/target/debug/tick_processor")
                                 .arg(mod_uuid.to_string().as_str())
@@ -204,11 +215,13 @@ impl InstanceManager {
                                 .spawn()
                                 .expect("Unable to spawn Tick Parser");
         self.add_instance(Instance{instance_type: "Tick Parser".to_string(), uuid: mod_uuid});
+
+        Response::Ok
     }
 
     /// Spawns a new Optimizer instance with the specified strategy andinserts its Uuid into
     /// the living instances list
-    fn spawn_optimizer(&mut self, strategy: String) {
+    fn spawn_optimizer(&mut self, strategy: String) -> Response {
         let mod_uuid = Uuid::new_v4();
         let _ = process::Command::new("../optimizer/target/debug/optimizer")
                                 .arg(mod_uuid.to_string().as_str())
@@ -216,6 +229,8 @@ impl InstanceManager {
                                 .spawn()
                                 .expect("Unable to spawn Optimizer");
         self.add_instance(Instance{instance_type: "Optimizer".to_string(), uuid: mod_uuid});
+
+        Response::Ok
     }
 
     /// Broadcasts a Ping message on the broadcast channel to all running instances.  Returns

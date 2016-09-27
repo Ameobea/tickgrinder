@@ -1,29 +1,17 @@
 build:
 	cd optimizer && cargo build
 	cd spawner && cargo build
-
-	# cd strategies
-	# # Build each strategy
-	# for dir in ./strategies/*/; \
-	# do \
-	# 	cd $$dir && cargo build; \
-	# done
-
 	cd tick_parser && cargo build
 	cd util && cargo build
+	cd mm && npm install
 	# TODO: Collect the results into a nice format
 
 release:
 	cd optimizer && cargo build --release
 	cd spawner && cargo build --release
-
-	# for dir in ./strategies/*/; \
-	# do \
-	# 	cd $$dir && cargo build --release; \
-	# done
-
 	cd tick_parser && cargo build --release
 	cd util && cargo build --release
+	cd mm && npm install
 	# TODO: Collect the results into a nice format
 
 clean:
@@ -38,6 +26,7 @@ clean:
 	rm tick_parser/target -rf
 	rm util/target -rf
 	rm dist -rf
+	rm mm/node_modules -rf
 
 test:
 	cd optimizer && cargo test
@@ -51,6 +40,7 @@ test:
 
 	cd tick_parser && cargo test
 	cd util && cargo test
+	cd mm && npm install
 	# TODO: Collect the results into a nice format
 
 bench:
@@ -81,3 +71,8 @@ update:
 
 	cd tick_parser && cargo update
 	cd util && cargo update
+	de mm && npm update
+
+# kill off any straggler processes
+kill:
+	pkill -f "target/debug"
