@@ -76,3 +76,4 @@ update:
 # kill off any straggler processes
 kill:
 	pkill -f "target/debug"
+	pkill -f "manager.js"

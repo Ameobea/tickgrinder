@@ -23,13 +23,13 @@ use conf::CONF;
 use uuid::Uuid;
 use futures::{Future, oneshot, Complete};
 use futures::stream::Stream;
-use algobot_util::transport::redis::{sub_channel, get_client};
+use algobot_util::transport::redis::{sub_channel, sub_multiple, get_client};
 use algobot_util::transport::commands::*;
 use algobot_util::transport::command_server::*;
 
 /// Represents an instance of a platform module.  Contains a Uuid to identify it
 /// as well as some information about its spawning parameters and its type.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Instance {
     // TODO: Spawning parameters
     instance_type: String,
@@ -67,8 +67,7 @@ impl InstanceManager {
     pub fn init(&mut self) {
         // Look for old running instances and either take control of them or kill them depending on conf
         // TODO
-        // listen for new commands and setup callbacks
-        self.listen();
+
         // spawn a MM instance
         self.spawn_mm();
         // start ping heartbeat
@@ -94,63 +93,112 @@ impl InstanceManager {
             }
         } else {
             // TODO
+            unimplemented!();
         }
 
-        // TODO: Actually check the Uuids of resultant responses rather than just checking length
+        // listen for new commands and setup callbacks
+        // important to do this AFTER dealing with stragglers, or else we may attempt suicide.
+        self.listen();
+
         loop {
             // blocks until all instances return their expected responses or time out
-            let res = self.ping_all().wait().ok().unwrap().unwrap();
+            let responses = self.ping_all().wait().ok().unwrap().unwrap();
 
-            let mut len;
-            {
-                let living = self.living.lock().unwrap();
-                len = living.len();
-            }
+            let dead_uuid_outer = self.get_missing_instance(responses);
+            if dead_uuid_outer.is_some() {
+                let dead_instance = dead_uuid_outer.unwrap();
+                println!("Instance {:?} is unresponseive; attempting respawn", dead_instance);
 
-            // re-broadcast ping 3 times and take action if instance is still dead
-            let mut i = 0;
-            // TODO: Change to check content rather than length
-            while res.len() != len {
-                if i == 3 {
-                    // TODO: Determine uuid of the dead instance
-                    let uuid = Uuid::new_v4();
-                    println!("Instance is really dead; attempting respawn");
-                    // deregister the old instance
-                    self.remove_instance(uuid);
+                // deregister the old instance
+                self.remove_instance(dead_instance.uuid);
 
-                    let response = self.cs.execute(
-                        Command::Type,
-                        uuid.hyphenated().to_string()
-                    ).wait().unwrap().ok().unwrap();
-                    match response {
-                        Response::Info{info} => {
-                            self.add_instance(Instance{instance_type: info, uuid: uuid});
-                        },
-                        _ => {
-                            println!("Received unexpected response from Type query: {:?}", response);
+                let res_outer = self.cs.execute(
+                    Command::Type,
+                    dead_instance.uuid.hyphenated().to_string()
+                ).wait().unwrap();
+
+                match res_outer {
+                    Ok(response) => { // we actually got a reply from the presumed dead instance
+                        match response {
+                            Response::Info{info} => {
+                                println!("{:?} wasn't dead after all...", dead_instance);
+                                self.add_instance(Instance{instance_type: info, uuid: dead_instance.uuid});
+                            },
+                            _ => {
+                                println!("Received unexpected response from Type query: {:?}", response);
+                            }
                         }
+                        break;
+                    },
+                    Err(_) => {
+                        println!("{:?} is really, truly, dead.", dead_instance);
+                        // TODO: respawn dead instance
                     }
-                    break;
                 }
-
-                i += 1;
-                len = self.ping_all().wait().ok().unwrap().unwrap().len();
             }
 
             thread::sleep(Duration::new(1,0));
         }
     }
 
+    /// Returns the uuid of the first missing instance
+    fn get_missing_instance(&self, responses: Vec<Response>) -> Option<Instance> {
+        let assumed_living = self.living.lock().unwrap();
+
+        // check to make sure that each expected instance is in the responses
+        for inst in (*assumed_living).iter() {
+            let mut present = false;
+            for res in responses.iter() {
+                match res {
+                    &Response::Pong{uuid} => {
+                        if inst.uuid == uuid {
+                            present = true;
+                            break;
+                        }
+                    },
+                    _ => {
+                        println!("Received unexpected response to Ping: {:?}", res);
+                    }
+                }
+            }
+
+            if !present {
+                let temp_inst = inst.clone();
+                return Some(temp_inst)
+            }
+        }
+
+        None
+    }
+
     /// Starts listening for new commands on the control channel
     pub fn listen(&mut self) {
         let mut dup = self.clone();
+        let own_uuid = self.uuid.clone();
 
         thread::spawn(move || {
-            // sub to spawer control channel
-            let cmds_rx = sub_channel(CONF.redis_url, CONF.redis_control_channel);
+            // sub to spawer control channel and personal commands channel
+            let cmds_rx = sub_multiple(
+                CONF.redis_url,
+                &[CONF.redis_control_channel, own_uuid.hyphenated().to_string().as_str()]
+            );
+            println!(
+                "Listening for commands on {} and {}",
+                CONF.redis_control_channel,
+                own_uuid.hyphenated().to_string().as_str()
+            );
             let mut redis_client = get_client(CONF.redis_url);
 
-            let _ = cmds_rx.for_each(move |cmd_string| {
+            let _ = cmds_rx.for_each(move |message| {
+                let (channel, cmd_string) = message;
+                let res_channel;
+                if channel == CONF.redis_control_channel {
+                    res_channel = CONF.redis_responses_channel.to_string();
+                } else{
+                    let personal_channel = format!("res-{}", own_uuid.hyphenated().to_string());
+                    res_channel = personal_channel;
+                }
+
                 match WrappedCommand::from_str(cmd_string.as_str()) {
                     Ok(wr_cmd) => {
                         let (c, o) = oneshot::<Response>();
@@ -159,7 +207,7 @@ impl InstanceManager {
                         let uuid = wr_cmd.uuid.clone();
                         let _ = o.and_then(|status: Response| {
                             redis::cmd("PUBLISH")
-                                .arg(CONF.redis_responses_channel)
+                                .arg(res_channel.as_str())
                                 .arg(status.wrap(uuid).to_string().unwrap().as_str())
                                 .execute(&mut redis_client);
                             Ok(())
@@ -180,6 +228,7 @@ impl InstanceManager {
     fn handle_command(&mut self, cmd: Command, c: Complete<Response>) {
         let res = match cmd {
             Command::Ping => Response::Pong{uuid: self.uuid},
+            Command::Type => Response::Info{info: "Spawner".to_string()},
             Command::KillAllInstances => self.kill_all(),
             Command::SpawnMM => self.spawn_mm(),
             Command::SpawnOptimizer{strategy} => self.spawn_optimizer(strategy),

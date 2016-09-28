@@ -88,7 +88,10 @@ fn sma_commands() {
         .execute(&mut client);
     // block until the message is received and processed
     let msg = rx.wait().next();
-    processor.execute_command(msg.expect("1").expect("2"));
+    processor.execute_command(
+        CONF.redis_responses_channel,
+        msg.expect("1").expect("2")
+    );
     assert_eq!(processor.smas.smas.len(), 1);
 
     let rx2 = sub_channel(CONF.redis_url, CONF.redis_control_channel);
@@ -99,7 +102,10 @@ fn sma_commands() {
         .arg(command_str)
         .execute(&mut client);
     let msg = rx2.wait().next();
-    processor.execute_command(msg.expect("3").expect("4"));
+    processor.execute_command(
+        CONF.redis_responses_channel,
+        msg.expect("3").expect("4")
+    );
     assert_eq!(processor.smas.smas.len(), 0);
 }
 

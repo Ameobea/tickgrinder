@@ -85,9 +85,12 @@ impl WrappedCommand {
 
 /// Converts a String into a WrappedCommand
 /// JSON Format: {"uuid": "xxxx-xxxx", "cmd": {"CommandName":{"arg": "val"}}}
-pub fn parse_wrapped_command(cmd: String) -> WrappedCommand {
-    serde_json::from_str::<WrappedCommand>(cmd.as_str())
-        .expect("Unable to parse WrappedCommand from String")
+pub fn parse_wrapped_command(raw: String) -> WrappedCommand {
+    let res = serde_json::from_str::<WrappedCommand>(raw.as_str());
+    match res {
+        Ok(wr_cmd) => return wr_cmd,
+        Err(_) => panic!("Unable to parse WrappedCommand from String: {}", raw)
+    }
 }
 
 impl Response {

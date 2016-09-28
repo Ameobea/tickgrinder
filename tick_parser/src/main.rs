@@ -1,8 +1,7 @@
-// Algobot 4
+// Algobot 4 Tick Processor
 // Casey Primozic, 2016-2016
 
-
-#![feature(custom_derive, plugin, test, conservative_impl_trait)]
+#![feature(custom_derive, plugin, test, conservative_impl_trait, slice_patterns)]
 #![plugin(serde_macros)]
 #![allow(dead_code)]
 
@@ -23,39 +22,65 @@ mod tests;
 
 use std::thread;
 use std::time::Duration;
-use std::str::FromStr;
+use std::env;
 
 use futures::Future;
-use futures::stream::{Stream, MergedItem};
+use futures::stream::Stream;
 use uuid::Uuid;
 
 use processor::Processor;
 use conf::CONF;
 use algobot_util::tick::{SymbolTick};
 use algobot_util::transport::postgres::{get_client, reset_db, PostgresConf};
-use algobot_util::transport::redis::sub_channel;
+use algobot_util::transport::redis::sub_multiple;
 
-fn handle_messages() {
-    // subscribe to live ticks channel
-    let ticks_rx = sub_channel(CONF.redis_url, CONF.redis_ticks_channel);
+fn handle_messages(symbol: String, uuid: Uuid) {
+    let ticks_channel = CONF.redis_ticks_channel;
+    let control_channel = CONF.redis_control_channel;
+    let uuid_string = uuid.hyphenated().to_string();
 
-    let mut processor = Processor::new(String::from_str(CONF.symbol).unwrap(), Uuid::new_v4());
-    // listen for new commands
-    let cmds_rx = sub_channel(CONF.redis_url, CONF.redis_control_channel);
+    let mut processor = Processor::new(symbol, uuid);
 
-    ticks_rx.merge(cmds_rx).for_each(move |mi| {
-        match mi {
-            MergedItem::First(raw_string) =>
-                processor.process(SymbolTick::from_json_string(raw_string)),
-            MergedItem::Second(raw_string) =>
-                processor.execute_command(raw_string),
-            MergedItem::Both(_, _) => ()
-        };
+    let rx = sub_multiple(
+        CONF.redis_url,
+        &[ticks_channel, control_channel, uuid_string.as_str()]
+    );
+
+    rx.for_each(move |pair| {
+        let (channel, message) = pair;
+
+        if channel == ticks_channel {
+            processor.process(SymbolTick::from_json_string(message))
+        } else if channel == uuid_string.as_str()
+               || channel == control_channel {
+            processor.execute_command(CONF.redis_responses_channel, message)
+        } else {
+            println!(
+                "Unexpected channel/message combination received: {},{}",
+                channel,
+                message
+            );
+        }
+
         Ok(())
     }).forget();
 }
 
 fn main() {
+    // ./tick_processor uuid symbol
+    let args = env::args().collect::<Vec<String>>();
+    let uuid: Uuid;
+    let symbol: String;
+
+    match args.as_slice() {
+        &[_, ref uuid_str, ref symbol_str] => {
+            uuid = Uuid::parse_str(uuid_str.as_str())
+                .expect("Unable to parse Uuid from supplied argument");
+            symbol = symbol_str.to_string();
+        }
+        _ => panic!("Wrong number of arguments provided!")
+    }
+
     if CONF.reset_db_on_load {
         let pg_conf = PostgresConf {
             postgres_user: CONF.postgres_user,
@@ -70,7 +95,7 @@ fn main() {
     }
 
     // Start the listeners for everything
-    handle_messages();
+    handle_messages(symbol, uuid);
 
     loop {
         // keep program alive but don't swamp the CPU

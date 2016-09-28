@@ -3,6 +3,9 @@
 // deterine a trading signal.  The main goal is to produce a result as quickly as
 // possible, so non-essential operations should be deferred asynchronously.
 
+use std::{thread, process};
+use std::time::Duration;
+
 use redis;
 use uuid::Uuid;
 use algobot_util::transport::commands::*;
@@ -61,30 +64,40 @@ impl Processor {
         // Calculate smas
         self.smas.push_all(*self.ticks.last().expect("Unable to pop tick from processor"));
         // Initialize async database store
-        t.store(CONF.symbol, &mut self.qs);
+        t.store(self.symbol.as_str(), &mut self.qs);
     }
 
-    pub fn execute_command(&mut self, raw_cmd: String) {
+    /// Handle an incoming Command, take action, and return a Response
+    pub fn execute_command(&mut self, res_channel: &str, raw_cmd: String) {
         let wrapped_cmd: WrappedCommand = parse_wrapped_command(raw_cmd);
-        match wrapped_cmd.cmd {
+        let res = match wrapped_cmd.cmd {
             Command::Shutdown => unimplemented!(),
+            Command::Kill => {
+                // initiate suicide from another thread after a 3-second timeout
+                thread::spawn(|| {
+                    thread::sleep(Duration::from_secs(3));
+                    println!("I can see the light...");
+                    process::exit(0);
+                });
+                Response::Info{info: "Shutting down in 3 seconds...".to_string()}
+            }
             Command::AddSMA{period: pd} => {
                 self.smas.add(pd);
-                let wr = WrappedResponse{uuid: wrapped_cmd.uuid, res: Response::Ok};
-                send_response(&wr, &self.redis_client, CONF.redis_responses_channel);
+                Response::Ok
             },
-            Command::RemoveSMA{period: pd} => self.smas.remove(pd),
+            Command::RemoveSMA{period: pd} => {
+                self.smas.remove(pd);
+                Response::Ok
+            },
             Command::Ping => {
-                let wr = WrappedResponse{uuid: wrapped_cmd.uuid, res: Response::Pong{uuid: self.uuid}};
-                send_response(&wr, &self.redis_client, CONF.redis_responses_channel);
+                Response::Pong{uuid: self.uuid}
             },
             _ => {
-                let wr = WrappedResponse{
-                    uuid: wrapped_cmd.uuid,
-                    res: Response::Error{status: "Command not recognized".to_string()}
-                };
-                send_response(&wr, &self.redis_client, CONF.redis_responses_channel);
+                Response::Error{status: "Command not recognized".to_string()}
             }
-        }
+        };
+
+        let wr = res.wrap(wrapped_cmd.uuid);
+        send_response(&wr, &self.redis_client, res_channel);
     }
 }
