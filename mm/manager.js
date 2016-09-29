@@ -12,6 +12,8 @@ var conf = require("./conf");
 
 var manager = exports;
 
+var uuid;
+
 manager.start = function(port){
   var app = express();
 
@@ -48,14 +50,32 @@ manager.start = function(port){
     });
   }).listen(parseInt(conf.websocketPort));
 
-  // forwards messages from redis to the websocket
-  // var redisClient = redis.createClient();
-  // redisClient.subscribe("tickParserOutput");
-  // redisClient.on("message", (channel, message)=>{
-  //   socketServer.connections.forEach(conn=>{
-  //     conn.sendText(JSON.stringify({channel: channel, data: message}));
-  //   });
-  // });
+  // usage: node manager.js uuid
+  uuid = process.argv[2];
+
+  if(!uuid) {
+    console.log("Usage: node manager.js uuid");
+    process.exit(0);
+  } else {
+    console.log(`MM now listening for commands on ${conf.redisCommandsChannel} and ${uuid}`);
+  }
+
+  // Create two Redis clients - one for subscribing and one for publishing
+  var subClient = getRedisClient();
+  var pubClient = getRedisClient();
+
+  subClient.subscribe(uuid);
+  subClient.subscribe(conf.redisCommandsChannel);
+  subClient.on("message", (channel, message_str)=>{
+    console.log(`Received new message: ${message_str}`);
+    // convert the {"Enum"}s to plain strings
+    message_str = message_str.replace(/{("\w*")}/g, "$1");
+    var wr_cmd = JSON.parse(message_str);
+    var response = getResponse(wr_cmd.cmd);
+    var wr_res = {uuid: wr_cmd.uuid, res: response};
+    console.log(`Generated response: ${wr_res}`);
+    pubClient.publish(conf.redisResponsesChannel, JSON.stringify(wr_res));
+  });
 
   app.use(function(err, req, res, next) {
     res.status(err.status || 500);
@@ -72,9 +92,31 @@ manager.start = function(port){
 };
 
 manager.start(conf.mmPort);
-commandListen(process.argv[2]);
 
-/// Listens for commands from other modules and fabricates responses
-function commandListen(uuid) {
-    // TODO
+/// Returns a new Redis client based on the settings in conf
+function getRedisClient() {
+  return redis.createClient({
+    host: conf.redisUrl,
+    port: conf.redisPort
+  });
+}
+
+/// Processes a command and returns a Response to send back
+function getResponse(command) {
+  console.log(`Processing command: ${command}`);
+  switch(command) {
+    case "Ping":
+      return {Pong: {uuid: uuid}};
+    case "Kill":
+      // shut down in 3 seconds
+      setTimeout(function() {
+        console.log("I'm very tired...");
+        process.exit(0);
+      }, 3000);
+      return {Info: {info: "Shutting down in 3 seconds..."}};
+    case "Type":
+      return {Info: {info: "MM"}};
+    default:
+      return {Error: {status: "Command not recognized."}};
+  }
 }

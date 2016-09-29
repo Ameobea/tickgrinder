@@ -12,7 +12,10 @@ var conf = {
   postgresPassword: "password",
   postgresDatabase: "algobot",
   // Redis Config
-  redisUrl: "localhost"
+  redisUrl: "localhost",
+  redisPort: 6379,
+  redisCommandsChannel: "commands",
+  redisResponsesChannel: "responses"
 };
 
 module.exports = conf;
