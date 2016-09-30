@@ -12,10 +12,8 @@ $(document).ready(()=>{
     spawnInstance(type, data);
   });
 
-  // TODO: Update to dynamically determined ip
-  var serverAddress = "http://<%= ip %>";
-
-  var socket = new WebSocket("ws://<%= websocketIp %>");
+  var socketUrl = (document.URL.replace(/https*:\/\//g, "ws://") + ":7037").replace(/:\d+\/*/, "");
+  var socket = new WebSocket(socketUrl);
   socket.onmessage = message=>{
     processWsMsg(JSON.parse(message.data));
   };
@@ -24,16 +22,16 @@ $(document).ready(()=>{
     var type = $("#backtestTypeSelector option:selected").text().toLowerCase();
 
     if(type == "fast"){
-      let requestAddress = serverAddress + "api/backtest/start/fast/" + $("#backtestStartPair").val();
+      let requestAddress = "../api/backtest/start/fast/" + $("#backtestStartPair").val();
       $.post(requestAddress, {startTime: $("#backtestStartTime").val(), interval: $("#backtestSendInterval").val()});
     }else if(type == "live"){
-      let requestAddress = serverAddress + "api/backtest/start/live/" + $("#backtestStartPair").val();
+      let requestAddress = "../api/backtest/start/live/" + $("#backtestStartPair").val();
       $.post(requestAddress, {startTime: $("#backtestStartTime").val()});
     }else if(type == "pre-calculated"){
-      let requestAddress = serverAddress + "api/backtest/start/precalced/" + $("#backtestStartPair").val();
+      let requestAddress = "../api/backtest/start/precalced/" + $("#backtestStartPair").val();
       $.post(requestAddress, {startTime: $("#backtestStartTime").val(), endTime: $("#backtestEndTime").val()});
     }else if(type == "no-store"){
-      let requestAddress = serverAddress + "api/backtest/start/nostore/" + $("#backtestStartPair").val();
+      let requestAddress = "../api/backtest/start/nostore/" + $("#backtestStartPair").val();
       $.post(requestAddress, {startTime: $("#backtestStartTime").val()});
     }
   });
@@ -47,12 +45,12 @@ $(document).ready(()=>{
   });
 
   $("#backtestStopButton").click(()=>{
-    var requestAddress = serverAddress + "api/backtest/stop/" + $("#backtestStopPair").val();
+    var requestAddress = "../api/backtest/stop/" + $("#backtestStopPair").val();
     $.post(requestAddress);
   });
 
   $("#backtestStopAllButton").click(()=>{
-    var requestAddress = serverAddress + "api/backtest/stop/all";
+    var requestAddress = "../api/backtest/stop/all";
     $.post(requestAddress);
   });
 
@@ -73,24 +71,10 @@ $(document).ready(()=>{
   reloadConfig();
 });
 
-//Message format:
-//{channel: "sample", data:"{id: "stuff", data:"stringified JSON"}"}
-var processWsMsg = msg=>{
-  if(msg.channel == "tickParserOutput"){
-    //console.log(msg.data);
-    var data = JSON.parse(msg.data);
-    var id = `#tickParser-${data.id}`;
-    if(typeof($(id).html()) != "undefined"){
-      console.log($(id).html());
-      $(id).append(data.data);
-    }else{
-      if(dispQ[id]){
-        dispQ[id].push(data.data);
-      }else{
-        dispQ[id] = [data.data];
-      }
-    }
-  }
+// Message format:
+// {channel: "sample", data:{uuid: uuid, cmd/res: {...}}}
+function processWsMsg(msg) {
+  console.log(msg);
 };
 
 function decodeEntities(input){
@@ -98,26 +82,6 @@ function decodeEntities(input){
   y.innerHTML = input;
   return y.value;
 }
-
-var loadConfig = ()=>{
-  <%
-    var confString = "<table>";
-
-    for(var key in conf.public){
-      if(!conf.public.hasOwnProperty(key)) continue;
-
-      confString += `<tr><td><b>${key}</b>: ${conf.public[key]}</td>`;
-      confString += `<td><input type="text" id="confInput-${key}">`;
-      confString += `<input type="button" class="confSubmit" id="confSubmit-${key}" value="Update"></td>`;
-    }
-
-    confString += "</table>";
-  %>
-
-  $("#config").html(decodeEntities(`<%= confString %>`));
-
-  setupConfListeners();
-};
 
 var setupConfListeners = ()=>{
   $(".confSubmit").click(function(){
@@ -139,7 +103,7 @@ var reloadConfig = ()=>{
   });
 };
 
-var update = ()=>{
+function update(){
   $.get("./api/instances", data=>{
     var parsed = JSON.parse(data);
     var table = "<table><tr><th>Kill</th><th>Type</th><th>Data</th></tr>";
@@ -180,7 +144,7 @@ var update = ()=>{
   });
 };
 
-var getKillButton = (type, data)=>{
+function getKillButton(type, data) {
   var include;
 
   if(type == "manager"){
@@ -194,15 +158,15 @@ var getKillButton = (type, data)=>{
   return `<input type="button" onclick="killConfirm('${type}', '${include}')" value="X">`;
 };
 
-var killConfirm = (type, data)=>{
+function killConfirm(type, data) {
   var res = window.confirm("Are you sure you want to kill this instance?");
   if(res){
     killInstance(type, data);
   }
 };
 
-var killInstance = (type, data)=>{
-  $.get(`./api/instances/kill/${type}/${data}`, res=>{
+function killInstance(type, data) {
+  $.get(`./api/instances/kill/${type}/${data}`, function(res) {
     $("#statusbar").html(res);
     update();
   }).fail(err=>{
@@ -210,8 +174,8 @@ var killInstance = (type, data)=>{
   });
 };
 
-var spawnInstance = (type, data)=>{
-  $.get(`./api/instances/spawn/${type}/${data}`, res=>{
+function spawnInstance(type, data) {
+  $.get(`./api/instances/spawn/${type}/${data}`, function(res) {
     res = JSON.parse(res);
     $("#statusbar").html(`Instance with id ${res.id} spawned with message: ${res.data}`);
     setTimeout(()=>{update();},500);

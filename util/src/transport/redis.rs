@@ -56,8 +56,7 @@ pub fn get_pubsub(host: &str, channel: &'static str) -> redis::PubSub {
     pubsub
 }
 
-/// Returns a Receiver that resolves to new messages received
-/// on a pubsub channel
+/// Returns a Receiver that resolves to new messages received on a pubsub channel
 pub fn sub_channel(host: &str, ps_channel: &'static str) -> Receiver<String, ()> {
     let (tx, rx) = channel::<String, ()>();
     let ps = get_pubsub(host, ps_channel);

@@ -66,13 +66,19 @@ manager.start = function(port){
 
   subClient.subscribe(uuid);
   subClient.subscribe(conf.redisCommandsChannel);
+  subClient.subscribe(conf.redisResponsesChannel);
   subClient.on("message", (channel, message_str)=>{
     console.log(`Received new message: ${message_str}`);
     // convert the {"Enum"}s to plain strings
     message_str = message_str.replace(/{("\w*")}/g, "$1");
-    var wr_cmd = JSON.parse(message_str);
-    var response = getResponse(wr_cmd.cmd);
-    var wr_res = {uuid: wr_cmd.uuid, res: response};
+    var wr_msg = JSON.parse(message_str);
+    // broadcast to websockets
+    socketServer.connections.forEach(function(connection){
+      var ws_msg = {channel: channel, message: wr_msg};
+      connection.sendText(JSON.stringify(ws_msg));
+    });
+    var response = getResponse(wr_msg.cmd);
+    var wr_res = {uuid: wr_msg.uuid, res: response};
     console.log(`Generated response: ${wr_res}`);
     pubClient.publish(conf.redisResponsesChannel, JSON.stringify(wr_res));
   });
