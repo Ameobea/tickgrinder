@@ -1,0 +1,27 @@
+<html>
+<head>
+    <title>Algobot Command Terminal</title>
+    <script type="text/javascript" src="http://code.jquery.com/jquery-1.10.1.js"></script>
+    <script type="text/javascript" src="sources/commands.js"></script>
+    <link rel="stylesheet" href="sources/global_style.css">
+    <link rel="stylesheet" href="sources/commands.css">
+</head>
+<body>
+    <% include ./partials/header %>
+    <hr>
+    <center><h1>Command Terminal</h1></center>
+
+    <h2>Send Command</h2>
+    <table width="100%"><tr>
+        <td>Channel: <input type="text" id="channel" value="control"></td>
+        <td>Command: <input type="text" id="command" placeholder="Ping"></td>
+        <td>Parameters: <input type="text" id="params" placeholder='{"key": {"key2": 100}}'>
+        <td>Broadcast <input type="checkbox" id="broadcast"></td>
+    </tr></table>
+    <input type="button" value="Send" id="send"><br>
+    <div id="response" class="mono"></div>
+    <hr>
+    <h2>Live Commands + Responses</h2>
+    <textarea style="width: 100%; height: 200px;"></textarea>
+</body>
+</html>

@@ -3,13 +3,16 @@
 //! Responsible for spawning, destroying, and managing all instances of the bot4
 //! platform's modules and reporting on their status.
 
-#![feature(test, conservative_impl_trait)]
+#![feature(plugin, test, conservative_impl_trait, custom_derive)]
+#![plugin(serde_macros)]
 
 extern crate uuid;
 extern crate redis;
 extern crate algobot_util;
 extern crate futures;
 extern crate test;
+extern crate serde;
+extern crate serde_json;
 
 mod conf;
 
@@ -23,13 +26,13 @@ use conf::CONF;
 use uuid::Uuid;
 use futures::{Future, oneshot, Complete};
 use futures::stream::Stream;
-use algobot_util::transport::redis::{sub_channel, sub_multiple, get_client};
+use algobot_util::transport::redis::{sub_multiple, get_client};
 use algobot_util::transport::commands::*;
 use algobot_util::transport::command_server::*;
 
 /// Represents an instance of a platform module.  Contains a Uuid to identify it
 /// as well as some information about its spawning parameters and its type.
-#[derive(Debug, Clone)]
+#[derive(Serialize, Debug, Clone)]
 struct Instance {
     // TODO: Spawning parameters
     instance_type: String,
@@ -51,7 +54,7 @@ impl InstanceManager {
             redis_host: CONF.redis_url,
             responses_channel: CONF.redis_responses_channel,
             conn_count: 3,
-            timeout: 3999,
+            timeout: 300,
             max_retries: 3
         };
 
@@ -65,15 +68,10 @@ impl InstanceManager {
     /// Starts listening for commands on the control channel, spawns a new MM instance,
     /// and initializes the ping heartbeat.
     pub fn init(&mut self) {
-        // Look for old running instances and either take control of them or kill them depending on conf
-        // TODO
-
         // spawn a MM instance
         self.spawn_mm();
-        // start ping heartbeat
 
         // find any disconnected instances
-        // TODO: Register self in living instances
         let stragglers = self.ping_all().wait().unwrap().unwrap();
 
         if CONF.kill_stragglers {
@@ -100,6 +98,16 @@ impl InstanceManager {
         // important to do this AFTER dealing with stragglers, or else we may attempt suicide.
         self.listen();
 
+        // give CommandServer a while to boot up
+        thread::sleep(Duration::from_millis(1928));
+
+        // register self as in instance
+        {
+            let mut living = self.living.lock().unwrap();
+            (*living).push(Instance{instance_type: "Spawner".to_string(), uuid: self.uuid});
+        }
+
+        // start ping heartbeat
         loop {
             // blocks until all instances return their expected responses or time out
             let responses = self.ping_all().wait().ok().unwrap().unwrap();
@@ -128,7 +136,6 @@ impl InstanceManager {
                                 println!("Received unexpected response from Type query: {:?}", response);
                             }
                         }
-                        break;
                     },
                     Err(_) => {
                         println!("{:?} is really, truly, dead.", dead_instance);
@@ -230,6 +237,7 @@ impl InstanceManager {
             Command::Ping => Response::Pong{uuid: self.uuid},
             Command::Type => Response::Info{info: "Spawner".to_string()},
             Command::KillAllInstances => self.kill_all(),
+            Command::Census => self.census(),
             Command::SpawnMM => self.spawn_mm(),
             Command::SpawnOptimizer{strategy} => self.spawn_optimizer(strategy),
             Command::SpawnTickParser{symbol} => self.spawn_tick_parser(symbol),
@@ -239,6 +247,23 @@ impl InstanceManager {
         };
 
         c.complete(res);
+    }
+
+    /// Returns a list of all living instances
+    fn census(&self) -> Response {
+        let living = self.living.lock().unwrap();
+        let mut partials = Vec::new();
+        for inst in living.iter() {
+            match serde_json::to_string(inst) {
+                Ok(ser) => partials.push(ser),
+                Err(e) => return Response::Error{
+                    status: format!("Error serializing instance: {:?}", e)
+                }
+            }
+        }
+
+        let res_string = format!("[{}]", partials.join(", "));
+        return Response::Info{info: res_string};
     }
 
     /// Spawns a new MM server instance and inserts its Uuid into the living instances list

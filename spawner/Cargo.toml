@@ -8,5 +8,8 @@ description = "Instance spawner and management system for the Bot4 algorithmic t
 redis = { git = "https://github.com/mitsuhiko/redis-rs" }
 futures = { git = "https://github.com/alexcrichton/futures-rs", rev = "ed43dcc6" }
 uuid = { version = "0.3.1", features = ["serde", "v4"] }
+serde = "0.8.4"
+serde_json = "0.8.1"
+serde_macros = "0.8.4"
 
 algobot-util = { path = "../util", version = "*" }

@@ -23,3 +23,7 @@ input[type=button], button {
 ::selection {
   background: #4d004d;
 }
+
+.mono {
+  font-family: "Oxygen Mono", monospace;
+}

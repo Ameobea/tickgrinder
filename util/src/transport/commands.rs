@@ -21,7 +21,7 @@ pub enum Command {
     RemoveSMA{period: f64},
     // Spawner Commands
     SpawnMM,
-    ListAlive,
+    Census,
     SpawnOptimizer{strategy: String},
     SpawnTickParser{symbol: String},
     KillInstance{uuid: Uuid},

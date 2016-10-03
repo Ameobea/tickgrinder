@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 build:
 	cd optimizer && cargo build
 	cd spawner && cargo build
@@ -75,5 +77,9 @@ update:
 
 # kill off any straggler processes
 kill:
-	pkill -f "target/debug"
-	pkill -f "manager.js"
+	if [[ $$(ps -aux | grep '[t]arget/debug') ]]; then \
+		kill $$(ps -aux | grep '[t]arget/debug' | awk '{print $$2}'); \
+	fi
+	if [[ $$(ps -aux | grep '[m]anager.js') ]]; then \
+		kill $$(ps -aux | grep '[m]anager.js' | awk '{print $$2}'); \
+	fi
