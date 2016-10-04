@@ -26,7 +26,8 @@ use conf::CONF;
 use uuid::Uuid;
 use futures::{Future, oneshot, Complete};
 use futures::stream::Stream;
-use algobot_util::transport::redis::{sub_multiple, get_client};
+#[allow(unused_imports)]
+use algobot_util::transport::redis::{sub_channel, sub_multiple, get_client};
 use algobot_util::transport::commands::*;
 use algobot_util::transport::command_server::*;
 
@@ -50,18 +51,10 @@ struct InstanceManager {
 impl InstanceManager {
     /// Creates a new spawner instance.
     pub fn new() -> InstanceManager {
-        let settings = CsSettings {
-            redis_host: CONF.redis_url,
-            responses_channel: CONF.redis_responses_channel,
-            conn_count: 3,
-            timeout: 300,
-            max_retries: 3
-        };
-
         InstanceManager {
             uuid: Uuid::new_v4(),
             living: Arc::new(Mutex::new(Vec::new())),
-            cs: CommandServer::new(settings)
+            cs: CommandServer::new(get_settings())
         }
     }
 
@@ -197,14 +190,7 @@ impl InstanceManager {
             let mut redis_client = get_client(CONF.redis_url);
 
             let _ = cmds_rx.for_each(move |message| {
-                let (channel, cmd_string) = message;
-                let res_channel;
-                if channel == CONF.redis_control_channel {
-                    res_channel = CONF.redis_responses_channel.to_string();
-                } else{
-                    let personal_channel = format!("res-{}", own_uuid.hyphenated().to_string());
-                    res_channel = personal_channel;
-                }
+                let (_, cmd_string) = message;
 
                 match WrappedCommand::from_str(cmd_string.as_str()) {
                     Ok(wr_cmd) => {
@@ -214,7 +200,7 @@ impl InstanceManager {
                         let uuid = wr_cmd.uuid.clone();
                         let _ = o.and_then(|status: Response| {
                             redis::cmd("PUBLISH")
-                                .arg(res_channel.as_str())
+                                .arg(CONF.redis_responses_channel)
                                 .arg(status.wrap(uuid).to_string().unwrap().as_str())
                                 .execute(&mut redis_client);
                             Ok(())
@@ -356,6 +342,16 @@ impl InstanceManager {
     }
 }
 
+fn get_settings() -> CsSettings {
+    CsSettings {
+        redis_host: CONF.redis_url,
+        responses_channel: CONF.redis_responses_channel,
+        conn_count: 3,
+        timeout: 300,
+        max_retries: 3
+    }
+}
+
 fn main() {
     let mut spawner = InstanceManager::new();
     spawner.init();
@@ -374,7 +370,7 @@ fn spawner_command_processing() {
     let rx = sub_channel(CONF.redis_url, CONF.redis_responses_channel);
     // send a Ping command
     redis::cmd("PUBLISH")
-        .arg(CONF.redis_control_channel)
+        .arg(spawner.uuid.hyphenated().to_string())
         .arg(cmd_string.as_str())
         .execute(&mut client);
 
@@ -389,6 +385,13 @@ fn tick_processor_spawning() {
     spawner.spawn_tick_parser("_test3".to_string());
 
     let living = spawner.living.clone();
-    let living_inner = living.lock().unwrap();
-    assert_eq!((*living_inner).len(), 1);
+    let spawned_uuid: Uuid;
+    {
+        let living_inner = living.lock().unwrap();
+        assert_eq!((*living_inner).len(), 1);
+        spawned_uuid = living_inner[0].uuid.clone();
+    }
+
+    let mut cs = CommandServer::new(get_settings());
+    cs.execute(Command::Kill, spawned_uuid.hyphenated().to_string());
 }

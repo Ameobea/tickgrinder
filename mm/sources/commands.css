@@ -4,3 +4,10 @@
   margin-bottom: 5px;
   padding: 2px;
 }
+
+#cmdres {
+  border-top: 2px solid #888888;
+  margin-top: 15px;
+  height: 200px;
+  overflow: scroll;
+}
