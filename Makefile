@@ -73,7 +73,7 @@ update:
 
 	cd tick_parser && cargo update
 	cd util && cargo update
-	de mm && npm update
+	cd mm && npm update
 
 # kill off any straggler processes
 kill:

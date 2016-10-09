@@ -5,6 +5,7 @@
     <script type="text/javascript" src="sources/instance_script.js"></script>
     <link rel="stylesheet" href="sources/global_style.css">
     <link rel="stylesheet" href="sources/instance_css.css">
+    <link rel="stylesheet" href="sources/commands.css">
 </head>
 <body>
     <% include ./partials/header %>
@@ -44,5 +45,20 @@
     <input type="button" value="Flush Database" id="dbFlush"><input type="button" value="Dump Database" id="dbDump"><br>
     <input type="text" placeholder="Dump ID">
 </td></tr></table>
+<hr>
+<center><h1>Command Terminal</h1></center>
+<h2>Send Command</h2>
+<table width="100%"><tr>
+    <td>Channel: <input type="text" id="channel" value="control"></td>
+    <td>Command: <input type="text" id="command" placeholder="Ping"></td>
+    <td>Parameters: <input type="text" id="params" placeholder='{"key": {"key2": 100}}'>
+    <td>Broadcast <input type="checkbox" id="broadcast"></td>
+</tr></table>
+<input type="button" value="Send" id="send"><br>
+<div id="response" class="mono"></div>
+<hr>
+<h2>Live Commands + Responses</h2>
+Squelch Pings+Pongs <input type="checkbox" id="squelchpings" checked>
+<div id="cmdres" class="mono"></div>
 </body>
 </html>

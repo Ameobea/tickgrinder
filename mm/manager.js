@@ -34,15 +34,24 @@ manager.start = function(port){
   app.use("/data", data);
   app.use("/sources", express.static(__dirname + "/sources"));
 
+  var pubClient = getRedisClient();
+
   var socketServer = ws.createServer(function(conn){
     socketServer.on('error', function(err){
       console.log(`Websocket server had some sort of error: ${err}`);
     });
 
-    conn.on('text', function(input){ //broadcast to all
+    conn.on('text', function(txtMsg){ //broadcast to all
       socketServer.connections.forEach(function(connection){
-        connection.sendText(input);
+        connection.sendText(txtMsg);
       });
+
+      try {
+        var parsed = JSON.parse(txtMsg);
+        if(parsed.channel && parsed.message && parsed.message.cmd){
+          pubClient.publish(parsed.channel, JSON.stringify(parsed.message));
+        }
+      } catch(e) {}
     });
 
     conn.on('close',function(code,reason){
@@ -62,7 +71,6 @@ manager.start = function(port){
 
   // Create two Redis clients - one for subscribing and one for publishing
   var subClient = getRedisClient();
-  var pubClient = getRedisClient();
 
   subClient.subscribe(uuid);
   subClient.subscribe(conf.redisCommandsChannel);
