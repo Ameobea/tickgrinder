@@ -35,7 +35,7 @@ pub enum Response {
     // Generic Responses
     Ok,
     Error{status: String},
-    Pong{uuid: Uuid},
+    Pong{args: Vec<String>},
     Info{info: String}
 }
 

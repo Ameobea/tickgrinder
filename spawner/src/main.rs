@@ -70,12 +70,16 @@ impl InstanceManager {
         if CONF.kill_stragglers {
             for straggler_response in stragglers {
                 match straggler_response {
-                    Response::Pong{uuid} => {
-                        println!("Sending Kill message to straggler with uuid {:?}", uuid);
-                        self.cs.execute(
-                            Command::Kill,
-                            uuid.hyphenated().to_string()
-                        );
+                    Response::Pong{args} => {
+                        if args.len() < 1 {
+                            println!("Malformed Pong received: {:?}", args);
+                        } else {
+                            println!("Sending Kill message to straggler with uuid {:?}", args[0]);
+                            self.cs.execute(
+                                Command::Kill,
+                                args[0].clone()
+                            );
+                        }
                     },
                     _ => {
                         println!("Unrecognized response received: {:?}", straggler_response);
@@ -150,8 +154,10 @@ impl InstanceManager {
             let mut present = false;
             for res in responses.iter() {
                 match res {
-                    &Response::Pong{uuid} => {
-                        if inst.uuid == uuid {
+                    &Response::Pong{ref args} => {
+                        if args.len() < 1 {
+                            println!("Malformed Pong received: {:?}", args);
+                        } else if inst.uuid.hyphenated().to_string() == args[0] {
                             present = true;
                             break;
                         }
@@ -220,7 +226,16 @@ impl InstanceManager {
     /// that it fulfills with the status once it's finished.
     fn handle_command(&mut self, cmd: Command, c: Complete<Response>) {
         let res = match cmd {
-            Command::Ping => Response::Pong{uuid: self.uuid},
+            Command::Ping => Response::Pong{args: vec![self.uuid.hyphenated().to_string()]},
+            Command::Kill => {
+                thread::spawn(||{
+                    // blow up after 3 seconds
+                    thread::sleep(Duration::new(3, 0));
+                    println!("This is the end...");
+                    std::process::exit(0);
+                });
+                Response::Info{info: "Shutting down in 3 seconds...".to_string()}
+            }
             Command::Type => Response::Info{info: "Spawner".to_string()},
             Command::KillAllInstances => self.kill_all(),
             Command::Census => self.census(),
@@ -376,7 +391,10 @@ fn spawner_command_processing() {
 
     // Wait for a Pong to be received
     let res = rx.wait().next().unwrap().unwrap();
-    assert_eq!(WrappedResponse::from_str(res.as_str()).unwrap().res, Response::Pong{uuid: spawner.uuid});
+    assert_eq!(
+        WrappedResponse::from_str(res.as_str()).unwrap().res,
+        Response::Pong{args: vec![spawner.uuid.hyphenated().to_string()]}
+    );
 }
 
 #[test]

@@ -76,7 +76,7 @@ manager.start = function(port){
   subClient.subscribe(conf.redisCommandsChannel);
   subClient.subscribe(conf.redisResponsesChannel);
   subClient.on("message", (channel, message_str)=>{
-    console.log(`Received new message: ${message_str}`);
+    // console.log(`Received new message: ${message_str}`);
     // convert the {"Enum"}s to plain strings
     message_str = message_str.replace(/{("\w*")}/g, "$1");
     var wr_msg = JSON.parse(message_str);
@@ -88,7 +88,7 @@ manager.start = function(port){
     if(wr_msg.cmd){
       var response = getResponse(wr_msg.cmd);
       var wr_res = {uuid: wr_msg.uuid, res: response};
-      console.log("Generated response: ", wr_res);
+      // console.log("Generated response: ", wr_res);
       pubClient.publish(conf.redisResponsesChannel, JSON.stringify(wr_res));
     }
   });
@@ -119,14 +119,15 @@ function getRedisClient() {
 
 /// Processes a command and returns a Response to send back
 function getResponse(command) {
-  console.log(`Processing command: ${command}`);
+  // console.log(`Processing command: ${command}`);
   switch(command) {
     case "Ping":
-      return {Pong: {uuid: uuid}};
+      var temp = JSON.parse(JSON.stringify(process.argv));
+      return {Pong: {args: temp.splice(2)}};
     case "Kill":
       // shut down in 3 seconds
       setTimeout(function() {
-        console.log("I'm very tired...");
+        console.log("MM is very tired...");
         process.exit(0);
       }, 3000);
       return {Info: {info: "Shutting down in 3 seconds..."}};

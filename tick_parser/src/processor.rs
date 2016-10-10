@@ -5,6 +5,7 @@
 
 use std::{thread, process};
 use std::time::Duration;
+use std::env;
 
 use redis;
 use uuid::Uuid;
@@ -90,7 +91,7 @@ impl Processor {
                 Response::Ok
             },
             Command::Ping => {
-                Response::Pong{uuid: self.uuid}
+                Response::Pong{args: env::args().skip(1).collect()}
             },
             _ => {
                 Response::Error{status: "Command not recognized".to_string()}
