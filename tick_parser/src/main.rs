@@ -2,8 +2,6 @@
 // Casey Primozic, 2016-2016
 
 #![feature(custom_derive, plugin, test, conservative_impl_trait, slice_patterns)]
-#![plugin(serde_macros)]
-#![allow(dead_code)]
 
 extern crate redis;
 extern crate futures;

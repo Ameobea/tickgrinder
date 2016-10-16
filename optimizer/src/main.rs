@@ -3,7 +3,6 @@
 
 #![allow(unconditional_recursion)]
 #![feature(conservative_impl_trait, custom_derive, plugin, test)]
-#![plugin(serde_macros)]
 
 extern crate test;
 extern crate uuid;

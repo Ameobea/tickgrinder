@@ -1,5 +1,8 @@
 use serde_json;
 
+use std::str::FromStr;
+use test;
+
 use transport::query_server::QueryServer;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -67,6 +70,16 @@ impl Tick {
             ask: st.ask
         }
     }
+
+    /// Converts a String in the format "{timestamp}, {bid}, {ask}" into a Tick
+    pub fn from_csv_string(s: &str) -> Tick {
+        let spl: Vec<&str> = s.split(", ").collect();
+        Tick {
+            timestamp: i64::from_str_radix(spl[0], 10).unwrap(),
+            bid: f64::from_str(spl[1]).unwrap(),
+            ask: f64::from_str(spl[2]).unwrap()
+        }
+    }
 }
 
 impl SymbolTick {
@@ -79,4 +92,13 @@ impl SymbolTick {
     pub fn from_json_string(s: String) -> SymbolTick {
         serde_json::from_str(s.as_str()).expect("Unable to parse tick from string")
     }
+}
+
+#[bench]
+fn from_csv_string(b: &mut test::Bencher) {
+    let s = "1476650327123, 1.23134, 1.23156";
+    let mut t = Tick::null();
+    let _ = b.iter(|| {
+        t = Tick::from_csv_string(s)
+    });
 }
