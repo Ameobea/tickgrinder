@@ -6,23 +6,26 @@ use std::io::{BufRead, BufReader};
 use std::thread;
 
 use futures::Future;
-use futures::stream::{channel, Stream, Receiver};
+use futures::stream::{channel, Receiver};
 
 use conf::CONF;
 use algobot_util::tick::*;
 
-/// Any object that is capable of providing a stream of historical ticks
-pub trait TickReader {
+/// Creates a Stream of Ticks to feed the backtest that originate from some source.
+pub trait TickGenerator {
     /// Returns a stream that resolves to new Ticks
-    fn get(symbol: String) -> Result<Receiver<Tick, ()>, String>;
+    fn get(&mut self, symbol: String) -> Result<Receiver<Tick, ()>, String>;
+
+    /// Returns a &str telling what kind of generator it is (flatfile, random, etc.)
+    fn get_name(&self) -> &'static str;
 }
 
 pub struct FlatfileReader {}
 
-impl TickReader for FlatfileReader {
+impl TickGenerator for FlatfileReader {
     /// Returns a result that yeilds a Stream of Results if the source
     /// is available and a which yeild Ticks if the file is formatted correctly.
-    fn get(symbol: String) -> Result<Receiver<Tick, ()>, String> {
+    fn get(&mut self, symbol: String) -> Result<Receiver<Tick, ()>, String> {
         let mut path = PathBuf::from(CONF.tick_data_dir);
         let filename = format!("{}.csv", symbol);
         path.push(filename.as_str());
@@ -50,4 +53,19 @@ impl TickReader for FlatfileReader {
 
         Ok(receiver)
     }
+
+    fn get_name(&self) -> &'static str {
+        "Flatfile"
+    }
+}
+
+/// Represents an endpoint through which ticks generated in a Backtest can be sent.
+///
+/// Could be, for example, a Redis channel, IPC bus, database, etc.
+pub trait TickSink {
+    /// Called every time a new tick is available from the Backtest
+    fn tick(t: Tick);
+
+    /// Returns a &str telling what kind of sink it is (Redis, File, DB, etc.)
+    fn get_name(&mut self) -> &'static str;
 }
