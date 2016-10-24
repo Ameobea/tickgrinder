@@ -2,7 +2,7 @@
 
 #![allow(unused_must_use)]
 
-use postgres::{Connection, SslMode};
+use postgres::{Connection, TlsMode};
 use postgres::error;
 
 #[derive(Clone)]
@@ -23,7 +23,7 @@ pub fn get_client(pg_conf: PostgresConf) -> Result<Connection, error::ConnectErr
         pg_conf.postgres_db
     );
 
-    Connection::connect(conn_string.as_str(), SslMode::None)
+    Connection::connect(conn_string.as_str(), TlsMode::None)
 }
 
 /***************************

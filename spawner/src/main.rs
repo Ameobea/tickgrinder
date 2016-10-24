@@ -3,8 +3,7 @@
 //! Responsible for spawning, destroying, and managing all instances of the bot4
 //! platform's modules and reporting on their status.
 
-#![feature(plugin, test, conservative_impl_trait, custom_derive)]
-#![plugin(serde_macros)]
+#![feature(plugin, test, conservative_impl_trait, custom_derive, proc_macro)]
 
 extern crate uuid;
 extern crate redis;
@@ -13,6 +12,8 @@ extern crate futures;
 extern crate test;
 extern crate serde;
 extern crate serde_json;
+#[macro_use]
+extern crate serde_derive;
 
 mod conf;
 
