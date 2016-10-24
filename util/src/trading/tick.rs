@@ -1,3 +1,6 @@
+//! Structs and functions for creating and managing Ticks.  Ticks represent one
+//! price change in a timeseries.
+
 use serde_json;
 
 use std::str::FromStr;

@@ -82,6 +82,22 @@ update:
 	cd backtester && cargo update
 	cd mm && npm update
 
+cdoc:
+	cd optimizer && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
+	cd spawner && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
+
+	# Build each strategy
+	for dir in ./strategies/*/; \
+	do \
+		cd $$dir && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports; \
+	done
+
+	cd tick_parser && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
+	cd util && cargo test
+	cd backtester && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
+	cd mm && npm install
+	# TODO: Collect the results into a nice format
+
 # kill off any straggler processes
 kill:
 	if [[ $$(ps -aux | grep '[t]arget/debug') ]]; then \

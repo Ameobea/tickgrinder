@@ -13,7 +13,7 @@ use algobot_util::transport::commands::*;
 
 use datafield::DataField;
 use calc::sma::SMAList;
-use algobot_util::tick::{Tick, SymbolTick};
+use algobot_util::trading::tick::{Tick, SymbolTick};
 use algobot_util::transport::postgres::{get_client, init_tick_table, PostgresConf};
 use algobot_util::transport::query_server::QueryServer;
 use algobot_util::transport::redis::get_client as get_redis_client;

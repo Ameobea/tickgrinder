@@ -4,7 +4,7 @@
 use futures::stream::{channel, Sender, Receiver};
 use uuid::Uuid;
 
-use algobot_util::tick::*;
+use algobot_util::trading::tick::*;
 
 use data::*;
 

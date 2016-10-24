@@ -12,7 +12,7 @@ use algobot_util::transport::commands::*;
 use algobot_util::transport::postgres::{self, PostgresConf};
 use algobot_util::transport::query_server::QueryServer;
 use algobot_util::transport::command_server::*;
-use algobot_util::tick::{Tick, SymbolTick};
+use algobot_util::trading::tick::{Tick, SymbolTick};
 use conf::CONF;
 use processor::Processor;
 
@@ -128,7 +128,7 @@ fn command_server_broadcast() {
 
     let recvd_cmd_str = rx.wait().next().unwrap().unwrap();
     let recvd_cmd = WrappedCommand::from_str(recvd_cmd_str.as_str()).unwrap();
-    let res = Response::Pong{uuid: Uuid::new_v4()};
+    let res = Response::Pong{args: vec!("1".to_string(), "2".to_string())};
     for _ in 0..2 {
         redis::cmd("PUBLISH")
             .arg("broadcast_test_res")

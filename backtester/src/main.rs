@@ -14,6 +14,7 @@ extern crate redis;
 mod data;
 mod conf;
 mod backtest;
+mod sim_broker;
 
 use std::sync::{Arc, Mutex};
 

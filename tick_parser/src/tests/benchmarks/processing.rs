@@ -1,7 +1,7 @@
 use test::Bencher;
 
 use datafield::DataField;
-use algobot_util::tick::Tick;
+use algobot_util::trading::tick::Tick;
 use calc::sma::SimpleMovingAverage;
 
 // insert a tick into a DataField

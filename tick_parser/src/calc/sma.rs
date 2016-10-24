@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use algobot_util::tick::Tick;
+use algobot_util::trading::tick::Tick;
 
 //Calculate weighted average of all ticks within period seconds
 //pop ticks off the front after they leave the period

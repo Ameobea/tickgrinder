@@ -1,7 +1,6 @@
-//! Utility functions for use by all parts of the algobot trading system
+//! Code shared by all modules of the platform
 
-#![feature(custom_derive, plugin, conservative_impl_trait, test)]
-#![feature(proc_macro)]
+#![feature(custom_derive, plugin, conservative_impl_trait, test, proc_macro)]
 
 extern crate redis;
 extern crate futures;
@@ -14,5 +13,5 @@ extern crate postgres;
 extern crate test;
 
 pub mod transport;
-pub mod tick;
 pub mod strategies;
+pub mod trading;

@@ -1,5 +1,5 @@
 use calc::sma::SimpleMovingAverage;
-use algobot_util::tick::Tick;
+use algobot_util::trading::tick::Tick;
 
 #[test]
 fn sma_accuracy() {

@@ -14,7 +14,7 @@
 
 use futures;
 
-use tick::SymbolTick;
+use trading::tick::SymbolTick;
 use transport::command_server::CommandServer;
 use transport::query_server::QueryServer;
 
