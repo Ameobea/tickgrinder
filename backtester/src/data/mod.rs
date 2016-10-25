@@ -4,26 +4,33 @@ use futures::stream::Receiver;
 
 use algobot_util::trading::tick::Tick;
 
+use backtest::BacktestMap;
+
 pub mod flatfile_reader;
 pub mod redis_reader;
 pub mod random_reader;
+pub mod redis_sink;
 
-/// Creates a Stream of Ticks to feed the backtest that originate from some source.
+pub use self::flatfile_reader::*;
+pub use self::redis_reader::*;
+pub use self::random_reader::*;
+
+/// Creates a Stream of Ticks to feed the backtest.
 pub trait TickGenerator {
-    /// Returns a stream that resolves to new Ticks
-    fn get(&mut self, symbol: String) -> Result<Receiver<Tick, ()>, String>;
+    const NAME: &'static str;
 
-    /// Returns a &str telling what kind of generator it is (flatfile, random, etc.)
-    fn get_name(&self) -> &'static str;
+    /// Returns a stream that resolves to new Ticks
+    fn get(&mut self, map: &BacktestMap) -> Result<Receiver<Tick, ()>, String>;
+
+    fn get_symbol(&self) -> String;
 }
 
 /// Represents an endpoint through which ticks generated in a Backtest can be sent.
 ///
 /// Could be, for example, a Redis channel, IPC bus, database, etc.
 pub trait TickSink {
-    /// Called every time a new tick is available from the Backtest
-    fn tick(t: Tick);
+    const NAME: &'static str;
 
-    /// Returns a &str telling what kind of sink it is (Redis, File, DB, etc.)
-    fn get_name(&mut self) -> &'static str;
+    /// Called every time a new tick is available from the Backtest
+    fn tick(&mut self, t: Tick);
 }

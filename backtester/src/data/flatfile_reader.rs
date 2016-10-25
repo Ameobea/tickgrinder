@@ -10,16 +10,21 @@ use futures::stream::{channel, Receiver};
 use algobot_util::trading::tick::Tick;
 
 use data::*;
+use backtest::BacktestMap;
 use conf::CONF;
 
-pub struct FlatfileReader {}
+pub struct FlatfileReader {
+    pub symbol: String
+}
 
 impl TickGenerator for FlatfileReader {
+    const NAME: &'static str = "Flatfile";
+
     /// Returns a result that yeilds a Stream of Results if the source
     /// is available and a which yeild Ticks if the file is formatted correctly.
-    fn get(&mut self, symbol: String) -> Result<Receiver<Tick, ()>, String> {
+    fn get(&mut self, map: &BacktestMap) -> Result<Receiver<Tick, ()>, String> {
         let mut path = PathBuf::from(CONF.tick_data_dir);
-        let filename = format!("{}.csv", symbol);
+        let filename = format!("{}.csv", self.symbol);
         path.push(filename.as_str());
 
         let (mut sender, receiver) = channel::<Tick, ()>();
@@ -46,7 +51,5 @@ impl TickGenerator for FlatfileReader {
         Ok(receiver)
     }
 
-    fn get_name(&self) -> &'static str {
-        "Flatfile"
-    }
+    fn get_symbol(&self) -> String { self.symbol.clone() }
 }

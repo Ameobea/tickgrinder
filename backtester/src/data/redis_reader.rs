@@ -5,15 +5,18 @@ use algobot_util::trading::tick::Tick;
 use algobot_util::transport::redis::*;
 
 use data::*;
+use backtest::BacktestMap;
 
-pub struct RedisReader{}
+pub struct RedisReader{
+    pub symbol: String
+}
 
 impl TickGenerator for RedisReader {
-    fn get(&mut self, symbol: String) -> Result<Receiver<Tick, ()>, String> {
+    const NAME: &'static str = "Redis";
+
+    fn get(&mut self, map: &BacktestMap) -> Result<Receiver<Tick, ()>, String> {
         unimplemented!();
     }
 
-    fn get_name(&self) -> &'static str {
-        "Random"
-    }
+    fn get_symbol(&self) -> String { self.symbol.clone() }
 }

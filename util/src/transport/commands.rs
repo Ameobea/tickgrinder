@@ -26,6 +26,11 @@ pub enum Command {
     SpawnTickParser{symbol: String},
     KillInstance{uuid: Uuid},
     KillAllInstances,
+    // Backtester Commands
+    StartBacktest{definition: String},
+    PauseBacktest{uuid: Uuid},
+    ResumeBacktest{uuid: Uuid},
+    StopBacktest{uuid: Uuid},
 }
 
 /// Represents a response from the Tick Processor to a Command sent

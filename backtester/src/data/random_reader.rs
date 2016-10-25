@@ -4,15 +4,18 @@ use futures::stream::Receiver;
 use algobot_util::trading::tick::Tick;
 
 use data::*;
+use backtest::BacktestMap;
 
-pub struct RandomReader{}
+pub struct RandomReader{
+    pub symbol: String
+}
 
 impl TickGenerator for RandomReader {
-    fn get(&mut self, symbol: String) -> Result<Receiver<Tick, ()>, String> {
+    const NAME: &'static str = "Random";
+
+    fn get(&mut self, map: &BacktestMap) -> Result<Receiver<Tick, ()>, String> {
         unimplemented!();
     }
 
-    fn get_name(&self) -> &'static str {
-        "Random"
-    }
+    fn get_symbol(&self) -> String { self.symbol.clone() }
 }

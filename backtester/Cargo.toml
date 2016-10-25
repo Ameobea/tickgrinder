@@ -8,4 +8,6 @@ redis = { git = "https://github.com/mitsuhiko/redis-rs" }
 futures = { git = "https://github.com/alexcrichton/futures-rs", rev="ed43dcc6" }
 algobot-util = { path = "../util", version = "*" }
 serde = "0.8.4"
+serde_json = "0.8.3"
+serde_derive = "0.8.16"
 uuid = { version = "0.3.1", features = ["serde", "v4",] }
