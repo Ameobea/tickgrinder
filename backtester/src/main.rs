@@ -3,10 +3,11 @@
 //! Plays back market data and executes strategies, providing a simulated broker and
 //! account as well as statistics and data about the results of the strategy.
 
-#![feature(conservative_impl_trait, associated_consts, custom_derive, proc_macro)]
+#![feature(conservative_impl_trait, associated_consts, custom_derive, proc_macro, test)]
 #![allow(unused_variables, dead_code)]
 
 extern crate algobot_util;
+extern crate rand;
 extern crate futures;
 extern crate uuid;
 extern crate redis;
@@ -14,6 +15,7 @@ extern crate serde;
 extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
+extern crate test;
 
 mod data;
 mod conf;
@@ -91,31 +93,8 @@ impl Backtester {
                         let err_msg = definition.err().unwrap();
                         Response::Error{ status: format!("Can't parse backtest defition from String: {}", err_msg) }
                     } else {
-                        let _def: BacktestDefinition = definition.unwrap();
-
-                        // create a TickGenerator object
-                        let mut temp;
-                        let mut temp2;
-                        let mut temp3;
-                        let mut gen = match _def.data_source {
-                            DataSource::Flatfile => {
-                                temp = FlatfileReader{symbol: _def.symbol.clone()};
-                                &mut temp as &mut TickGenerator
-                            },
-                            DataSource::Redis => {
-                                temp2 = RedisReader{symbol: _def.symbol.clone()};
-                                &mut temp2 as &mut TickGenerator
-                            },
-                            DataSource::Random => {
-                                temp3 = RandomReader{symbol: _def.symbol.clone()};
-                                &mut temp3 as &mut TickGenerator
-                            },
-                        };
-
                         // start the backtest and register a handle internally
-                        let uuid = copy.start_backtest(
-                            _def.symbol, _def.backtest_type, &mut *gen, _def.data_dest
-                        );
+                        let uuid = copy.start_backtest(definition.unwrap());
 
                         match uuid {
                             Ok(uuid) => Response::Info{info: uuid.hyphenated().to_string()},
@@ -140,32 +119,52 @@ impl Backtester {
     }
 
     /// Initiates a new backtest and adds it to the internal list of monitored backtests.
-    fn start_backtest(
-        &mut self, symbol: String, backtest_type: BacktestType, src: &mut TickGenerator, endpoint: DataDest
-    ) -> Result<Uuid, String> {
+    fn start_backtest(&mut self, definition: BacktestDefinition) -> Result<Uuid, String> {
+        // Create the TickGenerator that provides the backtester with data
+        let mut src = match &definition.data_source {
+            &DataSource::Flatfile => {
+                Box::new(FlatfileReader{symbol: definition.symbol.clone()}) as Box<TickGenerator>
+            },
+            &DataSource::Redis{ref host, ref channel} => {
+                Box::new(RedisReader::new(definition.symbol.clone(), host.clone(), channel.clone())) as Box<TickGenerator>
+            },
+            &DataSource::Random => {
+                Box::new(RandomReader::new(definition.symbol.clone())) as Box<TickGenerator>
+            },
+        };
+
         // modify the source tickstream to add delay between the ticks or add some other kind of
         // advanced functionality to the way they're outputted
-        let tickstream: Result<Receiver<Tick, ()>, String> = match backtest_type {
-            BacktestType::Fast{delay_ms} => src.get(&FastMap{delay_ms: delay_ms}),
-            BacktestType::Live => src.get(&LiveMap::new()),
+        let tickstream: Result<Receiver<Tick, ()>, String> = match &definition.backtest_type {
+            &BacktestType::Fast{delay_ms} => src.get(Box::new(FastMap{delay_ms: delay_ms})),
+            &BacktestType::Live => src.get(Box::new(LiveMap::new())),
         };
-
-        // Create a TickSink that receives the output of the backtest
-        let dst: &TickSink = match endpoint {
-            DataDest::Redis => unimplemented!(),
-            DataDest::Console => unimplemented!(),
-        };
-
-        let (handle_s, handle_r) = channel::<BacktestCommand, ()>();
 
         if tickstream.is_err() {
             return Err( format!("Error creating tickstream: {}", tickstream.err().unwrap()) )
         }
 
+        // create a TickSink that receives the output of the backtest
+        let mut dst: Box<TickSink + Send> = match &definition.data_dest {
+            &DataDest::Redis{ref host, ref channel} => Box::new(RedisSink::new(definition.symbol.clone(), channel.clone(), host.as_str())),
+            &DataDest::Console => Box::new(ConsoleSink{}),
+        };
+
+        // initiate tick flow
+        tickstream.unwrap().for_each(move |t| {
+            dst.tick(t);
+            Ok(())
+        }).forget();
+
+        let (handle_s, handle_r) = channel::<BacktestCommand, ()>();
+
         let uuid = Uuid::new_v4();
         let handle = BacktestHandle {
+            symbol: definition.symbol,
+            backtest_type: definition.backtest_type,
+            data_source: definition.data_source,
+            endpoint: definition.data_dest,
             uuid: uuid.clone(),
-            tickstream: tickstream.unwrap(),
             handle: handle_s
         };
 
@@ -188,13 +187,27 @@ pub enum BacktestType {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum DataSource {
     Flatfile,
-    Redis,
+    Redis{host: String, channel: String},
     Random
 }
 
 /// Where to send the backtest's generated data
 #[derive(Serialize, Deserialize, Debug)]
 pub enum DataDest {
-    Redis,
+    Redis{host: String, channel: String},
     Console,
+}
+
+#[test]
+fn backtest_functionality() {
+    let mut bt = Backtester::new();
+    let definition = BacktestDefinition {
+        symbol: "TEST".to_string(),
+        backtest_type: BacktestType::Fast{delay_ms: 0},
+        data_source: DataSource::Random,
+        data_dest: DataDest::Console
+    };
+
+    let uuid = bt.start_backtest(definition);
+    std::thread::park();
 }

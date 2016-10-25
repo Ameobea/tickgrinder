@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Casey Primozic <me@ameo.link>"]
 
 [dependencies]
+rand = "0.3"
 redis = { git = "https://github.com/mitsuhiko/redis-rs" }
 futures = { git = "https://github.com/alexcrichton/futures-rs", rev="ed43dcc6" }
 algobot-util = { path = "../util", version = "*" }

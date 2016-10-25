@@ -47,7 +47,7 @@ fn get_chan_message_outer (tx: Sender<(String, String), ()>, ps: &redis::PubSub)
         .map_err(|_| "Error while trying to get new tx from .send in redis.rs".to_string() )
 }
 
-pub fn get_pubsub(host: &str, channel: &'static str) -> redis::PubSub {
+pub fn get_pubsub(host: &str, channel: &str) -> redis::PubSub {
     let client = get_client(host);
     let mut pubsub = client.get_pubsub()
         .expect("Could not create pubsub for redis client");
@@ -57,7 +57,7 @@ pub fn get_pubsub(host: &str, channel: &'static str) -> redis::PubSub {
 }
 
 /// Returns a Receiver that resolves to new messages received on a pubsub channel
-pub fn sub_channel(host: &str, ps_channel: &'static str) -> Receiver<String, ()> {
+pub fn sub_channel(host: &str, ps_channel: &str) -> Receiver<String, ()> {
     let (tx, rx) = channel::<String, ()>();
     let ps = get_pubsub(host, ps_channel);
     let mut new_tx = tx;

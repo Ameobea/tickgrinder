@@ -4,7 +4,7 @@
 use std::thread;
 use std::time::Duration;
 
-use futures::stream::{Sender, Receiver};
+use futures::stream::Sender;
 use uuid::Uuid;
 use algobot_util::trading::tick::*;
 
@@ -21,7 +21,10 @@ pub enum BacktestCommand {
 /// some data about it.
 pub struct BacktestHandle {
     pub uuid: Uuid,
-    pub tickstream: Receiver<Tick, ()>,
+    pub symbol: String,
+    pub backtest_type: BacktestType,
+    pub data_source: DataSource,
+    pub endpoint: DataDest,
     pub handle: Sender<BacktestCommand, ()>
 }
 

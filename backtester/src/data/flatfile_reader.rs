@@ -22,7 +22,7 @@ impl TickGenerator for FlatfileReader {
 
     /// Returns a result that yeilds a Stream of Results if the source
     /// is available and a which yeild Ticks if the file is formatted correctly.
-    fn get(&mut self, map: &BacktestMap) -> Result<Receiver<Tick, ()>, String> {
+    fn get(&mut self, mut map: Box<BacktestMap + Send>) -> Result<Receiver<Tick, ()>, String> {
         let mut path = PathBuf::from(CONF.tick_data_dir);
         let filename = format!("{}.csv", self.symbol);
         path.push(filename.as_str());
@@ -43,7 +43,12 @@ impl TickGenerator for FlatfileReader {
                     break;
                 }
                 let t = Tick::from_csv_string(line.as_str());
-                sender = sender.send(Ok(t)).wait().ok().unwrap();
+
+                // apply the map
+                let t_mod = map.map(t);
+                if t_mod.is_some() {
+                    sender = sender.send(Ok(t)).wait().ok().unwrap();
+                }
             }
             println!("No more lines to send.");
         });
