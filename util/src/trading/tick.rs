@@ -4,6 +4,7 @@
 use serde_json;
 
 use std::str::FromStr;
+#[allow(unused_imports)]
 use test;
 
 use transport::query_server::QueryServer;

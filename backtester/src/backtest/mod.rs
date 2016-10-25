@@ -10,7 +10,8 @@ use algobot_util::trading::tick::*;
 
 use {BacktestType, DataSource, DataDest};
 
-#[derive(Serialize, Deserialize)]
+/// Commands for controlling a backtest
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum BacktestCommand {
     Pause,
     Resume,
@@ -29,8 +30,12 @@ pub struct BacktestHandle {
 }
 
 /// Contains all the information necessary to start a backtest
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct BacktestDefinition {
+    /// Stop backtest after timestamp reached or None
+    pub max_timestamp: Option<i64>,
+    /// Stop backtest after `max_tick_n` ticks have been processed or None
+    pub max_tick_n: Option<u64>,
     pub symbol: String,
     pub backtest_type: BacktestType,
     pub data_source: DataSource,

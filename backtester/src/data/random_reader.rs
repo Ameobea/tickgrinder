@@ -17,9 +17,9 @@ pub struct RandomReader{
 }
 
 impl TickGenerator for RandomReader {
-    const NAME: &'static str = "Random";
-
-    fn get(&mut self, mut map: Box<BacktestMap + Send>) -> Result<Receiver<Tick, ()>, String> {
+    fn get(
+        &mut self, mut map: Box<BacktestMap + Send>, handle: CommandStream
+    )-> Result<Receiver<Tick, ()>, String> {
         let (mut tx, rx) = channel::<Tick, ()>();
         let mut timestamp = 0;
 
@@ -50,8 +50,6 @@ impl TickGenerator for RandomReader {
 
         Ok(rx)
     }
-
-    fn get_symbol(&self) -> String { self.symbol.clone() }
 }
 
 impl RandomReader {

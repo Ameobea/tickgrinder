@@ -7,8 +7,6 @@ use data::TickSink;
 pub struct ConsoleSink {}
 
 impl TickSink for ConsoleSink {
-    const NAME: &'static str = "Console";
-
     fn tick(&mut self, t: Tick) {
         println!("{:?}", t);
     }

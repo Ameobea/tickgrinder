@@ -133,11 +133,18 @@ impl Backtester {
             },
         };
 
+        // create channel for communicating messages to the running backtest sent externally
+        let (external_handle_tx, external_handle_rx) = channel::<BacktestCommand, ()>();
+        // create channel for communicating messages to the running backtest internally
+        let (internal_handle_tx, internal_handle_rx) = channel::<BacktestCommand, ()>();
+        // combination of both that's send to the TickGenerator
+        let merged_handle_rx = external_handle_rx.merge(internal_handle_rx);
+
         // modify the source tickstream to add delay between the ticks or add some other kind of
         // advanced functionality to the way they're outputted
         let tickstream: Result<Receiver<Tick, ()>, String> = match &definition.backtest_type {
-            &BacktestType::Fast{delay_ms} => src.get(Box::new(FastMap{delay_ms: delay_ms})),
-            &BacktestType::Live => src.get(Box::new(LiveMap::new())),
+            &BacktestType::Fast{delay_ms} => src.get(Box::new(FastMap{delay_ms: delay_ms}), merged_handle_rx),
+            &BacktestType::Live => src.get(Box::new(LiveMap::new()), merged_handle_rx),
         };
 
         if tickstream.is_err() {
@@ -148,15 +155,28 @@ impl Backtester {
         let mut dst: Box<TickSink + Send> = match &definition.data_dest {
             &DataDest::Redis{ref host, ref channel} => Box::new(RedisSink::new(definition.symbol.clone(), channel.clone(), host.as_str())),
             &DataDest::Console => Box::new(ConsoleSink{}),
+            &DataDest::Null => Box::new(NullSink{}),
         };
 
-        // initiate tick flow
-        tickstream.unwrap().for_each(move |t| {
-            dst.tick(t);
-            Ok(())
-        }).forget();
+        let _definition = definition.clone();
+        let mut i = 0;
 
-        let (handle_s, handle_r) = channel::<BacktestCommand, ()>();
+        // initiate tick flow
+        let _ = tickstream.unwrap().for_each(move |t| {
+            i += 1;
+
+            // send the tick to the sink
+            dst.tick(t);
+
+            if check_early_exit(&t, &_definition, i) {
+                return Err(())
+            }
+
+            Ok(())
+        }).or_else(move |_| {
+            let _ = internal_handle_tx.send(Ok(BacktestCommand::Stop)).wait();
+            Ok::<(), ()>(())
+        }).forget();
 
         let uuid = Uuid::new_v4();
         let handle = BacktestHandle {
@@ -165,7 +185,7 @@ impl Backtester {
             data_source: definition.data_source,
             endpoint: definition.data_dest,
             uuid: uuid.clone(),
-            handle: handle_s
+            handle: external_handle_tx
         };
 
         // register the backtest's existence
@@ -176,15 +196,30 @@ impl Backtester {
     }
 }
 
+/// Returns true if the backtest has met a stop condition.
+fn check_early_exit (
+    t: &Tick, def: &BacktestDefinition, i: u64
+) -> bool {
+    if def.max_tick_n.is_some() &&
+       def.max_tick_n.unwrap() <= i {
+        return true
+    } else if def.max_timestamp.is_some() &&
+              def.max_timestamp.unwrap() <= t.timestamp {
+        return true
+    }
+
+    false
+}
+
 /// What kind of method used to time the output of data
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum BacktestType {
     Fast{delay_ms: u64},
     Live,
 }
 
 /// Where to get the data to drive the backtest
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DataSource {
     Flatfile,
     Redis{host: String, channel: String},
@@ -192,22 +227,53 @@ pub enum DataSource {
 }
 
 /// Where to send the backtest's generated data
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DataDest {
     Redis{host: String, channel: String},
     Console,
+    Null
 }
 
 #[test]
-fn backtest_functionality() {
+fn backtest_n_early_exit() {
+    let rx = algobot_util::transport::redis::sub_channel(CONF.redis_url, "test1_ii");
+
     let mut bt = Backtester::new();
     let definition = BacktestDefinition {
+        max_tick_n: Some(10),
+        max_timestamp: None,
         symbol: "TEST".to_string(),
         backtest_type: BacktestType::Fast{delay_ms: 0},
         data_source: DataSource::Random,
-        data_dest: DataDest::Console
+        data_dest: DataDest::Redis{
+            host: CONF.redis_url.to_string(),
+            channel: "test1_ii".to_string()
+        }
     };
 
-    let uuid = bt.start_backtest(definition);
-    std::thread::park();
+    let _ = bt.start_backtest(definition);
+    let res = rx.wait().take(10).collect::<Vec<_>>();
+    assert_eq!(res.len(), 10);
+}
+
+#[test]
+fn backtest_timestamp_early_exit() {
+    let rx = algobot_util::transport::redis::sub_channel(CONF.redis_url, "test2_ii");
+
+    let mut bt = Backtester::new();
+    let definition = BacktestDefinition {
+        max_tick_n: None,
+        max_timestamp: Some(8),
+        symbol: "TEST".to_string(),
+        backtest_type: BacktestType::Fast{delay_ms: 0},
+        data_source: DataSource::Random,
+        data_dest: DataDest::Redis{
+            host: CONF.redis_url.to_string(),
+            channel: "test2_ii".to_string()
+        }
+    };
+
+    let _ = bt.start_backtest(definition);
+    let res = rx.wait().take(8).collect::<Vec<_>>();
+    assert_eq!(res.len(), 8);
 }

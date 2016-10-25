@@ -14,8 +14,6 @@ pub struct RedisSink {
 }
 
 impl TickSink for RedisSink {
-    const NAME: &'static str = "Redis";
-
     fn tick(&mut self, t: Tick) {
         cmd("PUBLISH")
             .arg(self.tx_channel.clone())

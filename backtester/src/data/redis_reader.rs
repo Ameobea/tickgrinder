@@ -17,9 +17,9 @@ pub struct RedisReader {
 }
 
 impl TickGenerator for RedisReader {
-    const NAME: &'static str = "Redis";
-
-    fn get(&mut self, mut map: Box<BacktestMap + Send>) -> Result<Receiver<Tick, ()>, String> {
+    fn get(
+        &mut self, mut map: Box<BacktestMap + Send>, handle: CommandStream
+    )-> Result<Receiver<Tick, ()>, String> {
         let host = self.redis_host.clone();
         let input_channel = self.channel.clone();
 
@@ -41,8 +41,6 @@ impl TickGenerator for RedisReader {
 
         Ok(rx)
     }
-
-    fn get_symbol(&self) -> String { self.symbol.clone() }
 }
 
 impl RedisReader {

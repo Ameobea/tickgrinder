@@ -189,14 +189,16 @@ fn dispatch_worker(
     mut iter: &mut Wait<Receiver<WorkerTask, ()>>, al: &Mutex<AlertList>,
     mut client: &mut redis::Client, sleeper_tx: Sender<TimeoutRequest, ()>,
     command_queue: CommandQueue, s: &CsSettings
-) -> Sender<TimeoutRequest, ()>{
+) -> Option<Sender<TimeoutRequest, ()>> {
     let wrapped = iter.next();
-    if wrapped.is_none() {
-        println!("Internal structures have been dropped; we must be exiting.");
-    }
 
-    let ((cmd, res_c, commands_channel), idle_c) =
-        wrapped.expect("Couldn't unwrap #1").expect("Couldn't unwrap #2");
+    let ((cmd, res_c, commands_channel), idle_c) = match wrapped {
+        Some(inner) => inner,
+        None => {
+            return None;
+        }
+    }.expect("Couldn't unwrap #2");
+
     // completes initial command and internall iterates until queue is empty
     let mut new_sleeper_tx = send_command_outer(
         al, &cmd, &mut client, sleeper_tx, res_c, command_queue.clone(), 0,
@@ -211,7 +213,7 @@ fn dispatch_worker(
         ).unwrap();
     }
     idle_c.complete(());
-    new_sleeper_tx
+    Some(new_sleeper_tx)
 }
 
 /// Blocks the current thread until a Duration+Complete is received.
@@ -242,8 +244,13 @@ fn init_command_processor(
     );
 
     loop {
+        // exit if we're in the process of collapse
+        if new_sleeper_tx.is_none() {
+            break;
+        }
+
         new_sleeper_tx = dispatch_worker(
-            &mut iter, al, &mut client, new_sleeper_tx, command_queue.clone(), s
+            &mut iter, al, &mut client, new_sleeper_tx.unwrap(), command_queue.clone(), s
         );
     }
 }
