@@ -9,6 +9,7 @@ use uuid::Uuid;
 use algobot_util::trading::tick::*;
 
 use {BacktestType, DataSource, DataDest};
+use sim_broker::SimBrokerSettings;
 
 /// Commands for controlling a backtest
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -39,7 +40,8 @@ pub struct BacktestDefinition {
     pub symbol: String,
     pub backtest_type: BacktestType,
     pub data_source: DataSource,
-    pub data_dest: DataDest
+    pub data_dest: DataDest,
+    pub broker_settings: SimBrokerSettings,
 }
 
 /// Called to determine the timing between ticks sent by the backtest.
@@ -84,4 +86,10 @@ impl LiveMap {
             last_tick_timestamp: 0
         }
     }
+}
+
+pub struct NullMap {}
+
+impl BacktestMap for NullMap {
+    fn map(&mut self, t: Tick) -> Option<Tick> { Some(t) }
 }

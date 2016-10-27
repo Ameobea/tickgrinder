@@ -35,6 +35,7 @@ use algobot_util::trading::tick::Tick;
 use conf::CONF;
 use backtest::*;
 use data::*;
+use sim_broker::*;
 
 /// Starts the backtester module, initializing its interface to the rest of the platform
 fn main() {
@@ -71,7 +72,9 @@ impl Backtester {
     /// Starts listening for commands from the rest of the platform
     pub fn listen(&mut self) {
         // subscribe to the command channels
-        let rx = sub_multiple(CONF.redis_url, &[CONF.redis_control_channel, self.uuid.hyphenated().to_string().as_str()]);
+        let rx = sub_multiple(
+            CONF.redis_url, &[CONF.redis_control_channel, self.uuid.hyphenated().to_string().as_str()]
+        );
         let mut redis_client = get_client(CONF.redis_url);
         let mut copy = self.clone();
 
@@ -91,7 +94,9 @@ impl Backtester {
                     let definition = serde_json::from_str(definition_str.as_str());
                     if definition.is_err() {
                         let err_msg = definition.err().unwrap();
-                        Response::Error{ status: format!("Can't parse backtest defition from String: {}", err_msg) }
+                        Response::Error{
+                            status: format!("Can't parse backtest defition from String: {}", err_msg)
+                        }
                     } else {
                         // start the backtest and register a handle internally
                         let uuid = copy.start_backtest(definition.unwrap());
@@ -119,31 +124,26 @@ impl Backtester {
     }
 
     /// Initiates a new backtest and adds it to the internal list of monitored backtests.
-    fn start_backtest(&mut self, definition: BacktestDefinition) -> Result<Uuid, String> {
+    fn start_backtest(
+        &mut self, definition: BacktestDefinition) -> Result<Uuid, String> {
         // Create the TickGenerator that provides the backtester with data
-        let mut src = match &definition.data_source {
-            &DataSource::Flatfile => {
-                Box::new(FlatfileReader{symbol: definition.symbol.clone()}) as Box<TickGenerator>
-            },
-            &DataSource::Redis{ref host, ref channel} => {
-                Box::new(RedisReader::new(definition.symbol.clone(), host.clone(), channel.clone())) as Box<TickGenerator>
-            },
-            &DataSource::Random => {
-                Box::new(RandomReader::new(definition.symbol.clone())) as Box<TickGenerator>
-            },
-        };
+        let mut src: Box<TickGenerator> = resolve_data_source(
+            &definition.data_source, definition.symbol.clone()
+        );
 
         // create channel for communicating messages to the running backtest sent externally
         let (external_handle_tx, external_handle_rx) = channel::<BacktestCommand, ()>();
         // create channel for communicating messages to the running backtest internally
-        let (internal_handle_tx, internal_handle_rx) = channel::<BacktestCommand, ()>();
+        let (mut internal_handle_tx, internal_handle_rx) = channel::<BacktestCommand, ()>();
         // combination of both that's send to the TickGenerator
         let merged_handle_rx = external_handle_rx.merge(internal_handle_rx);
 
         // modify the source tickstream to add delay between the ticks or add some other kind of
         // advanced functionality to the way they're outputted
         let tickstream: Result<Receiver<Tick, ()>, String> = match &definition.backtest_type {
-            &BacktestType::Fast{delay_ms} => src.get(Box::new(FastMap{delay_ms: delay_ms}), merged_handle_rx),
+            &BacktestType::Fast{delay_ms} => src.get(
+                Box::new(FastMap{delay_ms: delay_ms}), merged_handle_rx
+            ),
             &BacktestType::Live => src.get(Box::new(LiveMap::new()), merged_handle_rx),
         };
 
@@ -153,13 +153,23 @@ impl Backtester {
 
         // create a TickSink that receives the output of the backtest
         let mut dst: Box<TickSink + Send> = match &definition.data_dest {
-            &DataDest::Redis{ref host, ref channel} => Box::new(RedisSink::new(definition.symbol.clone(), channel.clone(), host.as_str())),
+            &DataDest::Redis{ref host, ref channel} => {
+                Box::new(RedisSink::new(definition.symbol.clone(), channel.clone(), host.as_str()))
+            },
             &DataDest::Console => Box::new(ConsoleSink{}),
             &DataDest::Null => Box::new(NullSink{}),
         };
 
         let _definition = definition.clone();
         let mut i = 0;
+
+        // pause the backtest
+        internal_handle_tx = internal_handle_tx.send(Ok(BacktestCommand::Pause)).wait().ok().unwrap();
+
+        // Create a simulated broker
+        let broker = SimBroker::new(definition.broker_settings);
+
+        // TODO: Initialize strategy and start backtest
 
         // initiate tick flow
         let _ = tickstream.unwrap().for_each(move |t| {
@@ -193,6 +203,23 @@ impl Backtester {
         backtest_list.push(handle);
 
         Ok(uuid)
+    }
+}
+
+/// Creates a TickGenerator from a DataSource and symbol String
+pub fn resolve_data_source(data_source: &DataSource, symbol: String) -> Box<TickGenerator> {
+    match data_source {
+        &DataSource::Flatfile => {
+            Box::new(FlatfileReader{symbol: symbol.clone()}) as Box<TickGenerator>
+        },
+        &DataSource::Redis{ref host, ref channel} => {
+            Box::new(
+                RedisReader::new(symbol.clone(), host.clone(), channel.clone())
+            ) as Box<TickGenerator>
+        },
+        &DataSource::Random => {
+            Box::new(RandomReader::new(symbol.clone())) as Box<TickGenerator>
+        },
     }
 }
 
@@ -248,7 +275,11 @@ fn backtest_n_early_exit() {
         data_dest: DataDest::Redis{
             host: CONF.redis_url.to_string(),
             channel: "test1_ii".to_string()
-        }
+        },
+        broker_settings: SimBrokerSettings {
+            starting_balance: 1f64,
+            ping_ms: 0f64,
+        },
     };
 
     let _ = bt.start_backtest(definition);
@@ -270,7 +301,11 @@ fn backtest_timestamp_early_exit() {
         data_dest: DataDest::Redis{
             host: CONF.redis_url.to_string(),
             channel: "test2_ii".to_string()
-        }
+        },
+        broker_settings: SimBrokerSettings {
+            starting_balance: 1f64,
+            ping_ms: 0f64,
+        },
     };
 
     let _ = bt.start_backtest(definition);

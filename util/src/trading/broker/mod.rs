@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 use futures::Oneshot;
-use futures::stream::Receiver;
+use futures::stream::{Stream, Receiver};
 
 use trading::tick::Tick;
 
@@ -18,11 +18,11 @@ pub trait Broker {
     fn init(&mut self, settings: HashMap<String, String>) -> Oneshot<Self> where Self:Sized;
 
     /// Returns a list of all accounts the user has on the broker.
-    fn list_accounts(&mut self) -> Oneshot<Vec<Account>>;
+    fn list_accounts(&mut self) -> Oneshot<Result<&HashMap<Uuid, Account>, BrokerError>>;
 
     /// Returns a Ledger containing the Broker's version of all current and closed
     /// trades and positions as well as balance and portfolio state.
-    fn get_ledger(&mut self, account_id: Uuid) -> Oneshot<Ledger>;
+    fn get_ledger(&mut self, account_id: Uuid) -> Oneshot<Result<Ledger, BrokerError>>;
 
     /// Executes a BrokerAction on the broker, returning its response.
     fn execute(&mut self, action: BrokerAction) -> PendingResult;
@@ -33,7 +33,7 @@ pub trait Broker {
     fn get_stream(&mut self) -> Result<Receiver<BrokerMessage, BrokerError>, BrokerError>;
 
     /// Returns a stream of live ticks for a symbol.
-    fn sub_ticks(&mut self, symbol: String) -> Result<Receiver<Tick, ()>, BrokerError>;
+    fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()>>, BrokerError>;
 }
 
 /// Utility type for a broker response that may fail
@@ -44,9 +44,9 @@ pub type PendingResult = Oneshot<BrokerResult>;
 
 /// An account
 pub struct Account {
-    uuid: Uuid,
-    ledger: Ledger,
-    live: bool, // false if a demo account
+    pub uuid: Uuid,
+    pub ledger: Ledger,
+    pub live: bool, // false if a demo account
 }
 
 /// Any action that the platform can take using the broker
@@ -65,26 +65,32 @@ pub enum BrokerMessage {
 }
 
 pub enum BrokerError {
-    Message,
+    Message{message: String},
     Unimplemented{message: String}, // the broker under the wrapper can't do what you asked it
 }
 
 /// The platform's internal representation of the current state of an account.
 /// Contains information about past trades as well as current positions.
+#[derive(Clone)]
 pub struct Ledger {
-    balance: f64,
-    open_positions: Vec<Position>,
-    closed_positions: Vec<Position>,
+    pub balance: f64,
+    pub open_positions: Vec<Position>,
+    pub closed_positions: Vec<Position>,
 }
 
 impl Ledger {
-    pub fn new(starting_balance: f64) {
-        unimplemented!();
+    pub fn new(starting_balance: f64) -> Ledger {
+        Ledger {
+            balance: starting_balance,
+            open_positions: Vec::new(),
+            closed_positions: Vec::new(),
+        }
     }
 }
 
 /// Represents an opened, closed, or potential position on a broker.
+#[derive(Clone)]
 pub struct Position {
-    symbol: String,
-    size: i64
+    pub symbol: String,
+    pub size: i64
 }
