@@ -1,0 +1,2 @@
+# FXCM Remote Java Server API Shim
+This shim interacts with a remote Java API client over Redis.  As of now, that remote client can be found in the TickRecorder directory in the repository's root directory.
