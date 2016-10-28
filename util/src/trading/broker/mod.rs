@@ -43,6 +43,7 @@ pub type BrokerResult = Result<BrokerMessage, BrokerError>;
 pub type PendingResult = Oneshot<BrokerResult>;
 
 /// An account
+#[derive(Clone, Debug)]
 pub struct Account {
     pub uuid: Uuid,
     pub ledger: Ledger,
@@ -50,20 +51,21 @@ pub struct Account {
 }
 
 /// Any action that the platform can take using the broker
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum BrokerAction {
     MarketBuy{symbol: String, size: usize},
     MarketStop{symbol: String, size: usize, stop: f64}
 }
 
 /// A response from a broker indicating the result of an action.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum BrokerMessage {
     Success, // Will be changed in the future
     Failure,
     Notice,
 }
 
+#[derive(Clone, Debug)]
 pub enum BrokerError {
     Message{message: String},
     Unimplemented{message: String}, // the broker under the wrapper can't do what you asked it
@@ -71,7 +73,7 @@ pub enum BrokerError {
 
 /// The platform's internal representation of the current state of an account.
 /// Contains information about past trades as well as current positions.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Ledger {
     pub balance: f64,
     pub open_positions: Vec<Position>,
@@ -89,7 +91,7 @@ impl Ledger {
 }
 
 /// Represents an opened, closed, or potential position on a broker.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Position {
     pub symbol: String,
     pub size: i64

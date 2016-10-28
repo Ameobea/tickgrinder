@@ -3,10 +3,14 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{Ordering, AtomicUsize};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
+use std::thread;
+#[allow(unused_imports)]
+use test;
 
+use futures::Future;
 use futures::{oneshot, Oneshot};
-use futures::stream::{Stream, Receiver};
+use futures::stream::{channel, Stream, Receiver};
 use uuid::Uuid;
 
 use algobot_util::trading::tick::*;
@@ -22,12 +26,25 @@ pub struct SimBrokerSettings {
     pub ping_ms: f64 // how many ms ahead the broker is to the client
 }
 
+impl SimBrokerSettings {
+    /// Creates a default SimBrokerSettings used for tests
+    #[cfg(test)]
+    pub fn default() -> SimBrokerSettings {
+        SimBrokerSettings {
+            starting_balance: 1f64,
+            ping_ms: 0f64,
+        }
+    }
+}
+
 /// A simulated broker that is used as the endpoint for trading activity in backtests.
 pub struct SimBroker {
     pub accounts: HashMap<Uuid, Account>,
     pub settings: SimBrokerSettings,
     tick_receivers: HashMap<String, Receiver<Tick, ()>>,
     prices: HashMap<String, Arc<(AtomicUsize, AtomicUsize)>>, // broker's view of prices in pips
+    push_stream_handle: mpsc::SyncSender<Result<BrokerMessage, BrokerError>>,
+    push_stream_recv: Option<Receiver<BrokerMessage, BrokerError>>,
 }
 
 impl SimBroker {
@@ -39,11 +56,15 @@ impl SimBroker {
             live: false,
         };
         accounts.insert(Uuid::new_v4(), account);
+        let (mpsc_s, f_r) = SimBroker::init_stream();
+
         SimBroker {
             accounts: accounts,
             settings: settings,
             tick_receivers: HashMap::new(),
-            prices: HashMap::new()
+            prices: HashMap::new(),
+            push_stream_handle: mpsc_s,
+            push_stream_recv: Some(f_r),
         }
     }
 }
@@ -90,8 +111,15 @@ impl Broker for SimBroker {
         oneshot
     }
 
+    #[allow(unreachable_code)]
     fn get_stream(&mut self) -> Result<Receiver<BrokerMessage, BrokerError>, BrokerError> {
-        unimplemented!();
+        if self.push_stream_recv.is_none() {
+            return Err(BrokerError::Message{
+                message: "You already took a handle to the push stream and can't take another.".to_string()
+            })
+        }
+
+        Ok(self.push_stream_recv.take().unwrap())
     }
 
     fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()>>, BrokerError> {
@@ -115,7 +143,35 @@ impl Broker for SimBroker {
 }
 
 impl SimBroker {
+    /// Sends a message over the broker's push channel
+    pub fn push_msg(&self, msg: BrokerResult) {
+        let ref sender = self.push_stream_handle;
+        sender.send(msg).unwrap_or({/* Sender disconnected, shutting down. */});
+    }
 
+    /// Initializes the push stream by creating internal messengers
+    #[allow(unreachable_code)] // necessary because bug
+    fn init_stream() -> (mpsc::SyncSender<Result<BrokerMessage, BrokerError>>, Receiver<BrokerMessage, BrokerError>) {
+        let (mpsc_s, mpsc_r) = mpsc::sync_channel::<Result<BrokerMessage, BrokerError>>(5);
+        let (mut f_s, f_r) = channel::<BrokerMessage, BrokerError>();
+
+        thread::spawn(move || {
+            // block until message received over a mpsc sender
+            // then re-transmit them through the push stream
+            for message in mpsc_r.iter() {
+                match message {
+                    Ok(message) => {
+                        f_s = f_s.send(Ok(message)).wait().ok().unwrap();
+                    },
+                    Err(err_msg) => {
+                        f_s = f_s.send(Err(err_msg)).wait().ok().unwrap();
+                    },
+                }
+            }
+        });
+
+        (mpsc_s, f_r)
+    }
 }
 
 /// Called during broker initialization.  Takes a stream of live ticks from the backtester
@@ -144,4 +200,20 @@ fn sub_ticks_err() {
     let mut b: SimBroker = SimBroker::new(settings);
     let stream = b.sub_ticks("TEST".to_string());
     assert!(stream.is_err());
+}
+
+/// How long it takes to unwrap the mpsc sender, send a message, and re-store the sender.
+#[bench]
+fn send_push_message(b: &mut test::Bencher) {
+    let mut sim_b = SimBroker::new(SimBrokerSettings::default());
+    let receiver = sim_b.get_stream();
+    assert!(receiver.is_ok());
+    receiver.unwrap().for_each(|msg| {
+        // println!("{:?}", msg );
+        Ok(())
+    }).forget();
+
+    b.iter(|| {
+        sim_b.push_msg(Ok(BrokerMessage::Success))
+    })
 }

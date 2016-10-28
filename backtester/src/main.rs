@@ -276,10 +276,7 @@ fn backtest_n_early_exit() {
             host: CONF.redis_url.to_string(),
             channel: "test1_ii".to_string()
         },
-        broker_settings: SimBrokerSettings {
-            starting_balance: 1f64,
-            ping_ms: 0f64,
-        },
+        broker_settings: SimBrokerSettings::default(),
     };
 
     let _ = bt.start_backtest(definition);
@@ -302,10 +299,7 @@ fn backtest_timestamp_early_exit() {
             host: CONF.redis_url.to_string(),
             channel: "test2_ii".to_string()
         },
-        broker_settings: SimBrokerSettings {
-            starting_balance: 1f64,
-            ping_ms: 0f64,
-        },
+        broker_settings: SimBrokerSettings::default(),
     };
 
     let _ = bt.start_backtest(definition);
