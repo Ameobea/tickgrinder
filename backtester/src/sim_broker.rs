@@ -252,8 +252,76 @@ impl SimBroker {
     }
 
     /// Called each tick to check if any pending positions need opening or closing.
-    pub fn tick_positions(sender_handle: &mpsc::SyncSender<Result<BrokerMessage, BrokerError>>) {
-        unimplemented!();
+    pub fn tick_positions(
+        symbol: String,
+        sender_handle: &mpsc::SyncSender<Result<BrokerMessage, BrokerError>>,
+        accounts_mutex: Arc<Mutex<HashMap<Uuid, Account>>>,
+        price_arc: Arc<(AtomicUsize, AtomicUsize)>,
+        timestamp: u64
+    ) {
+        let mut accounts = accounts_mutex.lock().unwrap();
+        for (acct_id, mut acct) in accounts.iter_mut() {
+            let (ref bid_atom, ref ask_atom) = *price_arc;
+            let (bid, ask) = (bid_atom.load(Ordering::Relaxed), ask_atom.load(Ordering::Relaxed));
+            let mut satisfied_pendings = Vec::new();
+
+            for (pos_id, pos) in acct.ledger.pending_positions.iter() {
+                let satisfied = pos.is_open_satisfied(bid, ask);
+                // market conditions have changed and this position should be opened
+                if pos.symbol == symbol && satisfied.is_some() {
+                    satisfied_pendings.push( (pos_id.clone(), satisfied) );
+                }
+            }
+
+            // fill all the satisfied pending positions
+            for (pos_id, price_opt) in satisfied_pendings {
+                let mut pos = acct.ledger.pending_positions.remove(&pos_id).unwrap();
+                pos.execution_time = Some(timestamp);
+                pos.execution_price = price_opt;
+                // TODO: Adjust account balance and stats
+                acct.ledger.open_positions.insert(pos_id, pos.clone());
+                // send push message with notification of fill
+                let _ = sender_handle.send(
+                    Ok(BrokerMessage::PositionOpened{
+                        position_id: pos_id, position: pos, timestamp: timestamp
+                    })
+                );
+            }
+
+            let mut satisfied_opens = Vec::new();
+            for (pos_id, pos) in acct.ledger.open_positions.iter() {
+                let satisfied = pos.is_close_satisfied(bid, ask);
+                // market conditions have changed and this position should be closed
+                if pos.symbol == symbol && satisfied.is_some() {
+                    satisfied_opens.push( (pos_id.clone(), satisfied) );
+                }
+            }
+
+            // close all the satisfied open positions
+            for (pos_id, closure) in satisfied_opens {
+                let (close_price, closure_reason) = closure.unwrap();
+                let mut pos = acct.ledger.pending_positions.remove(&pos_id).unwrap();
+                pos.exit_time = Some(timestamp);
+                pos.exit_price = Some(close_price);
+                // TODO: Adjust account balance and stats
+                acct.ledger.closed_positions.insert(pos_id, pos.clone());
+                // send push message with notification of close
+                let _ = sender_handle.send(
+                    Ok(BrokerMessage::PositionClosed{
+                        position_id: pos_id, position: pos, reason: closure_reason, timestamp: timestamp
+                    })
+                );
+            }
+        }
+    }
+
+    /// Returns the current price for a given symbol or None if the SimBroker
+    /// doensn't have a price.
+    pub fn get_price(&self, symbol: String) -> Option<u64> {
+        let opt = self.prices.get(&symbol).unwrap_or({
+            return None
+        });
+
     }
 }
 
@@ -273,7 +341,7 @@ fn wire_tickstream(
         ask_atom.store(Tick::price_to_pips(t.ask), Ordering::Relaxed);
 
         // check if any positions need to be opened/closed due to this tick
-        SimBroker::tick_positions(&push_stream_handle);
+        SimBroker::tick_positions(symbol.clone(), &push_stream_handle, accounts.clone(), price_arc.clone(), t.timestamp as u64);
         t
     }))
 }

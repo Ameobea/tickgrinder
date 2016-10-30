@@ -81,8 +81,17 @@ pub enum BrokerMessage {
     Success,
     Failure,
     Notice,
-    PositionOpened{position: Position, timestamp: u64},
-    PositionClosed{position: Position, reason: PositionClosureReason, timestamp: u64},
+    PositionOpened{
+        position_id: Uuid,
+        position: Position,
+        timestamp: u64
+    },
+    PositionClosed{
+        position_id: Uuid,
+        position: Position,
+        reason: PositionClosureReason,
+        timestamp: u64,
+    },
     Pong{time_received: u64},
 }
 
@@ -106,16 +115,18 @@ pub enum BrokerError {
 #[derive(Clone, Debug)]
 pub struct Ledger {
     pub balance: f64,
-    pub open_positions: Vec<Position>,
-    pub closed_positions: Vec<Position>,
+    pub pending_positions: HashMap<Uuid, Position>,
+    pub open_positions: HashMap<Uuid, Position>,
+    pub closed_positions: HashMap<Uuid, Position>,
 }
 
 impl Ledger {
     pub fn new(starting_balance: f64) -> Ledger {
         Ledger {
             balance: starting_balance,
-            open_positions: Vec::new(),
-            closed_positions: Vec::new(),
+            pending_positions: HashMap::new(),
+            open_positions: HashMap::new(),
+            closed_positions: HashMap::new(),
         }
     }
 }
@@ -123,19 +134,66 @@ impl Ledger {
 /// Represents an opened, closed, or pending position on a broker.
 #[derive(Clone, Debug)]
 pub struct Position {
-    pub uuid: Uuid,
     pub creation_time: u64,
     pub symbol: String,
     pub size: u64,
+    pub price: Option<usize>,
     pub long: bool,
     pub stop: Option<usize>,
     pub take_profit: Option<usize>,
     /// the price the position was actually executed
-    pub execution_time: u64,
+    pub execution_time: Option<u64>,
     /// the price the position was actually executed at
-    pub entry_price: Option<usize>,
+    pub execution_price: Option<usize>,
     /// the price the position was actually closed at
     pub exit_price: Option<usize>,
     /// the time the position was actually closed
-    pub exit_time: u64,
+    pub exit_time: Option<u64>,
+}
+
+impl Position {
+    /// Returns the price the position would execute at if the prices are at
+    /// levels such that the position can open, else returns None.
+    pub fn is_open_satisfied(&self, bid: usize, ask: usize) -> Option<usize> {
+        // only meant to be used for pending positions
+        assert_eq!(self.execution_price, None);
+        // only meant for limit/entry orders
+        assert!(self.price.is_some());
+
+        if self.long {
+            if ask <= self.price.unwrap() {
+                return Some(ask)
+            };
+        } else {
+            if bid >= self.price.unwrap() {
+                return Some(bid)
+            };
+        };
+
+        None
+    }
+
+    /// Returns the price the position would execute at if the position meets the condition for closure
+    /// the conditions for closure and the reason for its closure, else returns None.
+    pub fn is_close_satisfied(&self, bid: usize, ask: usize) -> Option<(usize, PositionClosureReason)> {
+        // only meant to be used for open positions
+        assert!(self.execution_price.is_some());
+        assert_eq!(self.exit_price, None);
+
+        if self.long {
+            if self.stop.is_some() && self.stop.unwrap() >= bid {
+                return Some( (bid, PositionClosureReason::StopLoss) );
+            } else if self.take_profit.is_some() && self.take_profit.unwrap() <= ask {
+                return Some( (ask, PositionClosureReason::StopLoss) );
+            }
+        } else {
+            if self.stop.is_some() && self.stop.unwrap() <= ask {
+                return Some( (ask, PositionClosureReason::TakeProfit) )
+            } else if self.take_profit.is_some() && self.take_profit.unwrap() >= bid {
+                return Some( (bid, PositionClosureReason::TakeProfit) );
+            }
+        }
+
+        None
+    }
 }
