@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{Ordering, AtomicUsize};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 #[allow(unused_imports)]
 use test;
@@ -20,7 +20,7 @@ use algobot_util::trading::broker::*;
 
 /// Settings for the simulated broker that determine things like trade fees,
 /// estimated slippage, etc.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SimBrokerSettings {
     pub starting_balance: f64,
     pub ping_ms: f64 // how many ms ahead the broker is to the client
@@ -28,18 +28,46 @@ pub struct SimBrokerSettings {
 
 impl SimBrokerSettings {
     /// Creates a default SimBrokerSettings used for tests
-    #[cfg(test)]
     pub fn default() -> SimBrokerSettings {
         SimBrokerSettings {
             starting_balance: 1f64,
             ping_ms: 0f64,
         }
     }
+
+    /// Parses a String:String hashmap into a SimBrokerSettings object.
+    pub fn from_hashmap(hm: HashMap<String, String>) -> Result<SimBrokerSettings, BrokerError> {
+        let mut settings = SimBrokerSettings::default();
+
+        for (k, v) in hm.iter() {
+            match k.as_str() {
+                "starting_balance" => {
+                    settings.starting_balance = v.parse::<f64>().unwrap_or({
+                        return Err(SimBrokerSettings::kv_parse_error(k, v))
+                    });
+                },
+                "ping_ms" => {
+                    settings.ping_ms = v.parse::<f64>().unwrap_or({
+                        return Err(SimBrokerSettings::kv_parse_error(k, v))
+                    });
+                },
+                _ => (),
+            }
+        }
+
+        Ok(settings)
+    }
+
+    fn kv_parse_error(k: &String, v: &String) -> BrokerError {
+        return BrokerError::Message{
+            message: format!("Unable to parse K:V pair: {}:{}", k, v)
+        }
+    }
 }
 
 /// A simulated broker that is used as the endpoint for trading activity in backtests.
 pub struct SimBroker {
-    pub accounts: HashMap<Uuid, Account>,
+    pub accounts: Arc<Mutex<HashMap<Uuid, Account>>>,
     pub settings: SimBrokerSettings,
     tick_receivers: HashMap<String, Receiver<Tick, ()>>,
     prices: HashMap<String, Arc<(AtomicUsize, AtomicUsize)>>, // broker's view of prices in pips
@@ -59,7 +87,7 @@ impl SimBroker {
         let (mpsc_s, f_r) = SimBroker::init_stream();
 
         SimBroker {
-            accounts: accounts,
+            accounts: Arc::new(Mutex::new(accounts)),
             settings: settings,
             tick_receivers: HashMap::new(),
             prices: HashMap::new(),
@@ -70,33 +98,35 @@ impl SimBroker {
 }
 
 impl Broker for SimBroker {
-    fn init(&mut self, settings: HashMap<String, String>) -> Oneshot<Self> {
-        unimplemented!();
+    fn init(&mut self, settings: HashMap<String, String>) -> Oneshot<Result<Self, BrokerError>> {
+        let (c, o) = oneshot::<Result<Self, BrokerError>>();
+        let broker_settings = SimBrokerSettings::from_hashmap(settings);
+        if broker_settings.is_ok() {
+            c.complete(Ok(SimBroker::new(broker_settings.unwrap())));
+        } else {
+            c.complete(Err(broker_settings.unwrap_err()));
+        }
+
+        o
     }
 
     fn get_ledger(&mut self, account_id: Uuid) -> Oneshot<Result<Ledger, BrokerError>> {
         let (complete, oneshot) = oneshot::<Result<Ledger, BrokerError>>();
-
-        let res = self.accounts.get(&account_id);
-        let account = match res {
-            Some(ledger) => ledger,
-            None => {
-                complete.complete(
-                    Err(BrokerError::Message{
-                        message: "No account with that UUID in this SimBroker.".to_string()
-                    })
-                );
-                return oneshot
-            }
-        };
-        complete.complete(Ok(account.ledger.clone()));
+        let account = self.get_ledger_clone(account_id);
+        complete.complete(account);
 
         oneshot
     }
 
-    fn list_accounts(&mut self) -> Oneshot<Result<&HashMap<Uuid, Account>, BrokerError>> {
-        let (complete, oneshot) = oneshot::<Result<&HashMap<Uuid, Account>, BrokerError>>();
-        complete.complete(Ok(&self.accounts));
+    fn list_accounts(&mut self) -> Oneshot<Result<HashMap<Uuid, Account>, BrokerError>> {
+        let (complete, oneshot) = oneshot::<Result<HashMap<Uuid, Account>, BrokerError>>();
+        let accounts;
+        {
+            let _accounts = self.accounts.lock().unwrap();
+            accounts = _accounts.clone();
+
+        }
+        complete.complete(Ok(accounts));
         oneshot
     }
 
@@ -137,7 +167,11 @@ impl Broker for SimBroker {
 
         // wire the tickstream so that the broker updates its own prices before sending the
         // price updates off to the client
-        let wired_tickstream = wire_tickstream(price_arc, symbol, raw_tickstream);
+        let accounts_clone = self.accounts.clone();
+        let push_handle = self.get_push_handle();
+        let wired_tickstream = wire_tickstream(
+            price_arc, symbol, raw_tickstream, accounts_clone, push_handle
+        );
         Ok(wired_tickstream)
     }
 }
@@ -147,6 +181,11 @@ impl SimBroker {
     pub fn push_msg(&self, msg: BrokerResult) {
         let ref sender = self.push_stream_handle;
         sender.send(msg).unwrap_or({/* Sender disconnected, shutting down. */});
+    }
+
+    /// Returns a handle with which to send push messages
+    pub fn get_push_handle(&self) -> mpsc::SyncSender<Result<BrokerMessage, BrokerError>> {
+        self.push_stream_handle.clone()
     }
 
     /// Initializes the push stream by creating internal messengers
@@ -172,13 +211,59 @@ impl SimBroker {
 
         (mpsc_s, f_r)
     }
+
+    /// actually executes an action sent to the SimBroker
+    pub fn exec_action(&mut self, cmd: &BrokerAction) -> BrokerResult {
+        match cmd {
+            &BrokerAction::MarketOrder{
+                account, ref symbol, long, size, stop, take_profit, max_range
+            } => {
+                self.market_open(account, symbol, long, size, stop, take_profit, max_range)
+            },
+            _ => Err(BrokerError::Unimplemented{
+                message: "SimBroker doesn't support that action.".to_string()
+            })
+        }
+    }
+
+    /// Opens a position at the current market price with options for settings stop
+    /// loss, take profit.
+    fn market_open(
+        &mut self, account: Uuid, symbol: &String, long: bool, size: usize,stop: Option<usize>,
+        take_profit: Option<usize>, max_range: Option<f64>
+    ) -> BrokerResult {
+        unimplemented!();
+    }
+
+    /// Dumps the SimBroker state to a file that can be resumed later.
+    pub fn dump_to_file(&mut self, filename: &str) {
+        unimplemented!();
+    }
+
+    /// Returns a clone of an account or an error if it doesn't exist.
+    pub fn get_ledger_clone(&mut self, uuid: Uuid) -> Result<Ledger, BrokerError> {
+        let accounts = self.accounts.lock().unwrap();
+        match accounts.get(&uuid) {
+            Some(acct) => Ok(acct.ledger.clone()),
+            None => Err(BrokerError::Message{
+                message: "No account exists with that UUID.".to_string()
+            }),
+        }
+    }
+
+    /// Called each tick to check if any pending positions need opening or closing.
+    pub fn tick_positions(sender_handle: &mpsc::SyncSender<Result<BrokerMessage, BrokerError>>) {
+        unimplemented!();
+    }
 }
 
 /// Called during broker initialization.  Takes a stream of live ticks from the backtester
 /// and uses it to power its own prices, returning a Stream that can be passed off to
 /// a client to serve as its price feed.
 fn wire_tickstream(
-    price_arc: Arc<(AtomicUsize, AtomicUsize)>, symbol: String, tickstream: Receiver<Tick, ()>
+    price_arc: Arc<(AtomicUsize, AtomicUsize)>, symbol: String, tickstream: Receiver<Tick, ()>,
+    accounts: Arc<Mutex<HashMap<Uuid, Account>>>,
+    push_stream_handle: mpsc::SyncSender<Result<BrokerMessage, BrokerError>>
 ) -> Box<Stream<Item=Tick, Error=()>> {
     Box::new(tickstream.map(move |t| {
         let (ref bid_atom, ref ask_atom) = *price_arc;
@@ -186,6 +271,9 @@ fn wire_tickstream(
         // convert the tick's prices to pips and store
         bid_atom.store(Tick::price_to_pips(t.bid), Ordering::Relaxed);
         ask_atom.store(Tick::price_to_pips(t.ask), Ordering::Relaxed);
+
+        // check if any positions need to be opened/closed due to this tick
+        SimBroker::tick_positions(&push_stream_handle);
         t
     }))
 }

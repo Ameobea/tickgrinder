@@ -15,10 +15,10 @@ use trading::tick::Tick;
 pub trait Broker {
     /// Creates a connection to the broker and initializes its internal environment.
     /// Takes a Key:Value HashMap containing configuration settings.
-    fn init(&mut self, settings: HashMap<String, String>) -> Oneshot<Self> where Self:Sized;
+    fn init(&mut self, settings: HashMap<String, String>) -> Oneshot<Result<Self, BrokerError>> where Self:Sized;
 
     /// Returns a list of all accounts the user has on the broker.
-    fn list_accounts(&mut self) -> Oneshot<Result<&HashMap<Uuid, Account>, BrokerError>>;
+    fn list_accounts(&mut self) -> Oneshot<Result<HashMap<Uuid, Account>, BrokerError>>;
 
     /// Returns a Ledger containing the Broker's version of all current and closed
     /// trades and positions as well as balance and portfolio state.
@@ -53,16 +53,46 @@ pub struct Account {
 /// Any action that the platform can take using the broker
 #[derive(Clone, Debug)]
 pub enum BrokerAction {
-    MarketBuy{symbol: String, size: usize},
-    MarketStop{symbol: String, size: usize, stop: f64}
+    /// Opens an order at market price +-max_range pips.
+    MarketOrder {
+        account: Uuid, symbol: String, long: bool, size: usize, stop: Option<usize>,
+        take_profit: Option<usize>, max_range: Option<f64>
+    },
+    /// Opens an order at a price equal or better to `entry_price` as soon as possible.
+    LimitOrder{
+        account: Uuid, symbol: String, long: bool, size: usize, stop: Option<usize>,
+        take_profit: Option<usize>, entry_price: usize
+    },
+    /// Closes `size` lots of a position with the specified UUID.
+    ClosePosition{
+        uuid: Uuid
+    },
+    /// Modifies a position without taking any trading action.
+    ModifyPosition{
+        uuid: Uuid, stop: Option<usize>, take_profit: Option<usize>, entry_price: Option<usize>
+    },
+    /// Returns a Pong with the timestamp the broker received the message
+    Ping,
 }
 
 /// A response from a broker indicating the result of an action.
 #[derive(Clone, Debug)]
 pub enum BrokerMessage {
-    Success, // Will be changed in the future
+    Success,
     Failure,
     Notice,
+    PositionOpened{position: Position, timestamp: u64},
+    PositionClosed{position: Position, reason: PositionClosureReason, timestamp: u64},
+    Pong{time_received: u64},
+}
+
+#[derive(Clone, Debug)]
+pub enum PositionClosureReason {
+    StopLoss,
+    TakeProfit,
+    MarginCall,
+    Expired,
+    FillOrKill,
 }
 
 #[derive(Clone, Debug)]
@@ -90,9 +120,22 @@ impl Ledger {
     }
 }
 
-/// Represents an opened, closed, or potential position on a broker.
+/// Represents an opened, closed, or pending position on a broker.
 #[derive(Clone, Debug)]
 pub struct Position {
+    pub uuid: Uuid,
+    pub creation_time: u64,
     pub symbol: String,
-    pub size: i64
+    pub size: u64,
+    pub long: bool,
+    pub stop: Option<usize>,
+    pub take_profit: Option<usize>,
+    /// the price the position was actually executed
+    pub execution_time: u64,
+    /// the price the position was actually executed at
+    pub entry_price: Option<usize>,
+    /// the price the position was actually closed at
+    pub exit_price: Option<usize>,
+    /// the time the position was actually closed
+    pub exit_time: u64,
 }
