@@ -2,6 +2,7 @@
 //! Also contains helper functions for managing accounts.
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 use uuid::Uuid;
 use futures::Oneshot;
@@ -108,6 +109,8 @@ pub enum PositionClosureReason {
 pub enum BrokerError {
     Message{message: String},
     Unimplemented{message: String}, // the broker under the wrapper can't do what you asked it
+    InsufficientBalance,
+    NoSuchPosition,
 }
 
 /// The platform's internal representation of the current state of an account.
@@ -128,6 +131,36 @@ impl Ledger {
             open_positions: HashMap::new(),
             closed_positions: HashMap::new(),
         }
+    }
+
+    /// Opens the supplied position in the ledger.  Returns an error if there are insufficient funds
+    /// in the ledger to open the position.
+    pub fn open_position(&mut self, pos: Position) -> BrokerResult {
+        let uuid = Uuid::new_v4();
+        if pos.price.is_none() {
+            return Err(BrokerError::Message{
+                message: "The supplied position does not have an entry price.".to_string()
+            })
+        }
+
+        let cost = (pos.price.unwrap() * pos.size as usize) as f64;
+        if cost > self.balance as f64 {
+            return Err(BrokerError::InsufficientBalance)
+        }
+        self.balance -= cost;
+
+        self.open_positions.insert(uuid, pos);
+        Ok(BrokerMessage::Success)
+    }
+
+    /// Closes the position with the specified Uuid.  Returns an error if no position with that Uuid
+    /// exists in the ledger.
+    pub fn close_position(&mut self, uuid: Uuid) -> BrokerResult {
+        let res = self.open_positions.remove(&uuid);
+        if res.is_none() {
+            return Err(BrokerError::NoSuchPosition)
+        }
+        Ok(BrokerMessage::Success)
     }
 }
 
