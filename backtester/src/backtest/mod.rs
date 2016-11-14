@@ -5,7 +5,6 @@ use std::thread;
 use std::time::Duration;
 use std::sync::mpsc;
 
-use futures::stream::Sender;
 use uuid::Uuid;
 use algobot_util::trading::tick::*;
 

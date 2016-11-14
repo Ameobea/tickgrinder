@@ -156,9 +156,6 @@ impl Backtester {
             &BacktestType::Live => src.get(Box::new(LiveMap::new()), handle_rx),
         };
 
-        // pause the backtest
-        // let _ = internal_handle_tx.send(BacktestCommand::Pause);
-
         if tickstream.is_err() {
             return Err( format!("Error creating tickstream: {}", tickstream.err().unwrap()) )
         }

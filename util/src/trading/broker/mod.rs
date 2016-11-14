@@ -34,7 +34,7 @@ pub trait Broker {
     fn get_stream(&mut self) -> Result<Receiver<BrokerMessage, BrokerError>, BrokerError>;
 
     /// Returns a stream of live ticks for a symbol.
-    fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()>>, BrokerError>;
+    fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()> + Send>, BrokerError>;
 }
 
 /// Utility type for a broker response that may fail

@@ -4,7 +4,7 @@ use std::thread;
 use std::sync::mpsc;
 
 use futures::Future;
-use futures::stream::{Stream, channel, Sender, Receiver};
+use futures::stream::Sender;
 use algobot_util::trading::tick::Tick;
 
 use data::TickSink;
@@ -36,6 +36,6 @@ impl StreamSink {
 
 impl TickSink for StreamSink {
     fn tick(&mut self, t: Tick) {
-        self.mpsc_tx.send(t);
+        let _ = self.mpsc_tx.send(t);
     }
 }

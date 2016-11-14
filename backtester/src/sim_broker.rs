@@ -11,15 +11,11 @@ use test;
 
 use futures::Future;
 use futures::{oneshot, Oneshot};
-use futures::stream::{channel, Stream, Receiver};
+use futures::stream::{BoxStream, channel, Stream, Receiver};
 use uuid::Uuid;
 
 use algobot_util::trading::tick::*;
 use algobot_util::trading::broker::*;
-
-use data::CommandStream;
-
-// TODO: Wire TickSink into SimBroker so that the broker always receives up-to-date data
 
 /// Settings for the simulated broker that determine things like trade fees,
 /// estimated slippage, etc.
@@ -161,14 +157,16 @@ impl Broker for SimBroker {
         Ok(self.push_stream_recv.take().unwrap())
     }
 
-    fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()>>, BrokerError> {
-        let raw_tickstream = self.tick_receivers.remove(&symbol)
-            .unwrap_or({
-                return Err(BrokerError::Message{
-                    message: "No data source available for that symbol or \
-                    a stream to that symbol has already been opened.".to_string()
-                })
-            });
+    fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()> + Send>, BrokerError> {
+        println!("{:?}", self.tick_receivers.len());
+        let opt = self.tick_receivers.remove(&symbol);
+        if opt.is_none() {
+            return Err(BrokerError::Message{
+                message: "No data source available for that symbol or \
+                a stream to that symbol has already been opened.".to_string()
+            })
+        }
+        let raw_tickstream = opt.unwrap();
 
         let price_arc = self.prices.entry(symbol.clone()).or_insert(
             Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)))
@@ -396,8 +394,8 @@ fn wire_tickstream(
     price_arc: Arc<(AtomicUsize, AtomicUsize)>, symbol: String, tickstream: Receiver<Tick, ()>,
     accounts: Arc<Mutex<HashMap<Uuid, Account>>>, timestamp_atom: Arc<AtomicUsize>,
     push_stream_handle: mpsc::SyncSender<Result<BrokerMessage, BrokerError>>
-) -> Box<Stream<Item=Tick, Error=()>> {
-    Box::new(tickstream.map(move |t| {
+) -> BoxStream<Tick, ()> {
+    tickstream.map(move |t| {
         let (ref bid_atom, ref ask_atom) = *price_arc;
 
         // convert the tick's prices to pips and store
@@ -409,7 +407,7 @@ fn wire_tickstream(
         // check if any positions need to be opened/closed due to this tick
         SimBroker::tick_positions(symbol.clone(), &push_stream_handle, accounts.clone(), price_arc.clone(), t.timestamp as u64);
         t
-    }))
+    }).boxed()
 }
 
 /// It should be an error to try to subscribe to a symbol that the SimBroker doesn't keep track of.
@@ -453,6 +451,43 @@ fn tick_positions(b: &mut test::Bencher) {
 }
 
 /// Ticks sent to the SimBroker should be re-broadcast to the client.
+#[test]
 fn tick_retransmission() {
-    unimplemented!();
+    use std::sync::mpsc;
+
+    use data::random_reader::RandomReader;
+    use data::TickGenerator;
+    use backtest::{FastMap, BacktestCommand};
+
+    // create the SimBroker
+    let symbol = "TEST".to_string();
+    let mut sim_b = SimBroker::new(SimBrokerSettings::default());
+    let msg_stream = sim_b.get_stream();
+
+    // create a random tickstream and register it to the SimBroker
+    let mut gen = RandomReader::new(symbol.clone());
+    let map = Box::new(FastMap {delay_ms: 1});
+    let (tx, rx) = mpsc::sync_channel(5);
+    let tick_stream = gen.get(map, rx);
+    let res = sim_b.register_tickstream(symbol.clone(), tick_stream.unwrap());
+    assert!(res.is_ok());
+
+    // subscribe to ticks from the SimBroker for the test pair
+    let subbed_ticks = sim_b.sub_ticks(symbol).unwrap();
+    let (c, o) = oneshot::<Vec<Tick>>();
+    thread::spawn(move || {
+        let res = subbed_ticks
+            .wait()
+            .take(10)
+            .map(|t| t.unwrap() )
+            .collect();
+        // signal once we've received all the ticks
+        c.complete(res);
+    });
+
+    // start the random tick generator
+    let _ = tx.send(BacktestCommand::Resume);
+    // block until we've received all awaited ticks
+    let res = o.wait().unwrap();
+    assert_eq!(res.len(), 10);
 }

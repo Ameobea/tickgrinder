@@ -7,7 +7,7 @@ use std::thread::Thread;
 #[allow(unused_imports)]
 use test;
 
-use futures::stream::{MergedItem, Merge, Stream, Receiver};
+use futures::stream::Receiver;
 use algobot_util::trading::tick::Tick;
 
 use backtest::BacktestMap;

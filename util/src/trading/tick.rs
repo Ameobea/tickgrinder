@@ -87,7 +87,8 @@ impl Tick {
 
     /// Converts a f64 price into pips
     pub fn price_to_pips(p: f64) -> usize {
-        unimplemented!();
+        // TODO
+        10000usize
     }
 }
 
