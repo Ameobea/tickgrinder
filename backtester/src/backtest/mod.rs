@@ -3,6 +3,7 @@
 
 use std::thread;
 use std::time::Duration;
+use std::sync::mpsc;
 
 use futures::stream::Sender;
 use uuid::Uuid;
@@ -27,7 +28,7 @@ pub struct BacktestHandle {
     pub backtest_type: BacktestType,
     pub data_source: DataSource,
     pub endpoint: DataDest,
-    pub handle: Sender<BacktestCommand, ()>
+    pub handle: mpsc::SyncSender<BacktestCommand>
 }
 
 /// Contains all the information necessary to start a backtest

@@ -2,6 +2,7 @@
 //! managing balances, and reporting on statistics from previous trades.
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -16,6 +17,8 @@ use uuid::Uuid;
 use algobot_util::trading::tick::*;
 use algobot_util::trading::broker::*;
 
+use data::CommandStream;
+
 // TODO: Wire TickSink into SimBroker so that the broker always receives up-to-date data
 
 /// Settings for the simulated broker that determine things like trade fees,
@@ -23,7 +26,10 @@ use algobot_util::trading::broker::*;
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SimBrokerSettings {
     pub starting_balance: f64,
-    pub ping_ms: f64 // how many ms ahead the broker is to the client
+    // how many ms ahead the broker is to the client.
+    pub ping_ms: f64,
+    // how many us between when the broker receives an order and executes it.
+    pub execution_delay_us: usize,
 }
 
 impl SimBrokerSettings {
@@ -32,6 +38,7 @@ impl SimBrokerSettings {
         SimBrokerSettings {
             starting_balance: 1f64,
             ping_ms: 0f64,
+            execution_delay_us: 0usize,
         }
     }
 
@@ -71,6 +78,7 @@ pub struct SimBroker {
     pub settings: SimBrokerSettings,
     tick_receivers: HashMap<String, Receiver<Tick, ()>>,
     prices: HashMap<String, Arc<(AtomicUsize, AtomicUsize)>>, // broker's view of prices in pips
+    timestamp: Arc<AtomicUsize>, // timestamp of last price update received by broker
     push_stream_handle: mpsc::SyncSender<Result<BrokerMessage, BrokerError>>,
     push_stream_recv: Option<Receiver<BrokerMessage, BrokerError>>,
 }
@@ -91,6 +99,7 @@ impl SimBroker {
             settings: settings,
             tick_receivers: HashMap::new(),
             prices: HashMap::new(),
+            timestamp: Arc::new(AtomicUsize::new(0)),
             push_stream_handle: mpsc_s,
             push_stream_recv: Some(f_r),
         }
@@ -169,8 +178,9 @@ impl Broker for SimBroker {
         // price updates off to the client
         let accounts_clone = self.accounts.clone();
         let push_handle = self.get_push_handle();
+        let timestamp_atom = self.timestamp.clone();
         let wired_tickstream = wire_tickstream(
-            price_arc, symbol, raw_tickstream, accounts_clone, push_handle
+            price_arc, symbol, raw_tickstream, accounts_clone, timestamp_atom, push_handle
         );
         Ok(wired_tickstream)
     }
@@ -218,7 +228,9 @@ impl SimBroker {
             &BrokerAction::MarketOrder{
                 account, ref symbol, long, size, stop, take_profit, max_range
             } => {
-                self.market_open(account, symbol, long, size, stop, take_profit, max_range)
+                let timestamp = self.get_timestamp();
+                assert!(timestamp != 0);
+                self.market_open(account, symbol, long, size, stop, take_profit, max_range, timestamp)
             },
             _ => Err(BrokerError::Unimplemented{
                 message: "SimBroker doesn't support that action.".to_string()
@@ -229,10 +241,48 @@ impl SimBroker {
     /// Opens a position at the current market price with options for settings stop
     /// loss, take profit.
     fn market_open(
-        &mut self, account: Uuid, symbol: &String, long: bool, size: usize,stop: Option<usize>,
-        take_profit: Option<usize>, max_range: Option<f64>
+        &mut self, account_id: Uuid, symbol: &String, long: bool, size: usize, stop: Option<usize>,
+        take_profit: Option<usize>, max_range: Option<f64>, timestamp: u64
     ) -> BrokerResult {
-        unimplemented!();
+        let opt = self.get_price(symbol);
+        if opt.is_none() {
+            return Err(BrokerError::NoSuchSymbol)
+        }
+        let (bid, ask) = opt.unwrap();
+
+        let cur_price;
+        if long {
+            cur_price = ask;
+        } else {
+            cur_price = bid;
+        }
+
+        let pos = Position {
+            creation_time: timestamp,
+            symbol: symbol.clone(),
+            size: size as u64,
+            price: Some(cur_price as usize),
+            long: long,
+            stop: stop,
+            take_profit: take_profit,
+            execution_time: Some(timestamp + self.settings.execution_delay_us as u64),
+            // TODO: Slippage?
+            execution_price: Some(cur_price as usize),
+            exit_price: None,
+            exit_time: None,
+        };
+
+        let mut accounts = self.accounts.lock().unwrap();
+        let account_ = accounts.entry(account_id);
+        match account_ {
+            Entry::Occupied(mut occ) => {
+                let mut account = occ.get_mut();
+                return account.ledger.open_position(pos)
+            },
+            Entry::Vacant(_) => {
+                return Err(BrokerError::NoSuchAccount)
+            }
+        }
     }
 
     /// Dumps the SimBroker state to a file that can be resumed later.
@@ -315,13 +365,27 @@ impl SimBroker {
         }
     }
 
+    /// Registers a data source into the SimBroker.  Ticks from the supplied generator will be
+    /// used to upate the SimBroker's internal prices and transmitted to connected clients.
+    pub fn register_tickstream(
+        &mut self, symbol: String, tick_stream: Receiver<Tick, ()>
+    ) -> Result<(), String> {
+        self.tick_receivers.insert(symbol, tick_stream);
+        Ok(())
+    }
+
     /// Returns the current price for a given symbol or None if the SimBroker
     /// doensn't have a price.
-    pub fn get_price(&self, symbol: String) -> Option<u64> {
-        let opt = self.prices.get(&symbol).unwrap_or({
+    pub fn get_price(&self, symbol: &String) -> Option<(usize, usize)> {
+        let opt = self.prices.get(symbol).unwrap_or({
             return None
         });
+        let (ref atom_bid, ref atom_ask) = **opt;
+        Some((atom_bid.load(Ordering::Relaxed), atom_ask.load(Ordering::Relaxed)))
+    }
 
+    pub fn get_timestamp(&self) -> u64 {
+        self.timestamp.load(Ordering::Relaxed) as u64
     }
 }
 
@@ -330,7 +394,7 @@ impl SimBroker {
 /// a client to serve as its price feed.
 fn wire_tickstream(
     price_arc: Arc<(AtomicUsize, AtomicUsize)>, symbol: String, tickstream: Receiver<Tick, ()>,
-    accounts: Arc<Mutex<HashMap<Uuid, Account>>>,
+    accounts: Arc<Mutex<HashMap<Uuid, Account>>>, timestamp_atom: Arc<AtomicUsize>,
     push_stream_handle: mpsc::SyncSender<Result<BrokerMessage, BrokerError>>
 ) -> Box<Stream<Item=Tick, Error=()>> {
     Box::new(tickstream.map(move |t| {
@@ -339,6 +403,8 @@ fn wire_tickstream(
         // convert the tick's prices to pips and store
         bid_atom.store(Tick::price_to_pips(t.bid), Ordering::Relaxed);
         ask_atom.store(Tick::price_to_pips(t.ask), Ordering::Relaxed);
+        // store timestamp
+        (*timestamp_atom).store(t.timestamp as usize, Ordering::Relaxed);
 
         // check if any positions need to be opened/closed due to this tick
         SimBroker::tick_positions(symbol.clone(), &push_stream_handle, accounts.clone(), price_arc.clone(), t.timestamp as u64);
@@ -346,12 +412,10 @@ fn wire_tickstream(
     }))
 }
 
+/// It should be an error to try to subscribe to a symbol that the SimBroker doesn't keep track of.
 #[test]
 fn sub_ticks_err() {
-    let settings = SimBrokerSettings{
-        starting_balance: 1f64,
-        ping_ms: 0f64
-    };
+    let settings = SimBrokerSettings::default();
 
     let mut b: SimBroker = SimBroker::new(settings);
     let stream = b.sub_ticks("TEST".to_string());
@@ -372,4 +436,23 @@ fn send_push_message(b: &mut test::Bencher) {
     b.iter(|| {
         sim_b.push_msg(Ok(BrokerMessage::Success))
     })
+}
+
+#[bench]
+fn tick_positions(b: &mut test::Bencher) {
+    use data::random_reader::RandomReader;
+
+    let mut sim_b = SimBroker::new(SimBrokerSettings::default());
+    let receiver = sim_b.get_stream();
+    let symbol = "TEST".to_string();
+
+    let tick_src = RandomReader::new(symbol);
+    b.iter(|| {
+        // TODO
+    })
+}
+
+/// Ticks sent to the SimBroker should be re-broadcast to the client.
+fn tick_retransmission() {
+    unimplemented!();
 }

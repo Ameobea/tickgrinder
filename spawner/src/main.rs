@@ -385,6 +385,8 @@ fn spawner_command_processing() {
     let cmd_string = cmd.to_string().unwrap();
 
     let rx = sub_channel(CONF.redis_url, CONF.redis_responses_channel);
+    // give the sub a chance to subscribe
+    thread::sleep(Duration::from_millis(150));
     // send a Ping command
     redis::cmd("PUBLISH")
         .arg(spawner.uuid.hyphenated().to_string())
@@ -400,7 +402,7 @@ fn spawner_command_processing() {
 }
 
 // #[test]
-            // disabled until relative pathing implemented
+            // disabled until relative pathing implemented TODO
 // fn tick_processor_spawning() {
 //     let mut spawner = InstanceManager::new();
 //     spawner.spawn_tick_parser("_test3".to_string());

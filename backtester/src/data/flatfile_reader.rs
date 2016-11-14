@@ -71,3 +71,5 @@ impl TickGenerator for FlatfileReader {
         Ok(receiver)
     }
 }
+
+// TODO: Tests for command handling

@@ -22,16 +22,18 @@ mod conf;
 mod backtest;
 mod sim_broker;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
+use std::thread;
 
 use uuid::Uuid;
 use futures::Future;
-use futures::stream::{channel, Stream, Receiver};
+use futures::stream::{Stream, Sender, Receiver};
 
 use algobot_util::transport::command_server::{CommandServer, CsSettings};
 use algobot_util::transport::redis::{sub_multiple, get_client};
 use algobot_util::transport::commands::*;
 use algobot_util::trading::tick::Tick;
+use algobot_util::trading::broker::BrokerAction;
 use conf::CONF;
 use backtest::*;
 use data::*;
@@ -47,7 +49,8 @@ fn main() {
 struct Backtester {
     pub uuid: Uuid,
     pub cs: CommandServer,
-    pub running_backtests: Arc<Mutex<Vec<BacktestHandle>>>
+    pub running_backtests: Arc<Mutex<Vec<BacktestHandle>>>,
+    pub simbroker_handle: Arc<Option<Sender<BrokerAction, ()>>>,
 }
 
 impl Backtester {
@@ -57,7 +60,7 @@ impl Backtester {
             redis_host: CONF.redis_url,
             responses_channel: CONF.redis_responses_channel,
             timeout: 2020,
-            max_retries: 3
+            max_retries: 3,
         };
 
         let uuid = Uuid::new_v4();
@@ -65,8 +68,16 @@ impl Backtester {
         Backtester {
             uuid: uuid,
             cs: CommandServer::new(settings),
-            running_backtests: Arc::new(Mutex::new(Vec::new()))
+            running_backtests: Arc::new(Mutex::new(Vec::new())),
+            simbroker_handle: Arc::new(None),
         }
+    }
+
+    /// Creates a SimBroker that's managed by the Backtester.
+    pub fn init_simbroker(&mut self) {
+        thread::spawn(|| {
+
+        });
     }
 
     /// Starts listening for commands from the rest of the platform
@@ -132,20 +143,21 @@ impl Backtester {
         );
 
         // create channel for communicating messages to the running backtest sent externally
-        let (external_handle_tx, external_handle_rx) = channel::<BacktestCommand, ()>();
+        let (external_handle_tx, handle_rx) = mpsc::sync_channel::<BacktestCommand>(5);
         // create channel for communicating messages to the running backtest internally
-        let (mut internal_handle_tx, internal_handle_rx) = channel::<BacktestCommand, ()>();
-        // combination of both that's send to the TickGenerator
-        let merged_handle_rx = external_handle_rx.merge(internal_handle_rx);
+        let internal_handle_tx = external_handle_tx.clone();
 
         // modify the source tickstream to add delay between the ticks or add some other kind of
         // advanced functionality to the way they're outputted
         let tickstream: Result<Receiver<Tick, ()>, String> = match &definition.backtest_type {
             &BacktestType::Fast{delay_ms} => src.get(
-                Box::new(FastMap{delay_ms: delay_ms}), merged_handle_rx
+                Box::new(FastMap{delay_ms: delay_ms}), handle_rx
             ),
-            &BacktestType::Live => src.get(Box::new(LiveMap::new()), merged_handle_rx),
+            &BacktestType::Live => src.get(Box::new(LiveMap::new()), handle_rx),
         };
+
+        // pause the backtest
+        // let _ = internal_handle_tx.send(BacktestCommand::Pause);
 
         if tickstream.is_err() {
             return Err( format!("Error creating tickstream: {}", tickstream.err().unwrap()) )
@@ -163,14 +175,6 @@ impl Backtester {
         let _definition = definition.clone();
         let mut i = 0;
 
-        // pause the backtest
-        internal_handle_tx = internal_handle_tx.send(Ok(BacktestCommand::Pause)).wait().ok().unwrap();
-
-        // Create a simulated broker
-        let broker = SimBroker::new(definition.broker_settings);
-
-        // TODO: Initialize strategy and start backtest
-
         // initiate tick flow
         let _ = tickstream.unwrap().for_each(move |t| {
             i += 1;
@@ -179,12 +183,14 @@ impl Backtester {
             dst.tick(t);
 
             if check_early_exit(&t, &_definition, i) {
+                println!("Backtest exiting early.");
                 return Err(())
             }
 
             Ok(())
         }).or_else(move |_| {
-            let _ = internal_handle_tx.send(Ok(BacktestCommand::Stop)).wait();
+            println!("Stopping backtest because tickstream has ended");
+            let _ = internal_handle_tx.send(BacktestCommand::Stop);
             Ok::<(), ()>(())
         }).forget();
 
@@ -203,6 +209,20 @@ impl Backtester {
         backtest_list.push(handle);
 
         Ok(uuid)
+    }
+
+    /// Sends a command to a managed backtest
+    pub fn send_backtest_cmd(&mut self, uuid: Uuid, cmd: BacktestCommand) -> Result<(), ()> {
+        let mut backtest_list = self.running_backtests.lock().unwrap();
+        for handle in backtest_list.iter_mut() {
+            if handle.uuid == uuid {
+                let ref sender = handle.handle;
+                let _ = handle.handle.send(cmd);
+                return Ok(())
+            }
+        }
+
+        Err(())
     }
 }
 
@@ -279,7 +299,9 @@ fn backtest_n_early_exit() {
         broker_settings: SimBrokerSettings::default(),
     };
 
-    let _ = bt.start_backtest(definition);
+    let uuid = bt.start_backtest(definition).unwrap();
+    // backtest starts paused so resume it
+    let _ = bt.send_backtest_cmd(uuid, BacktestCommand::Resume);
     let res = rx.wait().take(10).collect::<Vec<_>>();
     assert_eq!(res.len(), 10);
 }
@@ -302,7 +324,11 @@ fn backtest_timestamp_early_exit() {
         broker_settings: SimBrokerSettings::default(),
     };
 
-    let _ = bt.start_backtest(definition);
+    let uuid = bt.start_backtest(definition).unwrap();
+    // backtest starts paused so resume it
+    let _ = bt.send_backtest_cmd(uuid, BacktestCommand::Resume);
     let res = rx.wait().take(8).collect::<Vec<_>>();
     assert_eq!(res.len(), 8);
 }
+
+// TODO: Benchmark for check_early_exit

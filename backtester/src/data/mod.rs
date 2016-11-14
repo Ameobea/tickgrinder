@@ -1,7 +1,7 @@
 //! Supplies the backtester with historical ticks stored in a variety of formats.
 
 use std::sync::atomic::{Ordering, AtomicBool};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::thread::Thread;
 #[allow(unused_imports)]
@@ -18,6 +18,7 @@ pub mod random_reader;
 pub mod redis_sink;
 pub mod console_sink;
 pub mod null_sink;
+pub mod stream_sink;
 
 pub use self::flatfile_reader::*;
 pub use self::redis_reader::*;
@@ -25,9 +26,10 @@ pub use self::random_reader::*;
 pub use self::redis_sink::RedisSink;
 pub use self::console_sink::ConsoleSink;
 pub use self::null_sink::NullSink;
+pub use self::stream_sink::StreamSink;
 use backtest::BacktestCommand;
 
-pub type CommandStream = Merge<Receiver<BacktestCommand, ()>, Receiver<BacktestCommand, ()>>;
+pub type CommandStream = mpsc::Receiver<BacktestCommand>;
 
 /// Creates a Stream of Ticks to feed the backtest.
 pub trait TickGenerator {
@@ -66,14 +68,8 @@ pub fn spawn_listener_thread(
 ) {
     thread::spawn(move || {
         // block until new backtest command received
-        for _merged_cmd in cmd_handle.wait() {
-            let merged_cmd = _merged_cmd.unwrap();
-            let cmd = match merged_cmd {
-                MergedItem::First(item) => item,
-                MergedItem::Second(item) => item,
-                MergedItem::Both(_, _) => panic!("Receied both internal and external command simultaneously!"),
-            };
-
+        for cmd in cmd_handle.iter() {
+            println!("Received backtest command: {:?}", cmd);
             match cmd {
                 BacktestCommand::Stop | BacktestCommand::Pause => {
                     let mut lock = internal_message.lock().unwrap();

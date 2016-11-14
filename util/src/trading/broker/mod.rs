@@ -111,6 +111,8 @@ pub enum BrokerError {
     Unimplemented{message: String}, // the broker under the wrapper can't do what you asked it
     InsufficientBalance,
     NoSuchPosition,
+    NoSuchAccount,
+    NoSuchSymbol,
 }
 
 /// The platform's internal representation of the current state of an account.
@@ -137,6 +139,7 @@ impl Ledger {
     /// in the ledger to open the position.
     pub fn open_position(&mut self, pos: Position) -> BrokerResult {
         let uuid = Uuid::new_v4();
+        let execution_time = pos.execution_time.unwrap();
         if pos.price.is_none() {
             return Err(BrokerError::Message{
                 message: "The supplied position does not have an entry price.".to_string()
@@ -149,8 +152,12 @@ impl Ledger {
         }
         self.balance -= cost;
 
-        self.open_positions.insert(uuid, pos);
-        Ok(BrokerMessage::Success)
+        self.open_positions.insert(uuid, pos.clone());
+        Ok(BrokerMessage::PositionOpened{
+            position_id: uuid,
+            position: pos,
+            timestamp: execution_time,
+        })
     }
 
     /// Closes the position with the specified Uuid.  Returns an error if no position with that Uuid
