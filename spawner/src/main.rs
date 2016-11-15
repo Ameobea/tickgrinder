@@ -142,7 +142,7 @@ impl InstanceManager {
                 }
             }
 
-            thread::sleep(Duration::new(1,0));
+            thread::sleep(Duration::from_millis(350));
         }
     }
 
