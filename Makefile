@@ -1,36 +1,14 @@
 SHELL := /bin/bash
 
-build:
-	rm -rf dist
-	mkdir dist
-	mkdir dist/lib
-	cd util && cargo rustc -- -C prefer-dynamic
-	cp util/target/debug/libalgobot_util.so dist/lib
-
-	# build all strategies and copy into dist/lib
-	for dir in ./strategies/*; \
-	do \
-		cd $$dir && cargo rustc -- -C prefer-dynamic -L ../../util/target/debug/deps -L ../../dist/lib && \
-		cp target/debug/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib; \
-	done
-
-	cd backtester && cargo rustc --bin backtester -- -C prefer-dynamic -L ../util/target/debug/deps -L ../dist/lib
-	cp backtester/target/debug/backtester dist
-	cd spawner && cargo rustc --bin spawner -- -C prefer-dynamic -L ../util/target/debug/deps -L ../dist/lib
-	cp spawner/target/debug/spawner dist
-	cd tick_parser && cargo rustc --bin tick_processor -- -C prefer-dynamic -L ../util/target/debug/deps -L ../dist/lib
-	cp tick_parser/target/debug/tick_processor dist
-	cd optimizer && cargo rustc --bin optimizer -- -C prefer-dynamic -L ../util/target/debug/deps -L ../dist/lib
-	cp optimizer/target/debug/optimizer dist
-	cd mm && npm install
-	cp ./mm dist -r
-
 release:
 	rm -rf dist
 	mkdir dist
 	mkdir dist/lib
-	cd util && cargo rustc --release -- -C prefer-dynamic
+	# build the bot's utility library and copy into dist/lib
+	cd util && cargo build --release
 	cp util/target/release/libalgobot_util.so dist/lib
+	# copy libstd to the dist/lib directory
+	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
 	# build all strategies and copy into dist/lib
 	for dir in ./strategies/*; \
@@ -39,19 +17,50 @@ release:
 		cp target/release/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib; \
 	done
 
-	cd backtester && cargo rustc --bin backtester --release -- -C prefer-dynamic -L ../util/target/release/deps -L ../dist/lib
+	# build all modules and copy their binaries into the dist directory
+	cd backtester && cargo build --release
 	cp backtester/target/release/backtester dist
-	cd spawner && cargo rustc --bin spawner --release -- -C prefer-dynamic -L ../util/target/release/deps -L ../dist/lib
+	cd spawner && cargo build --release
 	cp spawner/target/release/spawner dist
-	cd tick_parser && cargo rustc --bin tick_processor --release -- -C prefer-dynamic -L ../util/target/release/deps -L ../dist/lib
+	cd tick_parser && cargo build --release
 	cp tick_parser/target/release/tick_processor dist
-	cd optimizer && cargo rustc --bin optimizer --release -- -C prefer-dynamic -L ../util/target/release/deps -L ../dist/lib
+	cd optimizer && cargo build --release
 	cp optimizer/target/release/optimizer dist
 	cd mm && npm install
 	cp ./mm dist -r
 
+debug:
+	rm -rf dist
+	mkdir dist
+	mkdir dist/lib
+	# build the bot's utility library and copy into dist/lib
+	cd util && cargo build
+	cp util/target/debug/libalgobot_util.so dist/lib
+	# copy libstd to the dist/lib directory
+	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
+
+	# build all strategies and copy into dist/lib
+	for dir in ./strategies/*; \
+	do \
+		cd $$dir && cargo rustc -- -C prefer-dynamic -L ../../util/target/debug/deps -L ../../dist/lib && \
+		cp target/debug/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib; \
+	done
+
+	# build all modules and copy their binaries into the dist directory
+	cd backtester && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cp backtester/target/debug/backtester dist
+	cd spawner && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cp spawner/target/debug/spawner dist
+	cd tick_parser && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cp tick_parser/target/debug/tick_processor dist
+	cd optimizer && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cp optimizer/target/debug/optimizer dist
+	cd mm && npm install
+	cp ./mm dist -r
+
 strip:
-	strip dist/*
+	cd dist && strip backtester spawner optimizer tick_processor
+	cd dist/lib && strip *
 
 clean:
 	rm optimizer/target -rf

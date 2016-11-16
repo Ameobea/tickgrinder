@@ -9,7 +9,7 @@ futures = { git = "https://github.com/alexcrichton/futures-rs", rev = "ed43dcc6"
 postgres = { git = "https://github.com/sfackler/rust-postgres" }
 serde = "0.8.13"
 serde_json = "0.8.3"
-serde_derive = "0.8.16"
+serde_derive = "<0.8.17"
 uuid = { version = "0.3.1", features = ["serde", "v4",] }
 
 [lib]
