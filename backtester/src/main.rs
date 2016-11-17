@@ -242,7 +242,7 @@ pub fn resolve_data_source(data_source: &DataSource, symbol: String) -> Box<Tick
 
 /// Returns true if the backtest has met a stop condition.
 fn check_early_exit (
-    t: &Tick, def: &BacktestDefinition, i: u64
+    t: &Tick, def: &BacktestDefinition, i: usize
 ) -> bool {
     if def.max_tick_n.is_some() &&
        def.max_tick_n.unwrap() <= i {
@@ -258,7 +258,7 @@ fn check_early_exit (
 /// What kind of method used to time the output of data
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum BacktestType {
-    Fast{delay_ms: u64},
+    Fast{delay_ms: usize},
     Live,
 }
 

@@ -34,9 +34,9 @@ pub struct BacktestHandle {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct BacktestDefinition {
     /// Stop backtest after timestamp reached or None
-    pub max_timestamp: Option<i64>,
+    pub max_timestamp: Option<usize>,
     /// Stop backtest after `max_tick_n` ticks have been processed or None
-    pub max_tick_n: Option<u64>,
+    pub max_tick_n: Option<usize>,
     pub symbol: String,
     pub backtest_type: BacktestType,
     pub data_source: DataSource,
@@ -51,20 +51,20 @@ pub trait BacktestMap {
 
 /// Inserts a static delay between each tick.
 pub struct FastMap {
-    pub delay_ms: u64
+    pub delay_ms: usize
 }
 
 impl BacktestMap for FastMap {
     fn map(&mut self, t: Tick) -> Option<Tick> {
         // block for the delay then return the tick
-        thread::sleep(Duration::from_millis(self.delay_ms));
+        thread::sleep(Duration::from_millis(self.delay_ms as u64));
         Some(t)
     }
 }
 
 /// Plays ticks back at the rate that they were recorded.
 pub struct LiveMap {
-    pub last_tick_timestamp: i64
+    pub last_tick_timestamp: usize
 }
 
 impl BacktestMap for LiveMap {

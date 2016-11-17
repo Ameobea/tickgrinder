@@ -17,8 +17,8 @@ pub enum Command {
     Register{channel: String},
     Type, // returns what kind of instance this is
     // Tick Parser Commands
-    AddSMA{period: f64},
-    RemoveSMA{period: f64},
+    AddSMA{period: usize},
+    RemoveSMA{period: usize},
     // Spawner Commands
     SpawnMM,
     Census,
@@ -171,16 +171,16 @@ pub fn parse_wrapped_response(raw_res: String) -> WrappedResponse {
 
 #[test]
 fn command_serialization() {
-    let cmd_str = "{\"AddSMA\": {\"period\": 6.64} }";
+    let cmd_str = "{\"AddSMA\": {\"period\": 664} }";
     let cmd: Command = serde_json::from_str(cmd_str).unwrap();
-    assert_eq!(cmd, Command::AddSMA{period: 6.64f64});
+    assert_eq!(cmd, Command::AddSMA{period: 664});
 }
 
 #[test]
 fn command_deserialization() {
-    let cmd = Command::RemoveSMA{period: 6.64f64};
+    let cmd = Command::RemoveSMA{period: 664};
     let cmd_string = serde_json::to_string(&cmd).unwrap();
-    assert_eq!("{\"RemoveSMA\":{\"period\":6.64}}", cmd_string.as_str());
+    assert_eq!("{\"RemoveSMA\":{\"period\":664}}", cmd_string.as_str());
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn response_deserialization() {
 
 #[bench]
 fn wrappedcmd_to_string(b: &mut test::Bencher) {
-    let cmd = Command::AddSMA{period: 42.23423f64};
+    let cmd = Command::AddSMA{period: 4223423};
     let wr_cmd = WrappedCommand{uuid: Uuid::new_v4(), cmd: cmd};
     b.iter(|| {
         let wr_cmd = &wr_cmd;

@@ -399,8 +399,8 @@ fn wire_tickstream(
         let (ref bid_atom, ref ask_atom) = *price_arc;
 
         // convert the tick's prices to pips and store
-        bid_atom.store(Tick::price_to_pips(t.bid), Ordering::Relaxed);
-        ask_atom.store(Tick::price_to_pips(t.ask), Ordering::Relaxed);
+        bid_atom.store(t.bid, Ordering::Relaxed);
+        ask_atom.store(t.ask, Ordering::Relaxed);
         // store timestamp
         (*timestamp_atom).store(t.timestamp as usize, Ordering::Relaxed);
 

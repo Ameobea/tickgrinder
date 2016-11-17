@@ -1,2 +1,2 @@
 [build]
-rustflags = ["-L", "../util/target/release/deps", "-L", "../util/target/release", "-C", "prefer-dynamic"]
+rustflags = ["-L", "../util/target/release/deps", "-C", "prefer-dynamic"]

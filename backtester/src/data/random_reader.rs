@@ -41,8 +41,8 @@ impl TickGenerator for RandomReader {
                 timestamp += 1;
 
                 let mut rng = rand::thread_rng();
-                let price_range = Range::new(1f64, 99f64);
-                let spread_range = Range::new(0f64, 0.5f64);
+                let price_range = Range::new(10, 99);
+                let spread_range = Range::new(0, 5);
 
                 let price = price_range.ind_sample(&mut rng);
                 let spread = spread_range.ind_sample(&mut rng);

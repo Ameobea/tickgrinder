@@ -11,23 +11,23 @@ use transport::query_server::QueryServer;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct Tick {
-    pub bid: f64,
-    pub ask: f64,
-    pub timestamp: i64
+    pub bid: usize,
+    pub ask: usize,
+    pub timestamp: usize
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SymbolTick {
-    pub bid: f64,
-    pub ask: f64,
-    pub timestamp: i64,
+    pub bid: usize,
+    pub ask: usize,
+    pub timestamp: usize,
     pub symbol: String
 }
 
 impl Tick {
     /// Returns a dummy placeholder tick
     pub fn null() -> Tick {
-        Tick {bid: 0f64, ask: 0f64, timestamp: 0i64}
+        Tick {bid: 0usize, ask: 0usize, timestamp: 0usize}
     }
 
     /// Converts a JSON-encoded String into a Tick
@@ -42,13 +42,13 @@ impl Tick {
     }
 
     /// Returns the difference between the bid and the ask
-    pub fn spread(&self) -> f64 {
+    pub fn spread(&self) -> usize {
         self.bid - self.ask
     }
 
     /// Returns the average of the bid and ask price
-    pub fn mid(&self) -> f64 {
-        (self.bid + self.ask) / 2f64
+    pub fn mid(&self) -> usize {
+        (self.bid + self.ask) / 2usize
     }
 
     /// Saves the tick in the database.
@@ -79,16 +79,10 @@ impl Tick {
     pub fn from_csv_string(s: &str) -> Tick {
         let spl: Vec<&str> = s.split(", ").collect();
         Tick {
-            timestamp: i64::from_str_radix(spl[0], 10).unwrap(),
-            bid: f64::from_str(spl[1]).unwrap(),
-            ask: f64::from_str(spl[2]).unwrap()
+            timestamp: usize::from_str_radix(spl[0], 10).unwrap(),
+            bid: usize::from_str(spl[1]).unwrap(),
+            ask: usize::from_str(spl[2]).unwrap()
         }
-    }
-
-    /// Converts a f64 price into pips
-    pub fn price_to_pips(p: f64) -> usize {
-        // TODO
-        10000usize
     }
 }
 
@@ -106,7 +100,7 @@ impl SymbolTick {
 
 #[bench]
 fn from_csv_string(b: &mut test::Bencher) {
-    let s = "1476650327123, 1.23134, 1.23156";
+    let s = "1476650327123, 123134, 123156";
     let mut t = Tick::null();
     let _ = b.iter(|| {
         t = Tick::from_csv_string(s)

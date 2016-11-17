@@ -13,7 +13,7 @@ release:
 	# build all strategies and copy into dist/lib
 	for dir in ./strategies/*; \
 	do \
-		cd $$dir && cargo rustc --release -- -C prefer-dynamic -L ../../util/target/release/deps -L ../../dist/lib && \
+		cd $$dir && cargo build && \
 		cp target/release/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib; \
 	done
 
@@ -42,7 +42,7 @@ debug:
 	# build all strategies and copy into dist/lib
 	for dir in ./strategies/*; \
 	do \
-		cd $$dir && cargo rustc -- -C prefer-dynamic -L ../../util/target/debug/deps -L ../../dist/lib && \
+		cd $$dir && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build && \
 		cp target/debug/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib; \
 	done
 
@@ -77,29 +77,51 @@ clean:
 	rm mm/node_modules -rf
 
 test:
-	cd optimizer && cargo test
-	cd spawner && cargo test
+	# build the bot's utility library and copy into dist/lib
+	cd util && cargo build && cargo test --no-fail-fast
+	cp util/target/debug/libalgobot_util.so dist/lib
+	# copy libstd to the dist/lib directory
+	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
-	# Build each strategy
-	for dir in ./strategies/*/; \
+	# build all strategies and copy into dist/lib
+	for dir in ./strategies/*; \
 	do \
-		cd $$dir && cargo test; \
+		cd $$dir && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build && \
+		cp target/debug/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib && \
+		cp target/debug/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../util/target/debug/deps && \
+		LD_LIBRARY_PATH="../../dist/lib" RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test --no-fail-fast; \
 	done
 
-	cd tick_parser && cargo test
-	cd util && cargo test
-	cd backtester && cargo test
+	cd optimizer && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
+	cd spawner && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
+
+	cd tick_parser && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
+	cd backtester && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd mm && npm install
 	# TODO: Collect the results into a nice format
 
 bench:
-	cd tick_parser && cargo bench
-	cd util && cargo bench
-	cd backtester && cargo bench
-	for dir in ./strategies/*/; \
+	# build the bot's utility library and copy into dist/lib
+	cd util && cargo build --release && cargo bench
+	cp util/target/release/libalgobot_util.so dist/lib
+	# copy libstd to the dist/lib directory
+	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
+
+	# build all strategies and copy into dist/lib
+	for dir in ./strategies/*; \
 	do \
-		cd $$dir && cargo bench; \
+		cd $$dir && cargo build --release && \
+		cp target/release/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib && \
+		cp target/release/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../util/target/release/deps && \
+		LD_LIBRARY_PATH="../../dist/lib" cargo bench; \
 	done
+
+	cd optimizer && LD_LIBRARY_PATH="../dist/lib" cargo bench
+	cd spawner && LD_LIBRARY_PATH="../dist/lib" cargo bench
+
+	cd tick_parser && LD_LIBRARY_PATH="../dist/lib" cargo bench
+	cd backtester && LD_LIBRARY_PATH="../dist/lib" cargo bench
+	cd mm && npm install
 	# TODO: Collect the results into a nice format
 
 update:
