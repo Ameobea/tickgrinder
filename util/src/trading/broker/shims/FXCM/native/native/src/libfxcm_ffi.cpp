@@ -7,19 +7,18 @@
 
 #include "libfxcm_ffi.h"
 
-void fxcm_login(char *username, char *password, char *url, char *connection_name, char *session_id, char *pin){
-    printf("TEST");
+void fxcm_login(char *username, char *password, char *url){
     IO2GSession *session = CO2GTransport::createSession();
     SessionStatusListener *sessionListener = new SessionStatusListener(
-        session, false, session_id, pin
+        // session, false, session_id, pin
+        session, false, 0, 0
     );
-        session->subscribeSessionStatus(sessionListener);
-
+    session->subscribeSessionStatus(sessionListener);
     sessionListener->reset();
-    session->login(username, password, url, connection_name);
+    session->login(username, password, "http://www.fxcorporate.com/Hosts.jsp", "Demo");
     bool isConnected = sessionListener->waitEvents() && sessionListener->isConnected();
     if(isConnected){
-        // print_accounts_cpp(session);
+        print_accounts(session);
         std::cout << "Done!" << std::endl;
         sessionListener->reset();
         session->logout();
@@ -27,26 +26,26 @@ void fxcm_login(char *username, char *password, char *url, char *connection_name
     } else {
         printf("Unable to connect to the broker.");
     }
-}
+};
 
 // Taken from FXCM examples in official repository
 // https://github.com/FXCMAPI/ForexConnectAPI-Linux-x86_64/blob/master/samples/cpp/NonTableManagerSamples/Login/source/main.cpp
-// void print_accounts_cpp(IO2GSession *session){
-//     O2G2Ptr<IO2GResponseReaderFactory> readerFactory = session->getResponseReaderFactory();
-//     if (!readerFactory)
-//     {
-//         std::cout << "Cannot create response reader factory" << std::endl;
-//         return;
-//     }
-//     O2G2Ptr<IO2GLoginRules> loginRules = session->getLoginRules();
-//     O2G2Ptr<IO2GResponse> response = loginRules->getTableRefreshResponse(Accounts);
-//     O2G2Ptr<IO2GAccountsTableResponseReader> accountsResponseReader = readerFactory->createAccountsTableReader(response);
-//     std::cout.precision(2);
-//     for (int i = 0; i < accountsResponseReader->size(); ++i)
-//     {
-//         O2G2Ptr<IO2GAccountRow> accountRow = accountsResponseReader->getRow(i);
-//         std::cout << "AccountID: " << accountRow->getAccountID() << ", "
-//                 << "Balance: " << std::fixed << accountRow->getBalance() << ", "
-//                 << "Used margin: " << std::fixed << accountRow->getUsedMargin() << std::endl;
-//     }
-// }
+void print_accounts(IO2GSession *session){
+    O2G2Ptr<IO2GResponseReaderFactory> readerFactory = session->getResponseReaderFactory();
+    if (!readerFactory)
+    {
+        std::cout << "Cannot create response reader factory" << std::endl;
+        return;
+    }
+    O2G2Ptr<IO2GLoginRules> loginRules = session->getLoginRules();
+    O2G2Ptr<IO2GResponse> response = loginRules->getTableRefreshResponse(Accounts);
+    O2G2Ptr<IO2GAccountsTableResponseReader> accountsResponseReader = readerFactory->createAccountsTableReader(response);
+    std::cout.precision(2);
+    for (int i = 0; i < accountsResponseReader->size(); ++i)
+    {
+        O2G2Ptr<IO2GAccountRow> accountRow = accountsResponseReader->getRow(i);
+        std::cout << "AccountID: " << accountRow->getAccountID() << ", "
+                << "Balance: " << std::fixed << accountRow->getBalance() << ", "
+                << "Used margin: " << std::fixed << accountRow->getUsedMargin() << std::endl;
+    }
+};

@@ -34,7 +34,7 @@ use conf::CONF;
 #[link(name="ForexConnect")]
 #[link(name="sample_tools")]
 extern {
-    fn fxcm_login(username: *const c_char, password: *const c_char, url: *const c_char, connection_name: *const c_char, session_id: *const c_char, pin: *const c_char);
+    fn fxcm_login(username: *const c_char, password: *const c_char, url: *const c_char);
 }
 
 // TODO: Import functions from the external C++ library created in native
@@ -46,10 +46,6 @@ pub struct FXCMNative {
 
 impl FXCMNative {
     pub fn new(settings: HashMap<String, String>) -> FXCMNative {
-        unsafe {
-            let username = CString::new(CONF.fxcm_username).unwrap().as_ptr();
-            fxcm_login(username, username, username, username, username, username);
-        }
         FXCMNative {
             settings_hash: settings,
         }
@@ -85,15 +81,10 @@ impl Broker for FXCMNative {
 /// Tests the ability to log in to FXCM via the C++ code in the library.
 #[test]
 fn login_test() {
+    let username  = CString::new(CONF.fxcm_username).unwrap();
+    let password  = CString::new(CONF.fxcm_password).unwrap();
+    let url       = CString::new(CONF.fxcm_url).unwrap();
     unsafe {
-        // TODO: Either convert these to the correct format or do so on the C++ end
-        // currently things are looking weird:
-        // HTTP request failed object='/?ID=1479458729492&PN=���^&SN=ForexConnect&MV=5&LN=���^&AT=PLAIN' errorCode=0
-        let username  = CString::new(CONF.fxcm_username).unwrap().as_ptr();
-        let password  = CString::new(CONF.fxcm_password).unwrap().as_ptr();
-        let url       = CString::new(CONF.fxcm_url).unwrap().as_ptr();
-        let conn_name = CString::new("Test Connection").unwrap().as_ptr();
-        let null_str  = CString::new("").unwrap().as_ptr();
-        fxcm_login(username, password, url, conn_name, null_str, null_str);
+        fxcm_login(username.as_ptr(), password.as_ptr(), url.as_ptr());
     }
 }
