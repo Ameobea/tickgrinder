@@ -327,5 +327,3 @@ fn backtest_timestamp_early_exit() {
     let res = rx.wait().take(8).collect::<Vec<_>>();
     assert_eq!(res.len(), 8);
 }
-
-// TODO: Benchmark for check_early_exit

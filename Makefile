@@ -13,8 +13,9 @@ release:
 	# build all strategies and copy into dist/lib
 	for dir in ./strategies/*; \
 	do \
-		cd $$dir && cargo build && \
-		cp target/release/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib; \
+		cd $$dir && cargo build --release && \
+		cp target/release/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib && \
+		cp target/release/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../util/target/release/deps; \
 	done
 
 	# build all modules and copy their binaries into the dist directory
@@ -43,7 +44,8 @@ debug:
 	for dir in ./strategies/*; \
 	do \
 		cd $$dir && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build && \
-		cp target/debug/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib; \
+		cp target/debug/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib && \
+		cp target/debug/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../util/target/debug/deps; \
 	done
 
 	# build all modules and copy their binaries into the dist directory

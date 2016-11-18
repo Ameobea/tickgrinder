@@ -1,0 +1,1 @@
+This is the C++ portion of the application.  Its purpose is to create all of the utility functions needed to communicate with the broker and perform tasks such as log in, open trades, subscribe to prices, etc. and expose them to the Rust application in a consolidated way that fits the platform's needs.
