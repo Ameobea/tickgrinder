@@ -2,3 +2,7 @@
 name = "fxcm"
 version = "0.1.0"
 authors = ["Casey Primozic <me@ameo.link>"]
+
+[lib]
+name = "fxcm"
+crate-type = ["dylib"]

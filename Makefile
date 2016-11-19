@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 
 release:
+	git submodule update --init
 	rm -rf dist
 	mkdir dist
 	mkdir dist/lib
@@ -30,7 +31,14 @@ release:
 	cd mm && npm install
 	cp ./mm dist -r
 
+	# build the FXCM shim
+	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
+	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
+	cd util/src/trading/broker/shims/FXCM/native && cargo build --release
+	cp util/src/trading/broker/shims/FXCM/native/target/release/libfxcm.so dist/lib
+
 debug:
+	git submodule update --init
 	rm -rf dist
 	mkdir dist
 	mkdir dist/lib
@@ -59,6 +67,12 @@ debug:
 	cp optimizer/target/debug/optimizer dist
 	cd mm && npm install
 	cp ./mm dist -r
+
+	# build the FXCM shim
+	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
+	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
+	cd util/src/trading/broker/shims/FXCM/native && cargo build
+	cp util/src/trading/broker/shims/FXCM/native/target/debug/libfxcm.so dist/lib
 
 strip:
 	cd dist && strip backtester spawner optimizer tick_processor
@@ -100,6 +114,7 @@ test:
 	cd tick_parser && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd backtester && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd mm && npm install
+	cd util/src/trading/broker/shims/FXCM/native && ./test.sh
 	# TODO: Collect the results into a nice format
 
 bench:
@@ -140,6 +155,8 @@ update:
 	cd util && cargo update
 	cd backtester && cargo update
 	cd mm && npm update
+	cd util/src/trading/broker/shims/FXCM/native && cargo update
+	git submodule update
 
 cdoc:
 	cd optimizer && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
