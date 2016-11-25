@@ -24,6 +24,7 @@ pub enum Command {
     Census,
     SpawnOptimizer{strategy: String},
     SpawnTickParser{symbol: String},
+    SpawnBacktester,
     KillInstance{uuid: Uuid},
     KillAllInstances,
     // Backtester Commands

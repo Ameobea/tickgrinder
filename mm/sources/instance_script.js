@@ -1,5 +1,5 @@
 "use strict";
-/*jslint browser: true*/ /*global $*/
+/*jslint browser: true*/ /*global $, initWs, registerCheck, sendCommand, v4 */
 
 var resTimeoutMs = 3000;
 var squelchPings = true;
@@ -7,7 +7,6 @@ var squelchPings = true;
 var outputLen = 0;
 var socket;
 // array of [UUID, callback]s of responses we're interested in
-var interest = [];
 var dispQ = {};
 var socket;
 var defaultCallback = function(msg){
@@ -42,19 +41,6 @@ $(document).ready(function(){
     spawnInstance(type, data);
   });
 
-  // $("#dbFlush").click(()=>{
-  //   $.get("api/utils/dbFlush");
-  // });
-
-  // $("#dbDump").click(()=>{
-  //   $.get("api/utils/dbDump");
-  // });
-
-  // $("#dbRestore").click(()=>{
-  //   var restoreId = $("#dbRestoreId").val();
-  //   $.get("api/utils/dbRestore/" + restoreId);
-  // });
-
   // populate the list of running instances
   setTimeout(function(){
     update();
@@ -79,63 +65,6 @@ function processWsMsg(wr_msg) {
   if(msg.uuid && msg.res){
     registerCheck(msg.uuid, msg);
   }
-}
-
-/// Checks if a UUID is registered and calls the callback if it is
-function registerCheck(uuid, msg){
-  for(var i=0;i<interest.length;i++){
-    if(interest[i][0] == uuid){
-      interest[i][1](msg);
-    }
-  }
-}
-
-/// Deregisters a UUID from the interest array
-function deregister(uuid){
-  for(var i=0;i<interest.length;i++){
-    if(interest[i][0] == uuid){
-      interest = interest.splice(i, 1);
-      return;
-    }
-  }
-}
-
-/// Generates a new V4 UUID in hyphenated form
-function v4() {
-  function s4() {
-    return Math.floor((1 + Math.random()) * 0x10000)
-      .toString(16)
-      .substring(1);
-  }
-  return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
-    s4() + '-' + s4() + s4() + s4();
-}
-
-/// Reads the values from the form and sends the command
-function sendCommand(command, channel, params, uuid, callback) {
-  setResponse("");
-  if(params.length != 0 && params != "{}") {
-    try {
-      params = JSON.parse(params);
-    } catch(e) {
-      setResponse("Unable to parse params into valid JSON object: " + params);
-      return;
-    }
-    var command_ = {};
-    command_[command] = params;
-    command = command_;
-  }
-
-  // register the callback
-  interest.push([uuid, callback]);
-
-  var msgObj = {channel: channel, message: {uuid: uuid, cmd: command}};
-  socket.send(JSON.stringify(msgObj));
-
-  // remove the registered callback after the timeout expires
-  setTimeout(function(){
-    deregister(uuid);
-  }, resTimeoutMs);
 }
 
 /// Sets the HTML of the Responses box
@@ -191,9 +120,9 @@ function killConfirm(uuid, data) {
 function killInstance(uuid) {
   sendCommand("Kill", uuid, "{}", v4(), function(msg){
     defaultCallback(msg);
-    setTimeout(function(){
-      update();
-    }, 5000);
+    if(msg.res.Info){
+      setTimeout(update, 4000);
+    }
   });
 }
 
@@ -201,8 +130,8 @@ function killInstance(uuid) {
 function spawnInstance(type, data) {
   sendCommand("SpawnTickParser", "control", JSON.stringify({symbol: data}), v4(), function(msg){
     defaultCallback(msg);
-    if(msg.res.Info){
-      writeInstances(JSON.parse(msg.res.Info.info));
+    if(msg.res == "Ok"){
+      update();
     }
   });
 }

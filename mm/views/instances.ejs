@@ -9,42 +9,30 @@
     <link rel="stylesheet" href="sources/commands.css">
 </head>
 <body>
-    <% include ./partials/header %>
-    <h1>Instance Management Interface</h1>
-    <table width="100%"><tr><td>
-        <h1>Instance Management</h1>
-        <div id="statusbar"></div>
-        <h2>Running Instances</h2>
-        <div id="running-instances">Loading...</div>
-        <h2>Create Instances</h2>
-        <table>
-            <tr>
-                <th>Instance Type</th>
-                <th id="instance-data">Pair</th>
-            </tr>
-            <tr>
-                <td><select id="instance-type"><option value="tickParser">Tick Parser</option></select></td>
-                <td><input type="text" placeholder="EURUSD" id="instance-data-box"></td>
-            </tr>
-        </table>
-        <input type="button" value="Spawn" id="instance-spawn-button">
-    </td><td>
-    <h1>Manage Backtests</h1>
-    <h2>Start Backtest</h2>
-    <b>Currency Pair:  </b><input type="text" value="usdcad" id="backtestStartPair">
-    <br><b>Type:  </b><select id="backtestTypeSelector"><option value="fast">Fast</option><option value="live">Live</option><option value="precalced">Pre-Calculated</option><option value="nostore">No-store</option></select>
-    <br><b>Start Time:  </b><input type="text" value="1451887229.879" id="backtestStartTime">
-    <div id="endtime" style="display: none;"><br><b>End Time:  </b><input type="text" value="1451919404.066" id="backtestEndTime"></div>
-    <br><b>Fast Send Interval:  </b><input type="text" value="50" id="backtestSendInterval">
-    <br><input type="button" value="Start" id="backtestStartButton">
-    <hr>
-    <h2>Stop Backtests</h2>
-    <b>Currency Pair:  </b><input type="text" value="usdcad" id="backtestStopPair">
-    <br><input type="button" value="Stop" id="backtestStopButton">  <input type="button" value="Stop All" id="backtestStopAllButton">
-    <hr>
-    <h1>Database Utils</h1>
-    <input type="button" value="Flush Database" id="dbFlush"><input type="button" value="Dump Database" id="dbDump"><br>
-    <input type="text" placeholder="Dump ID">
+<% include ./partials/header %>
+<h1>Instance Management Interface</h1>
+<table width="100%"><tr><td>
+    <h1>Instance Management</h1>
+    <div id="statusbar"></div>
+    <h2>Running Instances</h2>
+    <div id="running-instances">Loading...</div>
+    <h2>Create Instances</h2>
+    <table>
+        <tr>
+            <th>Instance Type</th>
+            <th id="instance-data">Pair</th>
+        </tr>
+        <tr>
+            <td><select id="instance-type"><option value="tickParser">Tick Parser</option></select></td>
+            <td><input type="text" placeholder="EURUSD" id="instance-data-box"></td>
+        </tr>
+    </table>
+    <input type="button" value="Spawn" id="instance-spawn-button">
+</td><td>
+<hr>
+<h1>Database Utils</h1>
+<input type="button" value="Flush Database" id="dbFlush"><input type="button" value="Dump Database" id="dbDump"><br>
+<input type="text" placeholder="Dump ID">
 </td></tr></table>
 <hr>
 <center><h1>Command Terminal</h1></center>

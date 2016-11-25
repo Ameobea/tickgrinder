@@ -243,6 +243,7 @@ impl InstanceManager {
             Command::SpawnMM => self.spawn_mm(),
             Command::SpawnOptimizer{strategy} => self.spawn_optimizer(strategy),
             Command::SpawnTickParser{symbol} => self.spawn_tick_parser(symbol),
+            Command::SpawnBacktester => self.spawm_backtester(),
             _ => Response::Error{
                 status: "Command not accepted by the instance spawner".to_string()
             }
@@ -308,6 +309,19 @@ impl InstanceManager {
                                 .spawn()
                                 .expect("Unable to spawn Optimizer");
         self.add_instance(Instance{instance_type: "Optimizer".to_string(), uuid: mod_uuid});
+
+        Response::Ok
+    }
+
+    /// Spawns a Backtester instance.
+    fn spawm_backtester(&mut self) -> Response {
+        let mod_uuid = Uuid::new_v4();
+        let path = CONF.dist_path.to_string() + "backtester";
+        let _ = process::Command::new(path)
+                                .arg(mod_uuid.to_string().as_str())
+                                .spawn()
+                                .expect("Unable to spawn Optimizer");
+        self.add_instance(Instance{instance_type: "Backtester".to_string(), uuid: mod_uuid});
 
         Response::Ok
     }

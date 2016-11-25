@@ -18,7 +18,6 @@ manager.start = function(port){
   var app = express();
 
   var index = require('./routes/index');
-  var api = require("./routes/api");
   var data = require("./routes/data");
 
   app.engine('html', require('ejs').renderFile);
@@ -26,11 +25,10 @@ manager.start = function(port){
   app.set('view engine', 'ejs');
   app.use(bodyParser.json());
   app.use(bodyParser.urlencoded({extended: true}));
-  app.listen(port);
+  app.listen(port, "0.0.0.0");
   console.log("Manager webserver started!");
 
   app.use("/", index);
-  app.use("/api", api);
   app.use("/data", data);
   app.use("/sources", express.static(__dirname + "/sources"));
 
@@ -53,7 +51,7 @@ manager.start = function(port){
         }
       } catch(e) {}
     });
-  }).listen(parseInt(conf.websocketPort));
+  }).listen(parseInt(conf.websocketPort), "0.0.0.0");
 
   // usage: node manager.js uuid
   uuid = process.argv[2];

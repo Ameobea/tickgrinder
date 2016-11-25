@@ -14,7 +14,9 @@ pub struct Conf {
 }
 
 pub const CONF: Conf = Conf {
-    node_binary_path: "/home/casey/.nvm/versions/node/v5.10.1/bin/node",
+    // Use version 4.2.0; using higher versions bind to ipv6 causing issues
+    // TODO: Fix
+    node_binary_path: "/home/casey/.nvm/versions/node/v4.2.0/bin/node",
     kill_stragglers: true,
     // Redis config
     redis_url: "redis://127.0.0.1/",
