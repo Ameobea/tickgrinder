@@ -93,6 +93,9 @@ impl Processor {
             Command::Ping => {
                 Response::Pong{args: env::args().skip(1).collect()}
             },
+            Command::Type => {
+                Response::Info{info: "Tick Processor".to_string()}
+            }
             _ => {
                 Response::Error{status: "Command not recognized".to_string()}
             }

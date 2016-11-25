@@ -9,6 +9,7 @@ var socket;
 // array of [UUID, callback]s of responses we're interested in
 var interest = [];
 var dispQ = {};
+var socket;
 var defaultCallback = function(msg){
   var oldResText = $("#response").html();
   setResponse(oldResText + "<br>" + JSON.stringify(msg.res));
@@ -31,7 +32,7 @@ $(document).ready(function(){
   });
 
   // set up websocket callbacks
-  initWs();
+  socket = initWs(processWsMsg);
 
   //set up button listeners
   $("#instance-spawn-button").click(()=>{
@@ -41,85 +42,37 @@ $(document).ready(function(){
     spawnInstance(type, data);
   });
 
-  // set up backtest listeners
-  $("#backtestStartButton").click(()=>{
-    var type = $("#backtestTypeSelector option:selected").text().toLowerCase();
+  // $("#dbFlush").click(()=>{
+  //   $.get("api/utils/dbFlush");
+  // });
 
-    if(type == "fast"){
-      let requestAddress = "../api/backtest/start/fast/" + $("#backtestStartPair").val();
-      $.post(requestAddress, {startTime: $("#backtestStartTime").val(), interval: $("#backtestSendInterval").val()});
-    }else if(type == "live"){
-      let requestAddress = "../api/backtest/start/live/" + $("#backtestStartPair").val();
-      $.post(requestAddress, {startTime: $("#backtestStartTime").val()});
-    }else if(type == "pre-calculated"){
-      let requestAddress = "../api/backtest/start/precalced/" + $("#backtestStartPair").val();
-      $.post(requestAddress, {startTime: $("#backtestStartTime").val(), endTime: $("#backtestEndTime").val()});
-    }else if(type == "no-store"){
-      let requestAddress = "../api/backtest/start/nostore/" + $("#backtestStartPair").val();
-      $.post(requestAddress, {startTime: $("#backtestStartTime").val()});
-    }
-  });
+  // $("#dbDump").click(()=>{
+  //   $.get("api/utils/dbDump");
+  // });
 
-  $("#backtestTypeSelector").change(()=>{
-    if($("#backtestTypeSelector option:selected").text().toLowerCase() == "pre-calculated"){
-      $("#endtime").show();
-    }else{
-      $("#endtime").hide();
-    }
-  });
-
-  $("#backtestStopButton").click(()=>{
-    var requestAddress = "../api/backtest/stop/" + $("#backtestStopPair").val();
-    $.post(requestAddress);
-  });
-
-  $("#backtestStopAllButton").click(()=>{
-    var requestAddress = "../api/backtest/stop/all";
-    $.post(requestAddress);
-  });
-
-  $("#dbFlush").click(()=>{
-    $.get("api/utils/dbFlush");
-  });
-
-  $("#dbDump").click(()=>{
-    $.get("api/utils/dbDump");
-  });
-
-  $("#dbRestore").click(()=>{
-    var restoreId = $("#dbRestoreId").val();
-    $.get("api/utils/dbRestore/" + restoreId);
-  });
+  // $("#dbRestore").click(()=>{
+  //   var restoreId = $("#dbRestoreId").val();
+  //   $.get("api/utils/dbRestore/" + restoreId);
+  // });
 
   // populate the list of running instances
   setTimeout(function(){
     update();
-  }, 1212)
+  }, 1212);
 });
-
-/// Starts the WS listening for new messages sets up processing callback
-function initWs() {
-  var socketUrl = (document.URL.replace(/https*:\/\//g, "ws://") + ":7037")
-    .replace(/:\d+\/*\w*/, "");
-  socket = new WebSocket(socketUrl);
-  socket.onmessage = message=>{
-    processWsMsg(JSON.parse(message.data));
-  };
-}
 
 /// Parses the messages into JSON, displays them in the messages list, and handles registered interest.
 function processWsMsg(wr_msg) {
-  console.log(wr_msg);
   var msg = wr_msg.message;
   if(!(squelchPings && ((msg.cmd && msg.cmd == "Ping") || (msg.res && msg.res.Pong)))) {
     var oldhtml = $("#cmdres").html();
-    var split = oldhtml.split("<br>");
+    var split = oldhtml.split("\n");
     outputLen += 1;
     if(outputLen > 10) {
       split = split.splice(1); // remove first element (oldest message)
     }
-    split.push(`<b>Channel: </b>${wr_msg.channel}; <b>Message: </b> ${JSON.stringify(msg)}`);
-    $("#cmdres").html(split.join("<br>"));
+    split.push(`<tr><td style="color:#0066ff">${wr_msg.channel}</td><td style="color:#009933">${JSON.stringify(msg)}</td></tr>`);
+    $("#cmdres").html(split.join("\n"));
   }
 
   // check for registered interest
@@ -161,13 +114,16 @@ function v4() {
 /// Reads the values from the form and sends the command
 function sendCommand(command, channel, params, uuid, callback) {
   setResponse("");
-  if(params === "") {
-    params = "{}";
-  }
-  try {
-    params = JSON.parse(params);
-  } catch(e) {
-    setResponse("Unable to parse params into valid JSON object");
+  if(params.length != 0 && params != "{}") {
+    try {
+      params = JSON.parse(params);
+    } catch(e) {
+      setResponse("Unable to parse params into valid JSON object: " + params);
+      return;
+    }
+    var command_ = {};
+    command_[command] = params;
+    command = command_;
   }
 
   // register the callback
@@ -192,7 +148,6 @@ function setResponse(text) {
 function update(){
   var command = "Census";
   var channel = "control";
-  var params = "{}";
   var uuid = v4();
   // called after a response is received
   var callback = function(msg){
@@ -202,14 +157,13 @@ function update(){
     }
   };
 
-  sendCommand(command, channel, params, uuid, callback);
+  sendCommand(command, channel, "", uuid, callback);
 }
 
 /// Writes the list of instances to the page
 function writeInstances(instances){
   var table = "<table><tr><th>Kill</th><th>Type</th><th>Data</th></tr>";
 
-  console.log(instances);
   $.each(instances, (index, elem)=>{
     table += `<tr><td>${getKillButton(elem.uuid)}</td>`;
     table += `<td>${elem.instance_type}</td><td>TODO</td></tr>`;
@@ -235,10 +189,20 @@ function killConfirm(uuid, data) {
 
 /// Sends the command to kill the instance with the supplied UUID
 function killInstance(uuid) {
-  sendCommand("Kill", uuid, "{}", v4(), defaultCallback);
+  sendCommand("Kill", uuid, "{}", v4(), function(msg){
+    defaultCallback(msg);
+    setTimeout(function(){
+      update();
+    }, 5000);
+  });
 }
 
 /// Spawns an instance of the specified type
 function spawnInstance(type, data) {
-  // TODO
+  sendCommand("SpawnTickParser", "control", JSON.stringify({symbol: data}), v4(), function(msg){
+    defaultCallback(msg);
+    if(msg.res.Info){
+      writeInstances(JSON.parse(msg.res.Info.info));
+    }
+  });
 }

@@ -69,9 +69,9 @@ debug:
 	cp ./mm dist -r
 
 	# build the FXCM shim
-	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
+	cd util/src/trading/broker/shims/FXCM/native/native ./build.sh
 	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
-	cd util/src/trading/broker/shims/FXCM/native && cargo build
+	cd util/src/trading/broker/shims/FXCM/native && RUSTFLAGS="-L ../../../../../../../util/target/debug/deps -L ../../../../../../../dist/lib -C prefer-dynamic" cargo build
 	cp util/src/trading/broker/shims/FXCM/native/target/debug/libfxcm.so dist/lib
 
 strip:
@@ -91,6 +91,7 @@ clean:
 	rm util/target -rf
 	rm backtester/target -rf
 	rm mm/node_modules -rf
+	rm util/src/trading/broker/shims/FXCM/native/native/dist -rf
 
 test:
 	# build the bot's utility library and copy into dist/lib

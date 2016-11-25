@@ -15,8 +15,8 @@ router.get("/instances", (req, res, next)=>{
   res.render("instances");
 });
 
-router.get("/commands", (req, res, next)=>{
-  res.render("commands");
+router.get("/backtest", (req, res, next)=>{
+  res.render("backtest");
 });
 
 module.exports = router;

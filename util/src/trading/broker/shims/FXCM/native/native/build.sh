@@ -1,3 +1,4 @@
+rm dist -r
 mkdir -p dist
 cp -u include/ForexConnectAPI-Linux-x86_64/lib/*.so dist
 cp include/ForexConnectAPI-Linux-x86_64/samples/cpp/sample_tools/lib/libsample_tools.so dist

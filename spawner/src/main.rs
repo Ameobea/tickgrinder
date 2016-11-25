@@ -271,8 +271,9 @@ impl InstanceManager {
     /// Spawns a new MM server instance and inserts its Uuid into the living instances list
     fn spawn_mm(&mut self) -> Response {
         let mod_uuid = Uuid::new_v4();
+        let path = CONF.dist_path.to_string() + "mm/manager.js";
         let _ = process::Command::new(CONF.node_binary_path)
-                                .arg("../mm/manager.js")
+                                .arg(path)
                                 .arg(mod_uuid.to_string().as_str())
                                 .spawn()
                                 .expect("Unable to spawn MM");
@@ -285,8 +286,8 @@ impl InstanceManager {
     /// the living instances list
     fn spawn_tick_parser(&mut self, symbol: String) -> Response {
         let mod_uuid = Uuid::new_v4();
-        // TODO: Configurable paths
-        let _ = process::Command::new("../tick_parser/target/debug/tick_processor")
+        let path = CONF.dist_path.to_string() + "tick_processor";
+        let _ = process::Command::new(path)
                                 .arg(mod_uuid.to_string().as_str())
                                 .arg(symbol.as_str())
                                 .spawn()
@@ -300,7 +301,8 @@ impl InstanceManager {
     /// the living instances list
     fn spawn_optimizer(&mut self, strategy: String) -> Response {
         let mod_uuid = Uuid::new_v4();
-        let _ = process::Command::new("../optimizer/target/debug/optimizer")
+        let path = CONF.dist_path.to_string() + "optimizer";
+        let _ = process::Command::new(path)
                                 .arg(mod_uuid.to_string().as_str())
                                 .arg(strategy.as_str())
                                 .spawn()

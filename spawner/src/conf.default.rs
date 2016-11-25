@@ -9,6 +9,8 @@ pub struct Conf {
     pub redis_url: &'static str,
     pub redis_control_channel: &'static str,
     pub redis_responses_channel: &'static str,
+    // path to the dist directory created by running `make install` in the project root directory
+    pub dist_path: &'static str,
 }
 
 pub const CONF: Conf = Conf {
@@ -18,4 +20,5 @@ pub const CONF: Conf = Conf {
     redis_url: "redis://127.0.0.1/",
     redis_control_channel: "control",
     redis_responses_channel: "responses",
+    dist_path: "/home/user/bot4/dist/", // needs trailing slash
 };

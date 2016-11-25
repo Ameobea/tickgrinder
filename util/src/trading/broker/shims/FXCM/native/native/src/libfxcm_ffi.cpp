@@ -7,7 +7,7 @@
 
 #include "libfxcm_ffi.h"
 
-void fxcm_login(char *username, char *password, char *url){
+void fxcm_login(char *username, char *password, char *url, bool live){
     IO2GSession *session = CO2GTransport::createSession();
     SessionStatusListener *sessionListener = new SessionStatusListener(
         // session, false, session_id, pin
@@ -15,7 +15,14 @@ void fxcm_login(char *username, char *password, char *url){
     );
     session->subscribeSessionStatus(sessionListener);
     sessionListener->reset();
-    session->login(username, password, "http://www.fxcorporate.com/Hosts.jsp", "Demo");
+
+    const char *conn_name;
+    if(live){
+        conn_name = "Live";
+    } else {
+        conn_name = "Demo";
+    }
+    session->login(username, password, "http://www.fxcorporate.com/Hosts.jsp", conn_name);
     bool isConnected = sessionListener->waitEvents() && sessionListener->isConnected();
     if(isConnected){
         print_accounts(session);

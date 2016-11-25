@@ -53,10 +53,6 @@ manager.start = function(port){
         }
       } catch(e) {}
     });
-
-    conn.on('close',function(code,reason){
-      console.log('Websocket connection closed');
-    });
   }).listen(parseInt(conf.websocketPort));
 
   // usage: node manager.js uuid

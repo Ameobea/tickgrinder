@@ -1,6 +1,7 @@
 <html>
 <head>
-    <title>Algobot instance Management Interface</title>
+    <title>Algobot Instance Management Interface</title>
+    <script type="text/javascript" src="sources/global_script.js"></script>
     <script type="text/javascript" src="http://code.jquery.com/jquery-1.10.1.js"></script>
     <script type="text/javascript" src="sources/instance_script.js"></script>
     <link rel="stylesheet" href="sources/global_style.css">
@@ -19,11 +20,11 @@
         <table>
             <tr>
                 <th>Instance Type</th>
-                <th id="instance-data">Pairs</th>
+                <th id="instance-data">Pair</th>
             </tr>
             <tr>
                 <td><select id="instance-type"><option value="tickParser">Tick Parser</option></select></td>
-                <td><input type="text" placeholder="EURUSD,USDCAD" id="instance-data-box"></td>
+                <td><input type="text" placeholder="EURUSD" id="instance-data-box"></td>
             </tr>
         </table>
         <input type="button" value="Spawn" id="instance-spawn-button">
@@ -59,6 +60,6 @@
 <hr>
 <h2>Live Commands + Responses</h2>
 Squelch Pings+Pongs <input type="checkbox" id="squelchpings" checked>
-<div id="cmdres" class="mono"></div>
+<table class="mono" style="width: 100%"><tbody id="cmdres"></tbody></table>
 </body>
 </html>

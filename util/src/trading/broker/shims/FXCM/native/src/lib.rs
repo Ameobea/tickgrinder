@@ -34,7 +34,7 @@ use conf::CONF;
 #[link(name="ForexConnect")]
 #[link(name="sample_tools")]
 extern {
-    fn fxcm_login(username: *const c_char, password: *const c_char, url: *const c_char);
+    fn fxcm_login(username: *const c_char, password: *const c_char, url: *const c_char, live: bool);
 }
 
 // TODO: Import functions from the external C++ library created in native
@@ -85,6 +85,6 @@ fn login_test() {
     let password  = CString::new(CONF.fxcm_password).unwrap();
     let url       = CString::new(CONF.fxcm_url).unwrap();
     unsafe {
-        fxcm_login(username.as_ptr(), password.as_ptr(), url.as_ptr());
+        fxcm_login(username.as_ptr(), password.as_ptr(), url.as_ptr(), false);
     }
 }
