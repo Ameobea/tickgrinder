@@ -120,9 +120,18 @@ impl Backtester {
                         }
                     }
                 },
+                Command::Kill => {
+                    thread::spawn(|| {
+                        thread::sleep(std::time::Duration::from_secs(3));
+                        std::process::exit(0);
+                    });
+
+                    Response::Info{info: "Backtester will self-destruct in 3 seconds.".to_string()}
+                }
                 Command::PauseBacktest{uuid} => unimplemented!(),
                 Command::ResumeBacktest{uuid} => unimplemented!(),
                 Command::StopBacktest{uuid} => unimplemented!(),
+                Command::ListBacktests => unimplemented!(),
                 _ => Response::Error{ status: "Backtester doesn't recognize that command.".to_string() }
             };
 
@@ -136,7 +145,7 @@ impl Backtester {
         }).forget();
 
         // block so the backtester stays alive since it's all async
-        thread::sleep(std::time::Duration::from_secs(100));
+        thread::park();
     }
 
     /// Initiates a new backtest and adds it to the internal list of monitored backtests.
