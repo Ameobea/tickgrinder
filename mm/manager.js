@@ -14,6 +14,17 @@ var manager = exports;
 
 var uuid;
 
+/// Generates a new V4 UUID in hyphenated form
+function v4() {
+  function s4() {
+    return Math.floor((1 + Math.random()) * 0x10000)
+      .toString(16)
+      .substring(1);
+  }
+  return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
+    s4() + '-' + s4() + s4() + s4();
+}
+
 manager.start = function(port){
   var app = express();
 
@@ -70,7 +81,6 @@ manager.start = function(port){
   subClient.subscribe(conf.redisCommandsChannel);
   subClient.subscribe(conf.redisResponsesChannel);
   subClient.on("message", (channel, message_str)=>{
-    // console.log(`Received new message: ${message_str}`);
     // convert the {"Enum"}s to plain strings
     message_str = message_str.replace(/{("\w*")}/g, "$1");
     var wr_msg = JSON.parse(message_str);
@@ -82,10 +92,14 @@ manager.start = function(port){
     if(wr_msg.cmd){
       var response = getResponse(wr_msg.cmd);
       var wr_res = {uuid: wr_msg.uuid, res: response};
-      // console.log("Generated response: ", wr_res);
       pubClient.publish(conf.redisResponsesChannel, JSON.stringify(wr_res));
     }
   });
+
+  // signal to the platform that we're up and running
+  setTimeout(function(){
+    pubClient.publish(conf.redisCommandsChannel, JSON.stringify({uuid: v4(), cmd: {Ready: {instance_type: "MM", uuid: uuid}}}));
+  }, 1000)
 
   app.use(function(err, req, res, next) {
     res.status(err.status || 500);
@@ -113,7 +127,6 @@ function getRedisClient() {
 
 /// Processes a command and returns a Response to send back
 function getResponse(command) {
-  // console.log(`Processing command: ${command}`);
   switch(command) {
     case "Ping":
       var temp = JSON.parse(JSON.stringify(process.argv));

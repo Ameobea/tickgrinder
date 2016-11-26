@@ -1,13 +1,9 @@
 "use strict";
 /*jslint browser: true*/ /*global $, initWs, registerCheck, sendCommand, v4 */
 
-var resTimeoutMs = 3000;
 var squelchPings = true;
 // how many messages are currently displayed in the messages box
 var outputLen = 0;
-var socket;
-// array of [UUID, callback]s of responses we're interested in
-var dispQ = {};
 var socket;
 var defaultCallback = function(msg){
   var oldResText = $("#response").html();
@@ -64,6 +60,11 @@ function processWsMsg(wr_msg) {
   // check for registered interest
   if(msg.uuid && msg.res){
     registerCheck(msg.uuid, msg);
+  }
+
+  // a new instance has spawned so update instance list
+  if(msg.cmd && msg.cmd.Ready){
+    update();
   }
 }
 
@@ -128,10 +129,16 @@ function killInstance(uuid) {
 
 /// Spawns an instance of the specified type
 function spawnInstance(type, data) {
-  sendCommand("SpawnTickParser", "control", JSON.stringify({symbol: data}), v4(), function(msg){
-    defaultCallback(msg);
-    if(msg.res == "Ok"){
-      update();
-    }
-  });
+  switch(type){
+    case "tick_parser":
+      sendCommand("SpawnTickParser", "control", JSON.stringify({symbol: data}), v4(), function(msg){
+        defaultCallback(msg);
+      });
+      break;
+    case "backtester":
+      sendCommand("SpawnBacktester", "control", "", v4(), function(msg){
+        defaultCallback(msg);
+      });
+      break;
+  }
 }

@@ -238,6 +238,11 @@ impl InstanceManager {
                 Response::Info{info: "Shutting down in 3 seconds...".to_string()}
             }
             Command::Type => Response::Info{info: "Spawner".to_string()},
+            // This means a new instance has spawned and we should register it in our internal instance list
+            Command::Ready{instance_type, uuid} => {
+                self.add_instance(Instance{instance_type: instance_type, uuid: uuid});
+                Response::Ok
+            },
             Command::KillAllInstances => self.kill_all(),
             Command::Census => self.census(),
             Command::SpawnMM => self.spawn_mm(),
@@ -278,7 +283,6 @@ impl InstanceManager {
                                 .arg(mod_uuid.to_string().as_str())
                                 .spawn()
                                 .expect("Unable to spawn MM");
-        self.add_instance(Instance{instance_type: "MM".to_string(), uuid: mod_uuid});
 
         Response::Ok
     }
@@ -293,7 +297,6 @@ impl InstanceManager {
                                 .arg(symbol.as_str())
                                 .spawn()
                                 .expect("Unable to spawn Tick Parser");
-        self.add_instance(Instance{instance_type: "Tick Parser".to_string(), uuid: mod_uuid});
 
         Response::Ok
     }
@@ -308,7 +311,6 @@ impl InstanceManager {
                                 .arg(strategy.as_str())
                                 .spawn()
                                 .expect("Unable to spawn Optimizer");
-        self.add_instance(Instance{instance_type: "Optimizer".to_string(), uuid: mod_uuid});
 
         Response::Ok
     }
@@ -321,7 +323,6 @@ impl InstanceManager {
                                 .arg(mod_uuid.to_string().as_str())
                                 .spawn()
                                 .expect("Unable to spawn Optimizer");
-        self.add_instance(Instance{instance_type: "Backtester".to_string(), uuid: mod_uuid});
 
         Response::Ok
     }

@@ -16,6 +16,7 @@ pub enum Command {
     Kill,
     Register{channel: String},
     Type, // returns what kind of instance this is
+    Ready{instance_type: String, uuid: Uuid}, // signals that a newly spawned instance is ready to receive commands
     // Tick Parser Commands
     AddSMA{period: usize},
     RemoveSMA{period: usize},
@@ -32,6 +33,7 @@ pub enum Command {
     PauseBacktest{uuid: Uuid},
     ResumeBacktest{uuid: Uuid},
     StopBacktest{uuid: Uuid},
+    ListBacktests,
 }
 
 /// Represents a response from the Tick Processor to a Command sent
@@ -142,24 +144,25 @@ impl WrappedResponse {
     }
 }
 
-/// Asynchronously sends off a command to the Tick Processor without
-/// waiting to see if it was received or sent properly
-pub fn send_command(cmd: &WrappedCommand, client: &mut redis::Client, commands_channel: &str) {
-    let command_string = serde_json::to_string(cmd)
-        .expect("Unable to parse command into JSON String");
+/// Utility function to asynchronously sends off a command
+pub fn send_command(cmd: &WrappedCommand, client: &mut redis::Client, commands_channel: &str) -> Result<(), serde_json::Error> {
+    let command_string = try!(serde_json::to_string(cmd));
     redis::cmd("PUBLISH")
         .arg(commands_channel)
         .arg(command_string)
         .execute(client);
+    Ok(())
 }
 
-pub fn send_response(res: &WrappedResponse, client: &redis::Client, channel: &str) {
-    let ser = serde_json::to_string(res).expect("Couldn't serialize WrappedResponse into String");
+/// Utility function to asynchronously send off a response
+pub fn send_response(res: &WrappedResponse, client: &redis::Client, channel: &str) -> Result<(), serde_json::Error> {
+    let ser = try!(serde_json::to_string(res));
     let res_str = ser.as_str();
     let _ = redis::cmd("PUBLISH")
         .arg(channel)
         .arg(res_str)
         .execute(client);
+    Ok(())
 }
 
 /// Parses a String into a WrappedResponse

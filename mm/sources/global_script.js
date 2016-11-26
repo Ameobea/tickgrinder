@@ -2,7 +2,9 @@
 
 "use strict";
 
+// array of [UUID, callback]s of responses we're interested in
 var interest = [];
+var resTimeoutMs = 3000;
 
 /// Starts the WS listening for new messages sets up processing callback
 function initWs(callback) {

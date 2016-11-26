@@ -20,11 +20,14 @@
     <table>
         <tr>
             <th>Instance Type</th>
-            <th id="instance-data">Pair</th>
+            <th id="instance-data">Data</th>
         </tr>
         <tr>
-            <td><select id="instance-type"><option value="tickParser">Tick Parser</option></select></td>
-            <td><input type="text" placeholder="EURUSD" id="instance-data-box"></td>
+            <td><select id="instance-type">
+                <option value="tick_parser">Tick Parser</option>
+                <option value="backtester">Backtester</option>
+            </select></td>
+            <td><input type="text" id="instance-data-box"></td>
         </tr>
     </table>
     <input type="button" value="Spawn" id="instance-spawn-button">

@@ -37,7 +37,6 @@ use algobot_util::trading::broker::BrokerAction;
 use conf::CONF;
 use backtest::*;
 use data::*;
-use sim_broker::*;
 
 /// Starts the backtester module, initializing its interface to the rest of the platform
 fn main() {
@@ -89,6 +88,9 @@ impl Backtester {
         let mut redis_client = get_client(CONF.redis_url);
         let mut copy = self.clone();
 
+        // Signal to the platform that we're ready to receive commands
+        let _ = send_command(&WrappedCommand::from_command(Command::Ready{instance_type: "Backtester".to_string(), uuid: self.uuid}), &mut redis_client, "control");
+
         rx.for_each(move |(_, msg)| {
             let wr_cmd = match WrappedCommand::from_str(msg.as_str()) {
                 Ok(wr) => wr,
@@ -132,6 +134,9 @@ impl Backtester {
             Ok(())
             // TODO: Test to make sure this actually works
         }).forget();
+
+        // block so the backtester stays alive since it's all async
+        thread::sleep(std::time::Duration::from_secs(100));
     }
 
     /// Initiates a new backtest and adds it to the internal list of monitored backtests.

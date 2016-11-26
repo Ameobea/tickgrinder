@@ -37,6 +37,10 @@ release:
 	cd util/src/trading/broker/shims/FXCM/native && cargo build --release
 	cp util/src/trading/broker/shims/FXCM/native/target/release/libfxcm.so dist/lib
 
+dev:
+	rm dist/mm -r
+	cd dist && ln -s ../mm/ ./mm
+
 debug:
 	git submodule update --init
 	rm -rf dist
