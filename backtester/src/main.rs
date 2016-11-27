@@ -28,6 +28,7 @@ use std::thread;
 use uuid::Uuid;
 use futures::Future;
 use futures::stream::{Stream, Sender, Receiver};
+use serde_json::to_string;
 
 use algobot_util::transport::command_server::{CommandServer, CsSettings};
 use algobot_util::transport::redis::{sub_multiple, get_client};
@@ -42,6 +43,30 @@ use data::*;
 fn main() {
     let mut backtester = Backtester::new();
     backtester.listen();
+}
+
+/// What kind of method used to time the output of data
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum BacktestType {
+    Fast{delay_ms: usize},
+    Live,
+}
+
+/// Where to get the data to drive the backtest
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum DataSource {
+    Flatfile,
+    Redis{host: String, channel: String},
+    Random
+}
+
+/// Where to send the backtest's generated data
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum DataDest {
+    Redis{host: String, channel: String},
+    Console,
+    Null,
+    SimBroker, // Requires that a SimBroker is running on the Backtester in order to work
 }
 
 #[derive(Clone)]
@@ -75,7 +100,7 @@ impl Backtester {
     /// Creates a SimBroker that's managed by the Backtester.
     pub fn init_simbroker(&mut self) {
         thread::spawn(|| {
-
+            // TODO
         });
     }
 
@@ -131,7 +156,20 @@ impl Backtester {
                 Command::PauseBacktest{uuid} => unimplemented!(),
                 Command::ResumeBacktest{uuid} => unimplemented!(),
                 Command::StopBacktest{uuid} => unimplemented!(),
-                Command::ListBacktests => unimplemented!(),
+                Command::ListBacktests => {
+                    let backtests = copy.running_backtests.lock().unwrap();
+                    let mut message_vec = Vec::new();
+                    for backtest in backtests.iter() {
+                        let ser_handle = SerializableBacktestHandle::from_handle(backtest);
+                        message_vec.push(ser_handle);
+                    }
+
+                    let message = to_string(&message_vec);
+                    match message {
+                        Ok(msg) => Response::Info{ info: msg },
+                        Err(e) => Response::Error{ status: "Unable to convert backtest list into String.".to_string() },
+                    }
+                },
                 _ => Response::Error{ status: "Backtester doesn't recognize that command.".to_string() }
             };
 
@@ -175,35 +213,41 @@ impl Backtester {
         }
 
         // create a TickSink that receives the output of the backtest
-        let mut dst: Box<TickSink + Send> = match &definition.data_dest {
+        let dst_opt: Option<Box<TickSink + Send>> = match &definition.data_dest {
             &DataDest::Redis{ref host, ref channel} => {
-                Box::new(RedisSink::new(definition.symbol.clone(), channel.clone(), host.as_str()))
+                Some(Box::new(RedisSink::new(definition.symbol.clone(), channel.clone(), host.as_str())))
             },
-            &DataDest::Console => Box::new(ConsoleSink{}),
-            &DataDest::Null => Box::new(NullSink{}),
+            &DataDest::Console => Some(Box::new(ConsoleSink{})),
+            &DataDest::Null => Some(Box::new(NullSink{})),
+            &DataDest::SimBroker => None,
         };
 
         let _definition = definition.clone();
         let mut i = 0;
 
         // initiate tick flow
-        let _ = tickstream.unwrap().for_each(move |t| {
-            i += 1;
+        if dst_opt.is_some() {
+            let mut dst = dst_opt.unwrap();
+            let _ = tickstream.unwrap().for_each(move |t| {
+                i += 1;
 
-            // send the tick to the sink
-            dst.tick(t);
+                // send the tick to the sink
+                dst.tick(t);
 
-            if check_early_exit(&t, &_definition, i) {
-                println!("Backtest exiting early.");
-                return Err(())
-            }
+                if check_early_exit(&t, &_definition, i) {
+                    println!("Backtest exiting early.");
+                    return Err(())
+                }
 
-            Ok(())
-        }).or_else(move |_| {
-            println!("Stopping backtest because tickstream has ended");
-            let _ = internal_handle_tx.send(BacktestCommand::Stop);
-            Ok::<(), ()>(())
-        }).forget();
+                Ok(())
+            }).or_else(move |_| {
+                println!("Stopping backtest because tickstream has ended");
+                let _ = internal_handle_tx.send(BacktestCommand::Stop);
+                Ok::<(), ()>(())
+            }).forget();
+        } else {
+            // TODO: Simbroker Integration
+        }
 
         let uuid = Uuid::new_v4();
         let handle = BacktestHandle {
@@ -267,29 +311,6 @@ fn check_early_exit (
     }
 
     false
-}
-
-/// What kind of method used to time the output of data
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum BacktestType {
-    Fast{delay_ms: usize},
-    Live,
-}
-
-/// Where to get the data to drive the backtest
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum DataSource {
-    Flatfile,
-    Redis{host: String, channel: String},
-    Random
-}
-
-/// Where to send the backtest's generated data
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum DataDest {
-    Redis{host: String, channel: String},
-    Console,
-    Null
 }
 
 #[test]

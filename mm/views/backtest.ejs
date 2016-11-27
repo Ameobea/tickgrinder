@@ -17,13 +17,17 @@
 <tr><th></th></tr>
 </tbody></table>
 <h1>Manage Backtests</h1>
+
 <h2>Start Backtest</h2>
-<b>Currency Pair:  </b><input type="text" value="usdcad" id="backtestStartPair">
-<br><b>Type:  </b><select id="backtestTypeSelector"><option value="fast">Fast</option><option value="live">Live</option><option value="precalced">Pre-Calculated</option><option value="nostore">No-store</option></select>
-<br><b>Start Time:  </b><input type="text" value="1451887229.879" id="backtestStartTime">
-<div id="endtime" style="display: none;"><br><b>End Time:  </b><input type="text" value="1451919404.066" id="backtestEndTime"></div>
-<br><b>Fast Send Interval:  </b><input type="text" value="50" id="backtestSendInterval">
-<br><input type="button" value="Start" id="backtestStartButton">
+<table><tr>
+<td><b>Symbol:  </b><input type="text" value="usdcad" id="backtestSymbol"></td>
+<td><b>Type:  </b><select id="backtestTypeSelector"><option value="Fast">Fast</option><option value="Live">Live</option></select></td></tr>
+<tr><td><b>Start Time:  </b><input type="text" value="1451887229.879" id="backtestStartTime">
+<br><b>End Time:  </b><input type="text" value="1451919404.066" id="backtestEndTime"></td>
+<td><b>Fast Send Interval:  </b><input type="text" value="50" id="backtestSendInterval"></td>
+<tr><td><input type="button" value="Start" id="backtestStartButton"></td></tr>
+</table>
+
 <hr>
 <h2>Stop Backtests</h2>
 <b>Currency Pair:  </b><input type="text" value="usdcad" id="backtestStopPair">

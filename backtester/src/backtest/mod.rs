@@ -27,7 +27,28 @@ pub struct BacktestHandle {
     pub backtest_type: BacktestType,
     pub data_source: DataSource,
     pub endpoint: DataDest,
-    pub handle: mpsc::SyncSender<BacktestCommand>
+    pub handle: mpsc::SyncSender<BacktestCommand>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SerializableBacktestHandle {
+    pub uuid: Uuid,
+    pub symbol: String,
+    pub backtest_type: BacktestType,
+    pub data_source: DataSource,
+    pub endpoint: DataDest,
+}
+
+impl SerializableBacktestHandle {
+    pub fn from_handle(handle: &BacktestHandle) -> SerializableBacktestHandle {
+        SerializableBacktestHandle {
+            uuid: handle.uuid,
+            symbol: handle.symbol.clone(),
+            backtest_type: handle.backtest_type.clone(),
+            data_source: handle.data_source.clone(),
+            endpoint: handle.endpoint.clone(),
+        }
+    }
 }
 
 /// Contains all the information necessary to start a backtest
