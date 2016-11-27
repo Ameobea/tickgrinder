@@ -38,6 +38,8 @@ use algobot_util::trading::broker::BrokerAction;
 use conf::CONF;
 use backtest::*;
 use data::*;
+#[allow(unused_imports)]
+use sim_broker::SimBrokerSettings;
 
 /// Starts the backtester module, initializing its interface to the rest of the platform
 fn main() {
@@ -74,7 +76,7 @@ struct Backtester {
     pub uuid: Uuid,
     pub cs: CommandServer,
     pub running_backtests: Arc<Mutex<Vec<BacktestHandle>>>,
-    pub simbroker_handle: Arc<Option<Sender<BrokerAction, ()>>>,
+    pub simbroker_handle: Arc<Vec<Sender<BrokerAction, ()>>>,
 }
 
 impl Backtester {
@@ -93,7 +95,7 @@ impl Backtester {
             uuid: uuid,
             cs: CommandServer::new(settings),
             running_backtests: Arc::new(Mutex::new(Vec::new())),
-            simbroker_handle: Arc::new(None),
+            simbroker_handle: Arc::new(Vec::new()),
         }
     }
 

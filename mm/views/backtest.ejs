@@ -12,6 +12,7 @@
 <body>
 <% include ./partials/header %>
 <h1>Backtest Management Interface</h1>
+
 <h2>Active Backtests</h2>
 <table width="100%"><tbody id="activeBacktests">
 <tr><th></th></tr>
@@ -21,12 +22,36 @@
 <h2>Start Backtest</h2>
 <table><tr>
 <td><b>Symbol:  </b><input type="text" value="usdcad" id="backtestSymbol"></td>
-<td><b>Type:  </b><select id="backtestTypeSelector"><option value="Fast">Fast</option><option value="Live">Live</option></select></td></tr>
-<tr><td><b>Start Time:  </b><input type="text" value="1451887229.879" id="backtestStartTime">
-<br><b>End Time:  </b><input type="text" value="1451919404.066" id="backtestEndTime"></td>
-<td><b>Fast Send Interval:  </b><input type="text" value="50" id="backtestSendInterval"></td>
+<td><b>Type:  </b><select id="backtestTypeSelector">
+    <option value="Fast">Fast</option>
+    <option value="Live">Live</option>
+</select></td></tr>
+<tr><td><b>Start Time (ms):  </b><input type="text" value="1451887229879" id="backtestStartTime">
+<br><b>End Time (ms):  </b><input type="text" value="1451919404066" id="backtestEndTime"></td>
+<td><b>Fast Send Interval (ms):  </b><input type="text" value="50" id="backtestSendInterval"></td></tr>
+<tr><td><b>Data Source:  </b><select id="backtestDataSrc">
+    <option value="Flatfile">Flatfile</option>
+    <option value="Redis">Redis</option>
+    <option value="Random">Random</option>
+    <option value="Database">Database (TODO)</option>
+</select>
+<div id="redisSrcOptions" style="display: none;">
+    <b>Redis Host:  </b><input id="redisSrcHost" type="text" value="redis://127.0.0.1/"><br>
+    <b>Redis Channel:  </b><input id="redisSrcChannel" type="text">
+</div></td>
+<td><b>Data Sink:  </b><select id="backtestDataDst">
+    <option value="SimBroker">SimBroker</option>
+    <option value="Redis">Redis</option>
+    <option value="Console">Console</option>
+    <option value="Null">Null</option>
+</select>
+<div id="redisDstOptions" style="display: none;">
+    <b>Redis Host:  </b><input id="redisDstHost" type="text" value="redis://127.0.0.1/"><br>
+    <b>Redis Channel:  </b><input id="redisDstChannel" type="text">
+</div></td></tr>
 <tr><td><input type="button" value="Start" id="backtestStartButton"></td></tr>
 </table>
+<div id="commandRes"></div>
 
 <hr>
 <h2>Stop Backtests</h2>

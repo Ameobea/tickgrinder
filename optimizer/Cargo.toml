@@ -2,6 +2,3 @@
 name = "optimizer"
 version = "0.1.0"
 authors = ["Casey Primozic <me@ameo.link>"]
-
-# [dependencies]
-# channel_id_sliding_windows = { path = "../strategies/channel_id_sliding_windows", version = "*"}

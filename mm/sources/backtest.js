@@ -21,13 +21,57 @@ $(document).ready(function(){
     listBacktests();
   };
 
+  // construct a backtest definition and send a StartBacktest command
   $("#backtestStartButton").click(function(){
     var symbol = $("#backtestSymbol").val();
     var start_time = $("#backtestStartTime").val();
     var end_time = $("#backtestEndTime").val();
     var type = $("#backtestTypeSelector").val();
-    var def = createBacktestDefinition(null, end_time, null, symbol, type, null, )
-  })
+    // Type should be a JSON-stringied `BacktestType`
+    if(type == "Fast"){
+      type = {Fast: {delay_ms: parseInt($("#backtestSendInterval").val())}};
+    }
+    var dataSrc = $("#backtestDataSrc").val();
+    if(dataSrc == "Redis"){
+      dataSrc = {Redis: {host: $("#redisSrcHost").val(), channel: $("#redisSrcChannel").val()}};
+    }
+    var dataDst = $("#backtestDataDst").val();
+    if(dataDst == "Redis"){
+      dataDst = {Redis: {host: $("#redisDstHost").val(), channel: $("#redisDstChannel").val()}};
+    }
+    // TODO: Configurable SimBroker settings
+    var brokerSettings = {
+      starting_balance: 50000.0,
+      ping_ms: 0.2,
+      execution_delay_us: 2,
+    };
+
+    // (start_timestamp, max_timestamp, max_tick_n, symbol, backtest_type, data_source, data_dest, broker_settings)
+    var def = createBacktestDefinition(start_time, end_time, null, symbol, type, dataSrc, dataDst, brokerSettings);
+    sendCommand("StartBacktest", "control", JSON.stringify({definition: def}), v4(), function(msg){
+      if(msg.res == "Ok"){
+        listBacktests();
+        $("#commandRes").html("Backtest has been successfully started!");
+      }
+    });
+  });
+
+  // Show extended redis-only options only if Redis is selected.
+  $("#backtestDataSrc").change(function(){
+    if($("#backtestDataSrc").val() == "Redis"){
+      $("#redisSrcOptions").show();
+    } else {
+      $("#redisSrcOptions").hide();
+    }
+  });
+
+  $("#backtestDataDst").change(function(){
+    if($("#backtestDataDst").val() == "Redis"){
+      $("#redisDstOptions").show();
+    } else {
+      $("#redisDstOptions").hide();
+    }
+  });
 });
 
 /// Queries the Backtester module, requesting a list of running backtests
@@ -59,21 +103,31 @@ function listBacktests(){
 function writeBacktests(backtest_list){
   var html = "<tr><td>Backtest ID</td><td>Symbol</td></tr>";
   for(var i=0; i<backtest_list.length; i++){
-    html += "<tr><td>${backtest_list[i].uuid}</td><td>${backtest_list[i].symbol}</td></tr>";
+    html += `<tr><td>${backtest_list[i].uuid}</td><td>${backtest_list[i].symbol}</td></tr>`;
+  }
+  if(backtest_list.length === 0){
+    html += "<tr><td>No active backtests!</td></tr>";
   }
   $("#activeBacktests").html(html);
 }
 
-// We're not the Instance Management page so we don't need to do anything for this,
-// but we do need to supply it so that the function doesn't throw an error.
-function setResponse(text) {}
+function setResponse(html) {
+  $("#commandRes").html(html);
+}
 
 /// Creates a JSON-encoded String containing a backtest definition that can be send to the
 /// backtester instance using the StartBacktest command.
 ///
-/// Pass in Null for things that should be None
+/// Pass in null for things that should be None
 function createBacktestDefinition(start_timestamp, max_timestamp, max_tick_n, symbol, backtest_type, data_source, data_dest, broker_settings) {
   // TODO: Configurable backtest start time propegated through the whole platform.
+  if(start_timestamp !== null){
+    start_timestamp = parseInt(start_timestamp);
+  }
+  if(max_timestamp !== null){
+    max_timestamp = parseInt(max_timestamp);
+  }
+
   var obj = {
     max_timestamp: max_timestamp,
     max_tick_n: max_tick_n,
