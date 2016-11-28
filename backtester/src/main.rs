@@ -24,6 +24,7 @@ mod sim_broker;
 
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
+use std::collections::HashMap;
 
 use uuid::Uuid;
 use futures::Future;
@@ -34,12 +35,10 @@ use algobot_util::transport::command_server::{CommandServer, CsSettings};
 use algobot_util::transport::redis::{sub_multiple, get_client};
 use algobot_util::transport::commands::*;
 use algobot_util::trading::tick::Tick;
-use algobot_util::trading::broker::BrokerAction;
 use conf::CONF;
 use backtest::*;
 use data::*;
-#[allow(unused_imports)]
-use sim_broker::SimBrokerSettings;
+use sim_broker::*;
 
 /// Starts the backtester module, initializing its interface to the rest of the platform
 fn main() {
@@ -68,7 +67,7 @@ pub enum DataDest {
     Redis{host: String, channel: String},
     Console,
     Null,
-    SimBroker, // Requires that a SimBroker is running on the Backtester in order to work
+    SimBroker{uuid: Uuid}, // Requires that a SimBroker is running on the Backtester in order to work
 }
 
 #[derive(Clone)]
@@ -76,7 +75,7 @@ struct Backtester {
     pub uuid: Uuid,
     pub cs: CommandServer,
     pub running_backtests: Arc<Mutex<Vec<BacktestHandle>>>,
-    pub simbroker_handle: Arc<Vec<Sender<BrokerAction, ()>>>,
+    pub simbrokers: Arc<Mutex<HashMap<Uuid, SimBroker>>>,
 }
 
 impl Backtester {
@@ -95,15 +94,17 @@ impl Backtester {
             uuid: uuid,
             cs: CommandServer::new(settings),
             running_backtests: Arc::new(Mutex::new(Vec::new())),
-            simbroker_handle: Arc::new(Vec::new()),
+            simbrokers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    /// Creates a SimBroker that's managed by the Backtester.
-    pub fn init_simbroker(&mut self) {
-        thread::spawn(|| {
-            // TODO
-        });
+    /// Creates a SimBroker that's managed by the Backtester.  Returns its UUID.
+    pub fn init_simbroker(&mut self, settings: SimBrokerSettings) -> Uuid {
+        let mut simbrokers = self.simbrokers.lock().unwrap();
+        let simbroker = SimBroker::new(settings);
+        let uuid = Uuid::new_v4();
+        simbrokers.insert(uuid, simbroker);
+        uuid
     }
 
     /// Starts listening for commands from the rest of the platform
@@ -116,14 +117,17 @@ impl Backtester {
         let mut copy = self.clone();
 
         // Signal to the platform that we're ready to receive commands
-        let _ = send_command(&WrappedCommand::from_command(Command::Ready{instance_type: "Backtester".to_string(), uuid: self.uuid}), &mut redis_client, "control");
+        let _ = send_command(&WrappedCommand::from_command(
+            Command::Ready{instance_type: "Backtester".to_string(), uuid: self.uuid}), &mut redis_client, "control"
+        );
 
-        rx.for_each(move |(_, msg)| {
+        for res in rx.wait() {
+            let (_, msg) = res.unwrap();
             let wr_cmd = match WrappedCommand::from_str(msg.as_str()) {
                 Ok(wr) => wr,
                 Err(e) => {
                     println!("Unable to parse WrappedCommand from String: {:?}", e);
-                    return Ok(())
+                    return;
                 }
             };
 
@@ -172,6 +176,19 @@ impl Backtester {
                         Err(e) => Response::Error{ status: "Unable to convert backtest list into String.".to_string() },
                     }
                 },
+                Command::SpawnSimbroker{settings} => {
+                    let uuid = copy.init_simbroker(settings);
+                    Response::Info{info: uuid.hyphenated().to_string()}
+                },
+                Command::ListSimbrokers => {
+                    let simbrokers = copy.simbrokers.lock().unwrap();
+                    let mut uuids = Vec::new();
+                    for (uuid, _) in simbrokers.iter() {
+                        uuids.push(uuid.hyphenated().to_string());
+                    }
+                    let message = serde_json::to_string(&uuids).unwrap();
+                    Response::Info{info: message}
+                },
                 _ => Response::Error{ status: "Backtester doesn't recognize that command.".to_string() }
             };
 
@@ -179,13 +196,8 @@ impl Backtester {
                 .arg(CONF.redis_responses_channel)
                 .arg(res.wrap(wr_cmd.uuid).to_string().unwrap().as_str())
                 .execute(&mut redis_client);
-
-            Ok(())
             // TODO: Test to make sure this actually works
-        }).forget();
-
-        // block so the backtester stays alive since it's all async
-        thread::park();
+        }
     }
 
     /// Initiates a new backtest and adds it to the internal list of monitored backtests.
@@ -215,20 +227,20 @@ impl Backtester {
         }
 
         // create a TickSink that receives the output of the backtest
-        let dst_opt: Option<Box<TickSink + Send>> = match &definition.data_dest {
+        let dst_opt: Result<Box<TickSink + Send>, Uuid> = match &definition.data_dest {
             &DataDest::Redis{ref host, ref channel} => {
-                Some(Box::new(RedisSink::new(definition.symbol.clone(), channel.clone(), host.as_str())))
+                Ok(Box::new(RedisSink::new(definition.symbol.clone(), channel.clone(), host.as_str())))
             },
-            &DataDest::Console => Some(Box::new(ConsoleSink{})),
-            &DataDest::Null => Some(Box::new(NullSink{})),
-            &DataDest::SimBroker => None,
+            &DataDest::Console => Ok(Box::new(ConsoleSink{})),
+            &DataDest::Null => Ok(Box::new(NullSink{})),
+            &DataDest::SimBroker{uuid} => Err(uuid),
         };
 
         let _definition = definition.clone();
         let mut i = 0;
 
         // initiate tick flow
-        if dst_opt.is_some() {
+        if dst_opt.is_ok() {
             let mut dst = dst_opt.unwrap();
             let _ = tickstream.unwrap().for_each(move |t| {
                 i += 1;
@@ -248,7 +260,15 @@ impl Backtester {
                 Ok::<(), ()>(())
             }).forget();
         } else {
-            // TODO: Simbroker Integration
+            let mut simbrokers = self.simbrokers.lock().unwrap();
+            let simbroker_opt = simbrokers.get_mut(&dst_opt.err().unwrap());
+            if simbroker_opt.is_none() {
+                return Err("No SimBroker running with that Uuid!".to_string())
+            }
+
+            let simbroker = simbroker_opt.unwrap();
+            // plug the tickstream into the matching SimBroker
+            simbroker.register_tickstream(definition.symbol.clone(), tickstream.unwrap()).unwrap();
         }
 
         let uuid = Uuid::new_v4();

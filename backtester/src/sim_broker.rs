@@ -15,64 +15,13 @@ use futures::stream::{BoxStream, channel, Stream, Receiver};
 use uuid::Uuid;
 
 use algobot_util::trading::tick::*;
-use algobot_util::trading::broker::*;
-
-/// Settings for the simulated broker that determine things like trade fees,
-/// estimated slippage, etc.
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct SimBrokerSettings {
-    pub starting_balance: f64,
-    // how many ms ahead the broker is to the client.
-    pub ping_ms: f64,
-    // how many us between when the broker receives an order and executes it.
-    pub execution_delay_us: usize,
-}
-
-impl SimBrokerSettings {
-    /// Creates a default SimBrokerSettings used for tests
-    pub fn default() -> SimBrokerSettings {
-        SimBrokerSettings {
-            starting_balance: 1f64,
-            ping_ms: 0f64,
-            execution_delay_us: 0usize,
-        }
-    }
-
-    /// Parses a String:String hashmap into a SimBrokerSettings object.
-    pub fn from_hashmap(hm: HashMap<String, String>) -> Result<SimBrokerSettings, BrokerError> {
-        let mut settings = SimBrokerSettings::default();
-
-        for (k, v) in hm.iter() {
-            match k.as_str() {
-                "starting_balance" => {
-                    settings.starting_balance = v.parse::<f64>().unwrap_or({
-                        return Err(SimBrokerSettings::kv_parse_error(k, v))
-                    });
-                },
-                "ping_ms" => {
-                    settings.ping_ms = v.parse::<f64>().unwrap_or({
-                        return Err(SimBrokerSettings::kv_parse_error(k, v))
-                    });
-                },
-                _ => (),
-            }
-        }
-
-        Ok(settings)
-    }
-
-    fn kv_parse_error(k: &String, v: &String) -> BrokerError {
-        return BrokerError::Message{
-            message: format!("Unable to parse K:V pair: {}:{}", k, v)
-        }
-    }
-}
+pub use algobot_util::trading::broker::*;
 
 /// A simulated broker that is used as the endpoint for trading activity in backtests.
 pub struct SimBroker {
     pub accounts: Arc<Mutex<HashMap<Uuid, Account>>>,
     pub settings: SimBrokerSettings,
-    tick_receivers: HashMap<String, Receiver<Tick, ()>>,
+    tick_receivers: HashMap<String, BoxStream<Tick, ()>>,
     prices: HashMap<String, Arc<(AtomicUsize, AtomicUsize)>>, // broker's view of prices in pips
     timestamp: Arc<AtomicUsize>, // timestamp of last price update received by broker
     push_stream_handle: mpsc::SyncSender<Result<BrokerMessage, BrokerError>>,
@@ -158,7 +107,6 @@ impl Broker for SimBroker {
     }
 
     fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()> + Send>, BrokerError> {
-        println!("{:?}", self.tick_receivers.len());
         let opt = self.tick_receivers.remove(&symbol);
         if opt.is_none() {
             return Err(BrokerError::Message{
@@ -166,21 +114,8 @@ impl Broker for SimBroker {
                 a stream to that symbol has already been opened.".to_string()
             })
         }
-        let raw_tickstream = opt.unwrap();
-
-        let price_arc = self.prices.entry(symbol.clone()).or_insert(
-            Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)))
-        ).clone();
-
-        // wire the tickstream so that the broker updates its own prices before sending the
-        // price updates off to the client
-        let accounts_clone = self.accounts.clone();
-        let push_handle = self.get_push_handle();
-        let timestamp_atom = self.timestamp.clone();
-        let wired_tickstream = wire_tickstream(
-            price_arc, symbol, raw_tickstream, accounts_clone, timestamp_atom, push_handle
-        );
-        Ok(wired_tickstream)
+        let tickstream = opt.unwrap();
+        Ok(tickstream)
     }
 }
 
@@ -366,9 +301,23 @@ impl SimBroker {
     /// Registers a data source into the SimBroker.  Ticks from the supplied generator will be
     /// used to upate the SimBroker's internal prices and transmitted to connected clients.
     pub fn register_tickstream(
-        &mut self, symbol: String, tick_stream: Receiver<Tick, ()>
+        &mut self, symbol: String, raw_tickstream: Receiver<Tick, ()>
     ) -> Result<(), String> {
-        self.tick_receivers.insert(symbol, tick_stream);
+        // wire the tickstream so that the broker updates its own prices before sending the
+        // price updates off to the client
+        let price_arc = self.prices.entry(symbol.clone()).or_insert(
+            Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)))
+        ).clone();
+
+        // wire the tickstream so that the broker updates its own prices before sending the
+        // price updates off to the client
+        let accounts_clone = self.accounts.clone();
+        let push_handle = self.get_push_handle();
+        let timestamp_atom = self.timestamp.clone();
+        let wired_tickstream = wire_tickstream(
+            price_arc, symbol.clone(), raw_tickstream, accounts_clone, timestamp_atom, push_handle
+        );
+        self.tick_receivers.insert(symbol, wired_tickstream);
         Ok(())
     }
 

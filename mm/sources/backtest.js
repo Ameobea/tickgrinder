@@ -11,23 +11,29 @@ $(document).ready(function(){
     // check for registered interest
     if(msg.uuid && msg.res){
       registerCheck(msg.uuid, msg);
-    }
-    if(msg.cmd && msg.cmd.Ready){
+    } else if (msg.cmd && msg.cmd.Ready){
       listBacktests();
+    } else if (msg.cmd && msg.cmd.SpawnSimbroker){
+      setTimeout(function(){
+        listSimBrokers();
+      }, 1192);
     }
   });
+
+  // TODO: SimBroker Spawning
 
   socket.onopen = function(event){
     listBacktests();
   };
 
   // construct a backtest definition and send a StartBacktest command
+  // TODO: Send only to Backtester and display success/errors on screen
   $("#backtestStartButton").click(function(){
     var symbol = $("#backtestSymbol").val();
     var start_time = $("#backtestStartTime").val();
     var end_time = $("#backtestEndTime").val();
     var type = $("#backtestTypeSelector").val();
-    // Type should be a JSON-stringied `BacktestType`
+    // Type should be a JSON-stringifiable `BacktestType`
     if(type == "Fast"){
       type = {Fast: {delay_ms: parseInt($("#backtestSendInterval").val())}};
     }
@@ -38,6 +44,8 @@ $(document).ready(function(){
     var dataDst = $("#backtestDataDst").val();
     if(dataDst == "Redis"){
       dataDst = {Redis: {host: $("#redisDstHost").val(), channel: $("#redisDstChannel").val()}};
+    } else if(dataDst == "SimBroker"){
+      dataDst = {SimBroker: {uuid: $("#simBrokerUuid").val()}};
     }
     // TODO: Configurable SimBroker settings
     var brokerSettings = {
@@ -66,10 +74,13 @@ $(document).ready(function(){
   });
 
   $("#backtestDataDst").change(function(){
+    $("#redisDstOptions").hide();
+    $("#simBrokerOptions").hide();
+
     if($("#backtestDataDst").val() == "Redis"){
       $("#redisDstOptions").show();
-    } else {
-      $("#redisDstOptions").hide();
+    } else if ($("#backtestDataDst").val() == "SimBroker"){
+      $("#simBrokerOptions").show();
     }
   });
 });
@@ -84,6 +95,7 @@ function listBacktests(){
         if(list_[i].instance_type == "Backtester"){
           // this callback gets evalulated for every response received and
           // the backtest list gets written when a response from the Backtester is received
+          listSimBrokers();
           sendCommand("ListBacktests", "control", "", v4(), function(msg2){
             if(msg2.res.Info){
               writeBacktests(JSON.parse(msg2.res.Info.info));
@@ -96,6 +108,25 @@ function listBacktests(){
       message += `<td><button onclick=\"sendCommand(\'SpawnBacktester\', \'control\', \'\', \'${v4()}\', function(){})\">`;
       message += "Start Backtester</button></td></tr>";
       $("#activeBacktests").html(message);
+    }
+  });
+}
+
+/// Gets a list of all running SimBrokers from the Backtester and draws them to the GUI.  Assumes that
+/// there is a running Backtester instance.
+function listSimBrokers(){
+  sendCommand("ListSimbrokers", "control", "", v4(), function(msg){
+    if(msg.res.Info){
+      var list_ = JSON.parse(msg.res.Info.info);
+      var html = "";
+      if(list_.length === 0){
+        $("#runningSimBrokers").html("<tr><td>No running SimBrokers.</td></tr>");
+        return;
+      }
+      for(var i=0; i<list_.length; i++){
+        html += `<tr><td>${list_[i]}</td></tr>`;
+      }
+      $("#runningSimBrokers").html(html);
     }
   });
 }

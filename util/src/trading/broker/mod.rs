@@ -237,3 +237,54 @@ impl Position {
         None
     }
 }
+
+/// Settings for the simulated broker that determine things like trade fees,
+/// estimated slippage, etc.
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct SimBrokerSettings {
+    pub starting_balance: f64,
+    // how many ms ahead the broker is to the client.
+    pub ping_ms: f64,
+    // how many us between when the broker receives an order and executes it.
+    pub execution_delay_us: usize,
+}
+
+impl SimBrokerSettings {
+    /// Creates a default SimBrokerSettings used for tests
+    pub fn default() -> SimBrokerSettings {
+        SimBrokerSettings {
+            starting_balance: 1f64,
+            ping_ms: 0f64,
+            execution_delay_us: 0usize,
+        }
+    }
+
+    /// Parses a String:String hashmap into a SimBrokerSettings object.
+    pub fn from_hashmap(hm: HashMap<String, String>) -> Result<SimBrokerSettings, BrokerError> {
+        let mut settings = SimBrokerSettings::default();
+
+        for (k, v) in hm.iter() {
+            match k.as_str() {
+                "starting_balance" => {
+                    settings.starting_balance = v.parse::<f64>().unwrap_or({
+                        return Err(SimBrokerSettings::kv_parse_error(k, v))
+                    });
+                },
+                "ping_ms" => {
+                    settings.ping_ms = v.parse::<f64>().unwrap_or({
+                        return Err(SimBrokerSettings::kv_parse_error(k, v))
+                    });
+                },
+                _ => (),
+            }
+        }
+
+        Ok(settings)
+    }
+
+    fn kv_parse_error(k: &String, v: &String) -> BrokerError {
+        return BrokerError::Message{
+            message: format!("Unable to parse K:V pair: {}:{}", k, v)
+        }
+    }
+}

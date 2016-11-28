@@ -15,10 +15,13 @@
 
 <h2>Active Backtests</h2>
 <table width="100%"><tbody id="activeBacktests">
-<tr><th></th></tr>
 </tbody></table>
-<h1>Manage Backtests</h1>
 
+<h2>Running SimBrokers</h2>
+<table width="100%"><tbody id="runningSimBrokers">
+</tbody></table>
+
+<h1>Manage Backtests</h1>
 <h2>Start Backtest</h2>
 <table><tr>
 <td><b>Symbol:  </b><input type="text" value="usdcad" id="backtestSymbol"></td>
@@ -48,6 +51,9 @@
 <div id="redisDstOptions" style="display: none;">
     <b>Redis Host:  </b><input id="redisDstHost" type="text" value="redis://127.0.0.1/"><br>
     <b>Redis Channel:  </b><input id="redisDstChannel" type="text">
+</div>
+<div id="simBrokerOptions">
+    <b>SimBroker Uuid:  </b><input id="simBrokerUuid" type="text">
 </div></td></tr>
 <tr><td><input type="button" value="Start" id="backtestStartButton"></td></tr>
 </table>

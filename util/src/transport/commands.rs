@@ -7,6 +7,8 @@ use uuid::Uuid;
 #[allow(unused_imports)]
 use test;
 
+use trading::broker::SimBrokerSettings;
+
 /// Represents a Command that can be serde'd and sent over Redis.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum Command {
@@ -34,6 +36,8 @@ pub enum Command {
     ResumeBacktest{uuid: Uuid},
     StopBacktest{uuid: Uuid},
     ListBacktests,
+    ListSimbrokers,
+    SpawnSimbroker{settings: SimBrokerSettings},
 }
 
 /// Represents a response from the Tick Processor to a Command sent
