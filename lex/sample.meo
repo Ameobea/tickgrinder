@@ -1,0 +1,13 @@
+EXEC: {
+    "SpawnSimbroker": {
+        "settings": {
+            "starting_balance": 50000.00,
+            "ping_ms": 0,
+            "execution_delay_us": 50,
+        }
+    }
+};
+
+{
+    
+}
