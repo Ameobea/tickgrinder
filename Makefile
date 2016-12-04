@@ -210,3 +210,12 @@ init:
 			curl https://sh.rustup.rs -sSf | sh; \
 		fi \
 	fi
+
+	if [[ ! -a tick_parser/src/conf.rs ]]; then \
+		cp tick_parser/src/conf.default.rs tick_parser/src/conf.rs; \
+		cp spawner/src/conf.default.rs spawner/src/conf.rs; \
+		cp optimizer/src/conf.sample.rs optimizer/src/conf.rs; \
+		cp mm/sources/conf.sample.js mm/sources/conf.js; \
+		cp backtester/src/conf.default.rs backtester/src/conf.rs; \
+		cp util/src/trading/broker/shims/FXCM/native/src/conf.default.rs util/src/trading/broker/shims/FXCM/native/src/conf.rs; \
+	fi

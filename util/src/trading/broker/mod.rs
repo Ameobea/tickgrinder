@@ -2,7 +2,6 @@
 //! Also contains helper functions for managing accounts.
 
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 
 use uuid::Uuid;
 use futures::Oneshot;
