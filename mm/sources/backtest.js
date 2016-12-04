@@ -57,9 +57,12 @@ $(document).ready(function(){
     // (start_timestamp, max_timestamp, max_tick_n, symbol, backtest_type, data_source, data_dest, broker_settings)
     var def = createBacktestDefinition(start_time, end_time, null, symbol, type, dataSrc, dataDst, brokerSettings);
     sendCommand("StartBacktest", "control", JSON.stringify({definition: def}), v4(), function(msg){
-      if(msg.res == "Ok"){
+      if(msg.res.Info){
+        var uuid = msg.res.Info.info;
         listBacktests();
-        $("#commandRes").html("Backtest has been successfully started!");
+        // Backtests start paused, so start it.
+        sendCommand("ResumeBacktest", "control", JSON.stringify({uuid: uuid}), v4(), function(){});
+        $("#commandRes").html(`Backtest with uuid ${uuid} has been successfully started!`);
       }
     });
   });

@@ -57,6 +57,8 @@ pub fn check_mail(got_mail: &AtomicBool, message: &Mutex<BacktestCommand>) -> bo
         _ => println!("Backtest worker can't handle command: {:?}", cur_command),
     }
 
+    got_mail.store(false, Ordering::Relaxed);
+
     false
 }
 

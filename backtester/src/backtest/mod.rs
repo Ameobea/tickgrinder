@@ -5,7 +5,6 @@ use std::thread;
 use std::time::Duration;
 use std::sync::mpsc;
 
-use uuid::Uuid;
 use algobot_util::trading::tick::*;
 
 use {BacktestType, DataSource, DataDest};
@@ -22,7 +21,6 @@ pub enum BacktestCommand {
 /// Contains controls for pausing, resuming, and stopping a backtest as well as
 /// some data about it.
 pub struct BacktestHandle {
-    pub uuid: Uuid,
     pub symbol: String,
     pub backtest_type: BacktestType,
     pub data_source: DataSource,
@@ -40,9 +38,8 @@ pub struct SerializableBacktestHandle {
 }
 
 impl SerializableBacktestHandle {
-    pub fn from_handle(handle: &BacktestHandle) -> SerializableBacktestHandle {
+    pub fn from_handle(handle: &BacktestHandle, uuid: Uuid) -> SerializableBacktestHandle {
         SerializableBacktestHandle {
-            uuid: handle.uuid,
             symbol: handle.symbol.clone(),
             backtest_type: handle.backtest_type.clone(),
             data_source: handle.data_source.clone(),
@@ -52,7 +49,7 @@ impl SerializableBacktestHandle {
 }
 
 /// Contains all the information necessary to start a backtest
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BacktestDefinition {
     /// Stop backtest after timestamp reached or None
     pub max_timestamp: Option<usize>,

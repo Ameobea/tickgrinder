@@ -28,7 +28,7 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 use futures::Future;
-use futures::stream::{Stream, Sender, Receiver};
+use futures::stream::{Stream, Receiver};
 use serde_json::to_string;
 
 use algobot_util::transport::command_server::{CommandServer, CsSettings};
@@ -74,7 +74,7 @@ pub enum DataDest {
 struct Backtester {
     pub uuid: Uuid,
     pub cs: CommandServer,
-    pub running_backtests: Arc<Mutex<Vec<BacktestHandle>>>,
+    pub running_backtests: Arc<Mutex<HashMap<Uuid, BacktestHandle>>>,
     pub simbrokers: Arc<Mutex<HashMap<Uuid, SimBroker>>>,
 }
 
@@ -93,7 +93,7 @@ impl Backtester {
         Backtester {
             uuid: uuid,
             cs: CommandServer::new(settings),
-            running_backtests: Arc::new(Mutex::new(Vec::new())),
+            running_backtests: Arc::new(Mutex::new(HashMap::new())),
             simbrokers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -159,14 +159,33 @@ impl Backtester {
 
                     Response::Info{info: "Backtester will self-destruct in 3 seconds.".to_string()}
                 }
-                Command::PauseBacktest{uuid} => unimplemented!(),
-                Command::ResumeBacktest{uuid} => unimplemented!(),
-                Command::StopBacktest{uuid} => unimplemented!(),
+                Command::PauseBacktest{uuid} => {
+                    match copy.send_backtest_cmd(&uuid, BacktestCommand::Pause) {
+                        Ok(()) => Response::Ok,
+                        Err(()) => Response::Error{status: "No backtest with that uuid!".to_string()},
+                    }
+                },
+                Command::ResumeBacktest{uuid} => {
+                    match copy.send_backtest_cmd(&uuid, BacktestCommand::Resume) {
+                        Ok(()) => Response::Ok,
+                        Err(()) => Response::Error{status: "No backtest with that uuid!".to_string()},
+                    }
+                },
+                Command::StopBacktest{uuid} => {
+                    match copy.send_backtest_cmd(&uuid, BacktestCommand::Stop) {
+                        Ok(()) => {
+                            // deregister from internal running backtest list
+                            copy.remove_backtest(&uuid);
+                            Response::Ok
+                        },
+                        Err(()) => Response::Error{status: "No backtest with that uuid!".to_string()},
+                    }
+                },
                 Command::ListBacktests => {
                     let backtests = copy.running_backtests.lock().unwrap();
                     let mut message_vec = Vec::new();
-                    for backtest in backtests.iter() {
-                        let ser_handle = SerializableBacktestHandle::from_handle(backtest);
+                    for (uuid, backtest) in backtests.iter() {
+                        let ser_handle = SerializableBacktestHandle::from_handle(backtest, uuid);
                         message_vec.push(ser_handle);
                     }
 
@@ -202,7 +221,10 @@ impl Backtester {
 
     /// Initiates a new backtest and adds it to the internal list of monitored backtests.
     fn start_backtest(
-        &mut self, definition: BacktestDefinition) -> Result<Uuid, String> {
+        &mut self, definition: BacktestDefinition) -> Result<Uuid, String>
+    {
+        println!("Starting backtest: ");
+        println!("{:?}", definition);
         // Create the TickGenerator that provides the backtester with data
         let mut src: Box<TickGenerator> = resolve_data_source(
             &definition.data_source, definition.symbol.clone()
@@ -238,6 +260,7 @@ impl Backtester {
 
         let _definition = definition.clone();
         let mut i = 0;
+        let uuid = Uuid::new_v4();
 
         // initiate tick flow
         if dst_opt.is_ok() {
@@ -271,35 +294,39 @@ impl Backtester {
             simbroker.register_tickstream(definition.symbol.clone(), tickstream.unwrap()).unwrap();
         }
 
-        let uuid = Uuid::new_v4();
         let handle = BacktestHandle {
             symbol: definition.symbol,
             backtest_type: definition.backtest_type,
             data_source: definition.data_source,
             endpoint: definition.data_dest,
-            uuid: uuid.clone(),
             handle: external_handle_tx
         };
 
         // register the backtest's existence
         let mut backtest_list = self.running_backtests.lock().unwrap();
-        backtest_list.push(handle);
+        backtest_list.insert(uuid, handle);
 
         Ok(uuid)
     }
 
-    /// Sends a command to a managed backtest
-    pub fn send_backtest_cmd(&mut self, uuid: Uuid, cmd: BacktestCommand) -> Result<(), ()> {
-        let mut backtest_list = self.running_backtests.lock().unwrap();
-        for handle in backtest_list.iter_mut() {
-            if handle.uuid == uuid {
-                let ref sender = handle.handle;
-                let _ = handle.handle.send(cmd);
-                return Ok(())
-            }
-        }
+    /// Removes a stopped backtest from the internal running backtest list
+    pub fn remove_backtest(&mut self, uuid: &Uuid) {
+        let mut handles = self.running_backtests.lock().unwrap();
+        handles.remove(&uuid);
+    }
 
-        Err(())
+    /// Sends a command to a managed backtest
+    pub fn send_backtest_cmd(&mut self, uuid: &Uuid, cmd: BacktestCommand) -> Result<(), ()> {
+        let handles = self.running_backtests.lock().unwrap();
+        let handle = handles.get(&uuid);
+
+        if handle.is_none() {
+            return Err(());
+        }
+        let ref sender = handle.unwrap().handle;
+        let _ = sender.send(cmd);
+
+        Ok(())
     }
 }
 
