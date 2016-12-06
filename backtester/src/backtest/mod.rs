@@ -4,6 +4,7 @@
 use std::thread;
 use std::time::Duration;
 use std::sync::mpsc;
+use uuid::Uuid;
 
 use algobot_util::trading::tick::*;
 
@@ -40,6 +41,7 @@ pub struct SerializableBacktestHandle {
 impl SerializableBacktestHandle {
     pub fn from_handle(handle: &BacktestHandle, uuid: Uuid) -> SerializableBacktestHandle {
         SerializableBacktestHandle {
+            uuid: uuid,
             symbol: handle.symbol.clone(),
             backtest_type: handle.backtest_type.clone(),
             data_source: handle.data_source.clone(),

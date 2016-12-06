@@ -185,7 +185,7 @@ impl Backtester {
                     let backtests = copy.running_backtests.lock().unwrap();
                     let mut message_vec = Vec::new();
                     for (uuid, backtest) in backtests.iter() {
-                        let ser_handle = SerializableBacktestHandle::from_handle(backtest, uuid);
+                        let ser_handle = SerializableBacktestHandle::from_handle(backtest, *uuid);
                         message_vec.push(ser_handle);
                     }
 
