@@ -28,7 +28,7 @@ void* fxcm_login(char *username, char *password, char *url, bool live){
     session->login(username, password, "http://www.fxcorporate.com/Hosts.jsp", conn_name);
     bool isConnected = sessionListener->waitEvents() && sessionListener->isConnected();
     if(isConnected){
-        return session;
+        return (void*)session;
     } else {
         printf("Unable to connect to the broker.");
         return NULL;
@@ -71,14 +71,16 @@ void print_accounts(IO2GSession *session){
 };
 
 /// Initializes a history downloader instance.  It takes a function is called as a callback for every tick downloaded.
-void init_history_download(
-    char *username, char *password, char *url, bool live, char *symbol, void (*tickcallback)(uint64_t, uint64_t, uint64_t)
+bool init_history_download(
+    void* void_session, char *symbol, void (*tickcallback)(uint64_t, uint64_t, uint64_t)
 ){
-    IO2GSession * session = (IO2GSession*)fxcm_login(username, password, url, live);
+    IO2GSession* session = (IO2GSession*)void_session;
     if(session != NULL){
         tickcallback(1001, 2, 3);
         session->logout();
+        return true;
     } else {
         printf("Unable to connect to broker to download history.\n");
+        return false;
     }
 }

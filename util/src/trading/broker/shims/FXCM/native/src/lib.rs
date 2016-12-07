@@ -1,6 +1,7 @@
 //! Broker shim for FXCM.
 
 #![feature(libc)]
+#![allow(dead_code, unused_imports, unused_variables)]
 
 extern crate uuid;
 extern crate futures;
@@ -9,8 +10,10 @@ extern crate libc;
 
 use std::collections::HashMap;
 use std::ffi::CString;
+use std::ptr::null;
+use std::mem::transmute;
 
-use libc::{c_char, uint64_t};
+use libc::{c_char, c_void, uint64_t};
 use uuid::Uuid;
 use futures::Oneshot;
 use futures::stream::{Stream, Receiver};
@@ -33,16 +36,13 @@ use conf::CONF;
 #[link(name="ForexConnect")]
 #[link(name="sample_tools")]
 extern {
-    fn fxcm_login(username: *const c_char, password: *const c_char, url: *const c_char, live: bool);
+    fn fxcm_login(username: *const c_char, password: *const c_char, url: *const c_char, live: bool) -> *mut c_void;
     fn test_login(username: *const c_char, password: *const c_char, url: *const c_char, live: bool) -> bool;
     fn init_history_download(
-        username: *const c_char,
-        password: *const c_char,
-        url: *const c_char,
-        live: bool,
+        void_sesion: *mut c_void,
         symbol: *const c_char,
         tick_callback: extern fn(uint64_t, uint64_t, uint64_t)
-    );
+    ) -> bool;
 }
 
 pub struct FXCMNative {
@@ -117,18 +117,13 @@ fn login_test() {
 /// Make sure that the C++ code calls the Rust function as a callback
 #[test]
 fn history_downloader_callback() {
-    let username      = CString::new(CONF.fxcm_username).unwrap();
-    let mut password  = CString::new(CONF.fxcm_password).unwrap();
-    let url           = CString::new(CONF.fxcm_url).unwrap();
-    let symbol        = CString::new("TEST").unwrap();
+    let username  = CString::new(CONF.fxcm_username).unwrap();
+    let password  = CString::new(CONF.fxcm_password).unwrap();
+    let url       = CString::new(CONF.fxcm_url).unwrap();
+    let symbol    = CString::new("TEST").unwrap();
     unsafe {
-        init_history_download(
-            username.as_ptr(),
-            password.as_ptr(),
-            url.as_ptr(),
-            false,
-            symbol.as_ptr(),
-            tick_downloader_cb
-        );
+        let void_session: *mut c_void = fxcm_login(username.as_ptr(), password.as_ptr(), url.as_ptr(), false);
+        init_history_download(void_session, symbol.as_ptr(), tick_downloader_cb);
     }
+    std::thread::sleep(std::time::Duration::from_millis(100));
 }
