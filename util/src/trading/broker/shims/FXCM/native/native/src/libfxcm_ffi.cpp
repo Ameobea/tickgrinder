@@ -72,11 +72,16 @@ void print_accounts(IO2GSession *session){
 
 /// Initializes a history downloader instance.  It takes a function is called as a callback for every tick downloaded.
 bool init_history_download(
-    void* void_session, char *symbol, void (*tickcallback)(uint64_t, uint64_t, uint64_t)
+    void* void_session,
+    char* symbol,
+    void (*tickcallback)(void*, uint64_t, uint64_t, uint64_t),
+    void* user_data
 ){
+    std::cout << void_session << "\n";
+    std::cout << user_data << "\n";
     IO2GSession* session = (IO2GSession*)void_session;
     if(session != NULL){
-        tickcallback(1001, 2, 3);
+        tickcallback(user_data, 1001, 2, 3);
         session->logout();
         return true;
     } else {
