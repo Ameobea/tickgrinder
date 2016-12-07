@@ -7,6 +7,8 @@ extern "C" bool test_login(char *username, char *password, char *url, bool live)
 extern "C" bool init_history_download(
     void* void_session,
     char* symbol,
-    void (*tickcallback)(void*, uint64_t, uint64_t, uint64_t),
+    char* startTime,
+    char* endTime,
+    void (*tickcallback)(void*, uint64_t, double, double),
     void* user_data
 );
