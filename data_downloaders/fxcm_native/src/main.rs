@@ -2,19 +2,25 @@
 //!
 //! See README.txt for more information
 
-#![feature(libc)]
+#![feature(libc, conservative_impl_trait, fn_traits, unboxed_closures)]
 #![allow(dead_code)]
 
 extern crate libc;
 extern crate algobot_util;
+extern crate redis;
+extern crate serde_json;
+extern crate time;
 
 use std::thread;
 use std::sync::mpsc::{channel, Sender};
 use std::ffi::CString;
+use std::mem::transmute;
 
-use libc::{c_char, c_void, uint64_t};
+use time::Tm;
+use libc::{c_char, c_void, uint64_t, c_double};
 
 use algobot_util::trading::tick::*;
+use algobot_util::transport::redis::*;
 
 mod conf;
 use conf::CONF;
@@ -36,74 +42,166 @@ extern {
     fn init_history_download(
         connection: *mut c_void,
         symbol: *const c_char,
-        tick_callback: extern fn (*mut c_void, uint64_t, uint64_t, uint64_t),
+        start_time: *const c_char,
+        end_time: *const c_char,
+        tick_callback: Option<extern "C" fn (*mut c_void, uint64_t, c_double, c_double)>,
         user_data: *mut c_void
     );
 }
 
+#[derive(Debug)]
 #[repr(C)]
-struct DataDownloader {
-    tx: Sender<Tick>,
+struct CTick {
+    timestamp: uint64_t,
+    bid: c_double,
+    ask: c_double,
+}
+
+struct DataDownloader {}
+
+/// Where to save the recorded ticks to.
+pub enum DataDst {
+    Flatfile{filename: String},
+    Postgres{database: String, table: String},
+    Redis{host: String, channel: String},
+    Console,
 }
 
 impl DataDownloader {
     pub fn new() -> DataDownloader {
-        let (tx, rx) = channel::<Tick>();
-
-        thread::spawn(move || {
-            for msg in rx.iter() {
-                println!("{:?}", msg);
-            }
-        });
-
-        DataDownloader {
-            tx: tx,
-        }
+        DataDownloader {}
     }
 
     pub fn init_download<F>(
-        &mut self, symbol: &str, tick_callback: F
-    ) where F: FnMut(uint64_t, uint64_t, uint64_t) {
-        let username  = CString::new(CONF.fxcm_username).unwrap();
-        let password  = CString::new(CONF.fxcm_password).unwrap();
-        let url       = CString::new(CONF.fxcm_url).unwrap();
-        let symbol    = CString::new(symbol).unwrap();
+        &mut self, symbol: &str, dst: DataDst, start_time: &str, end_time: &str,
+    ) where F: FnMut(uint64_t, c_double, c_double) {
+        let (tx, rx) = channel::<CTick>();
+
+        // initialize the thread that blocks waiting for ticks
+        thread::spawn(move ||{
+            let mut rx_closure = get_rx_closure(dst);
+            for t in rx.iter() {
+                rx_closure(t);
+            }
+        });
+
+        let username   = CString::new(CONF.fxcm_username).unwrap();
+        let password   = CString::new(CONF.fxcm_password).unwrap();
+        let url        = CString::new(CONF.fxcm_url).unwrap();
+        let symbol     = CString::new(symbol).unwrap();
+        let start_time = CString::new(start_time).unwrap();
+        let end_time   = CString::new(end_time).unwrap();
         unsafe {
             let session_ptr = fxcm_login(username.as_ptr(), password.as_ptr(), url.as_ptr(), false);
-            let user_data = &tick_callback as *const _ as *mut c_void;
-            init_history_download(session_ptr, symbol.as_ptr(), tick_callback_shim::<F>, user_data);
-        }
-    }
+            let tx_ptr = &tx as *const _ as *mut c_void;
 
-    pub extern "C" fn test(&mut self, timestamp: uint64_t, bid: uint64_t, ask: uint64_t) {
-        let t = Tick {
-            timestamp: timestamp as usize,
-            bid: bid as usize,
-            ask: ask as usize,
-        };
-        let _ = self.tx.send(t);
+            init_history_download(
+                session_ptr,
+                symbol.as_ptr(),
+                start_time.as_ptr(),
+                end_time.as_ptr(),
+                Some(handler),
+                tx_ptr
+            );
+        }
     }
 }
 
-pub extern "C" fn tick_callback_shim<F>(
-    closure: *mut c_void, timestamp: uint64_t, bid: uint64_t, ask: uint64_t
-) where F: FnMut(uint64_t, uint64_t, uint64_t) {
-    let opt_closure = closure as *mut Option<F>;
-    unsafe {
-        (*opt_closure).take().unwrap()(timestamp, bid, ask);
+extern fn handler(tx_ptr: *mut c_void, timestamp: uint64_t, bid: c_double, ask: c_double) {
+    let sender: &Sender<CTick> = unsafe { transmute(tx_ptr) };
+    let _ = sender.send( CTick{
+        timestamp: timestamp,
+        bid: bid,
+        ask: ask
+    });
+}
+
+pub fn get_rx_closure(dst: DataDst) -> RxCallback {
+    match dst {
+        DataDst::Console => {
+            let inner = |t: CTick| {
+                println!("{:?}", t);
+            };
+
+            RxCallback{
+                inner: Box::new(inner),
+            }
+        },
+        DataDst::Redis{host, channel} => {
+            let client = get_client(host.as_str());
+            let inner = move |t: CTick| {
+                let client = &client;
+                // let tick_string = serde_json::to_string(&t).unwrap();
+                // redis::cmd("PUBLISH")
+                //     .arg(channel.clone())
+                //     .arg(tick_string)
+                //     .execute(client);
+            };
+
+            RxCallback{
+                inner: Box::new(inner),
+            }
+        },
+        _ => unimplemented!(),
     }
+}
+
+pub struct RxCallback {
+    inner: Box<FnMut(CTick)>,
+}
+
+impl FnOnce<(CTick,)> for RxCallback {
+    type Output = ();
+    extern "rust-call" fn call_once(self, args: (CTick,)) {
+        let mut inner = self.inner;
+        inner(args.0)
+    }
+}
+
+impl FnMut<(CTick,)> for RxCallback {
+    extern "rust-call" fn call_mut(&mut self, args: (CTick,)) {
+        (*self.inner)(args.0)
+    }
+}
+
+struct TxCallback {
+    inner: Box<FnMut(uint64_t, c_double, c_double)>,
+}
+
+impl FnOnce<(uint64_t, c_double, c_double,)> for TxCallback {
+    type Output = ();
+    extern "rust-call" fn call_once(self, args: (uint64_t, c_double, c_double,)) {
+        let mut inner = self.inner;
+        inner(args.0, args.1, args.2)
+    }
+}
+
+impl FnMut<(uint64_t, c_double, c_double,)> for TxCallback {
+    extern "rust-call" fn call_mut(&mut self, args: (uint64_t, c_double, c_double,)) {
+        (*self.inner)(args.0, args.1, args.2)
+    }
+}
+
+/// Acts as a shim for the tick callback closure.  Takes a closure in the from of a c_void which is called
+/// with the arguments received from the remote C++ code.
+pub extern fn tick_callback_shim<F>(
+    closure: *mut c_void, timestamp: uint64_t, bid: c_double, ask: c_double
+) where F: FnMut(uint64_t, c_double, c_double) {
+    println!("{:?}", closure as *const _);
+    let opt_closure = closure as *mut Option<F>;
+    // unsafe {
+    //     (*opt_closure).take().expect("Function pointer was null!")(timestamp, bid, ask);
+    // }
 }
 
 fn main() {
+    let symbol = "EUR/USD";
+    // m.d.Y H:M:S
+    let start_time = "01.01.2012 00:00:00";
+    let end_time   = "12.06.2016 00.00.00";
+    // let dst = DataDst::Postgres{database: CONF.postgres_database.to_string(), table: format!("ticks_{}", symbol)};
+    let dst = DataDst::Console;
+
     let mut downloader = DataDownloader::new();
-    let tx = downloader.tx.clone();
-    let cb_closure = |timestamp: uint64_t, bid: uint64_t, ask: uint64_t| {
-        let t = Tick {
-            timestamp: timestamp as usize,
-            bid: bid as usize,
-            ask: ask as usize,
-        };
-        let _ = tx.send(t);
-    };
-    downloader.init_download("EURUSD", cb_closure);
+    downloader.init_download::<TxCallback>(symbol, dst, start_time, end_time);
 }

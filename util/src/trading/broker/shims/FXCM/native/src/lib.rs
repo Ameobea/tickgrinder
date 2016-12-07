@@ -13,7 +13,7 @@ use std::ffi::CString;
 use std::ptr::null;
 use std::mem::transmute;
 
-use libc::{c_char, c_void, uint64_t};
+use libc::{c_char, c_void, uint64_t, c_double};
 use uuid::Uuid;
 use futures::Oneshot;
 use futures::stream::{Stream, Receiver};
@@ -39,10 +39,13 @@ extern {
     fn fxcm_login(username: *const c_char, password: *const c_char, url: *const c_char, live: bool) -> *mut c_void;
     fn test_login(username: *const c_char, password: *const c_char, url: *const c_char, live: bool) -> bool;
     fn init_history_download(
-        void_sesion: *mut c_void,
+        connection: *mut c_void,
         symbol: *const c_char,
-        tick_callback: extern fn(uint64_t, uint64_t, uint64_t)
-    ) -> bool;
+        start_time: *const c_char,
+        end_time: *const c_char,
+        tick_callback: extern fn (*mut c_void, uint64_t, c_double, c_double),
+        user_data: *mut c_void
+    );
 }
 
 pub struct FXCMNative {
@@ -123,6 +126,7 @@ fn history_downloader_callback() {
     let symbol    = CString::new("TEST").unwrap();
     unsafe {
         let void_session: *mut c_void = fxcm_login(username.as_ptr(), password.as_ptr(), url.as_ptr(), false);
+        //TODO Update
         init_history_download(void_session, symbol.as_ptr(), tick_downloader_cb);
     }
     std::thread::sleep(std::time::Duration::from_millis(100));

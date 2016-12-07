@@ -382,7 +382,7 @@ fn backtest_n_early_exit() {
 
     let uuid = bt.start_backtest(definition).unwrap();
     // backtest starts paused so resume it
-    let _ = bt.send_backtest_cmd(uuid, BacktestCommand::Resume);
+    let _ = bt.send_backtest_cmd(&uuid, BacktestCommand::Resume);
     let res = rx.wait().take(10).collect::<Vec<_>>();
     assert_eq!(res.len(), 10);
 }
@@ -407,7 +407,7 @@ fn backtest_timestamp_early_exit() {
 
     let uuid = bt.start_backtest(definition).unwrap();
     // backtest starts paused so resume it
-    let _ = bt.send_backtest_cmd(uuid, BacktestCommand::Resume);
+    let _ = bt.send_backtest_cmd(&uuid, BacktestCommand::Resume);
     let res = rx.wait().take(8).collect::<Vec<_>>();
     assert_eq!(res.len(), 8);
 }

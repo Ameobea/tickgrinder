@@ -38,6 +38,10 @@ release:
 	cd util/src/trading/broker/shims/FXCM/native && cargo build --release
 	cp util/src/trading/broker/shims/FXCM/native/target/release/libfxcm.so dist/lib
 
+	# build the FXCM native data downloader
+	cd data_downloaders/fxcm_native && cargo build --release
+	cp data_downloaders/fxcm_native/target/release/fxcm_native dist/fxcm_native_downloader
+
 dev:
 	rm dist/mm -r
 	cd dist && ln -s ../mm/ ./mm
@@ -79,6 +83,10 @@ debug:
 	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
 	cd util/src/trading/broker/shims/FXCM/native && RUSTFLAGS="-L ../../../../../../../util/target/debug/deps -L ../../../../../../../dist/lib -C prefer-dynamic" cargo build
 	cp util/src/trading/broker/shims/FXCM/native/target/debug/libfxcm.so dist/lib
+
+	# build the FXCM native data downloader
+	cd data_downloaders/fxcm_native && cargo build
+	cp data_downloaders/fxcm_native/target/debug/fxcm_native dist/fxcm_native_downloader
 
 strip:
 	cd dist && strip backtester spawner optimizer tick_processor
@@ -123,6 +131,7 @@ test:
 	cd backtester && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd mm && npm install
 	cd util/src/trading/broker/shims/FXCM/native && ./test.sh
+	cd data_downloaders/fxcm_native && ./test.sh
 	# TODO: Collect the results into a nice format
 
 bench:
@@ -218,4 +227,5 @@ init:
 		cp mm/sources/conf.sample.js mm/sources/conf.js; \
 		cp backtester/src/conf.default.rs backtester/src/conf.rs; \
 		cp util/src/trading/broker/shims/FXCM/native/src/conf.default.rs util/src/trading/broker/shims/FXCM/native/src/conf.rs; \
+		cp data_downloaders/fxcm_native/src/conf.default.rs data_downloaders/fxcm_native/src/conf.rs; \
 	fi
