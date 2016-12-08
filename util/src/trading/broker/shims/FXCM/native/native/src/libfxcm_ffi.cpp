@@ -146,7 +146,7 @@ bool init_history_download(
             session->sendRequest(request);
             if (!responseListener->waitEvents()) {
                 std::cout << "Response waiting timeout expired" << std::endl;
-                return false;
+                continue;
             }
             // shift "to" bound to oldest datetime of returned data
             O2G2Ptr<IO2GResponse> response = responseListener->getResponse();

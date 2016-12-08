@@ -13,6 +13,9 @@ pub struct Conf {
     pub postgres_db: &'static str,
     // redis settings
     pub redis_host: &'static str,
+    // Command settings
+    pub commands_channel: &'static str,
+    pub resposnes_channel: &'static str,
 }
 
 pub const CONF: Conf = Conf {
@@ -28,4 +31,7 @@ pub const CONF: Conf = Conf {
     postgres_db: "trading_bot",
     // redis settings
     redis_host: "redis://localhost",
+    // Command settings
+    commands_channel: "control",
+    resposnes_channel: "responses",
 };

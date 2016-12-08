@@ -15,7 +15,7 @@ pub struct Conf {
     pub postgres_url: &'static str,
     pub postgres_user: &'static str,
     pub postgres_password: &'static str,
-    pub postgres_port: i32,
+    pub postgres_port: usize,
     pub postgres_db: &'static str
 }
 

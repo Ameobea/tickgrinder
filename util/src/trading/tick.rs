@@ -41,6 +41,10 @@ impl Tick {
             .expect("Couldn't convert tick to json string")
     }
 
+    pub fn to_csv_row(&self) -> String {
+        format!("{}, {}, {}", self.timestamp, self.bid, self.ask)
+    }
+
     /// Returns the difference between the bid and the ask
     pub fn spread(&self) -> usize {
         self.bid - self.ask

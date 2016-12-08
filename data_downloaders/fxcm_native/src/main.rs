@@ -11,7 +11,9 @@ extern crate serde_json;
 extern crate time;
 extern crate futures;
 extern crate postgres;
+extern crate uuid;
 
+use std::env;
 use std::thread;
 use std::sync::mpsc::{channel, Sender};
 use std::ffi::CString;
@@ -20,13 +22,17 @@ use std::fs::OpenOptions;
 use std::io::prelude::*;
 use std::fmt;
 
+use uuid::Uuid;
 use libc::{c_char, c_void, uint64_t, c_double, c_int};
+use futures::stream::Stream;
 
+use algobot_util::transport::commands::*;
 use algobot_util::transport::redis::get_client as get_redis_client;
+use algobot_util::transport::redis::sub_multiple;
 use algobot_util::transport::postgres::*;
 use algobot_util::transport::query_server::QueryServer;
+use algobot_util::transport::command_server::{CommandServer, CsSettings};
 use algobot_util::trading::tick::*;
-use algobot_util::transport::redis::*;
 
 mod conf;
 use conf::CONF;
@@ -78,25 +84,70 @@ impl CTick {
     }
 }
 
-struct DataDownloader {}
-
-/// Where to save the recorded ticks to.
-#[derive(Debug, Clone)]
-pub enum DataDst {
-    Flatfile{filename: String},
-    Postgres{table: String},
-    RedisChannel{host: String, channel: String},
-    RedisSet{host: String, set_name: String},
-    Console,
+struct DataDownloader {
+    uuid: Uuid,
+    cs: CommandServer,
 }
 
 impl DataDownloader {
-    pub fn new() -> DataDownloader {
-        DataDownloader {}
+    pub fn new(uuid: Uuid) -> DataDownloader {
+        let css = CsSettings {
+            conn_count: 5,
+            max_retries: 3,
+            redis_host: CONF.redis_host,
+            responses_channel: CONF.responses_channel,
+            timeout: 300,
+        };
+        DataDownloader {
+            cs: CommandServer::new(css),
+            uuid: uuid,
+        }
+    }
+
+    /// Start listening for commands and responding to them
+    pub fn listen(&mut self) {
+        let client = get_redis_client(CONF.redis_host);
+        let cmd_rx = sub_multiple(CONF.redis_host, &[self.uuid.hyphenated().to_string().as_str(), CONF.commands_channel]);
+        send_command(&Command::Ready{
+            instance_type: "FXCM Native Data Downloader".to_string(),
+            uuid: self.uuid
+        }.wrap(), &client, CONF.commands_channel)
+            .expect("Unable to send Ready command over Redis.");
+
+        for res in cmd_rx.wait() {
+            let (_, wr_cmd_string) = res.unwrap();
+            let wr_cmd_res = WrappedCommand::from_str(wr_cmd_string.as_str());
+            if wr_cmd_res.is_err() {
+                println!("Unable to parse {} into WrappedCommand", wr_cmd_string);
+            }
+            let wr_cmd = wr_cmd_res.unwrap();
+
+            let res = match wr_cmd.cmd {
+                Command::Ping => Response::Pong{ args: vec![self.uuid.hyphenated().to_string()] },
+                Command::Type => Response::Info{ info: "FXCM Native Data Downloader".to_string() },
+                Command::DownloadTicks{start_time, end_time, symbol, dst} => {
+                    thread::spawn(move || {
+                        let _ = DataDownloader::init_download::<TxCallback>(symbol.as_str(), dst, start_time.as_str(), end_time.as_str());
+                    });
+                    Response::Ok
+                },
+                Command::Kill => {
+                    thread::spawn(|| {
+                        thread::sleep(std::time::Duration::from_secs(3));
+                        std::process::exit(0);
+                    });
+
+                    Response::Info{info: "Data Downloader shutting down in 3 seconds...".to_string()}
+                },
+                _ => Response::Error{ status: "Data Downloader doesn't recognize that command.".to_string() },
+            };
+            let wr_res = res.wrap(wr_cmd.uuid);
+            let _ = send_response(&wr_res, &client, CONF.responses_channel);
+        }
     }
 
     pub fn init_download<F>(
-        &mut self, symbol: &str, dst: DataDst, start_time: &str, end_time: &str,
+        symbol: &str, dst: HistTickDst, start_time: &str, end_time: &str,
     ) -> Result<(), String> where F: FnMut(uint64_t, c_double, c_double) {
         let (tx, rx) = channel::<CTick>();
 
@@ -156,9 +207,9 @@ extern fn handler(tx_ptr: *mut c_void, timestamp: uint64_t, bid: c_double, ask: 
     });
 }
 
-pub fn get_rx_closure(dst: DataDst) -> Result<RxCallback, String> {
+pub fn get_rx_closure(dst: HistTickDst) -> Result<RxCallback, String> {
     let cb = match dst.clone() {
-        DataDst::Console => {
+        HistTickDst::Console => {
             let inner = |t: Tick| {
                 println!("{:?}", t);
             };
@@ -168,7 +219,7 @@ pub fn get_rx_closure(dst: DataDst) -> Result<RxCallback, String> {
                 inner: Box::new(inner),
             }
         },
-        DataDst::RedisChannel{host, channel} => {
+        HistTickDst::RedisChannel{host, channel} => {
             let client = get_redis_client(host.as_str());
             // buffer up 5000 ticks in memory and send all at once to avoid issues
             // with persistant redis connections taking up lots of ports
@@ -196,7 +247,7 @@ pub fn get_rx_closure(dst: DataDst) -> Result<RxCallback, String> {
                 inner: Box::new(inner),
             }
         },
-        DataDst::RedisSet{host, set_name} => {
+        HistTickDst::RedisSet{host, set_name} => {
             let client = get_redis_client(host.as_str());
             // buffer up 5000 ticks in memory and send all at once to avoid issues
             // with persistant redis connections taking up lots of ports
@@ -224,15 +275,17 @@ pub fn get_rx_closure(dst: DataDst) -> Result<RxCallback, String> {
                 inner: Box::new(inner),
             }
         },
-        DataDst::Flatfile{filename} => {
+        HistTickDst::Flatfile{filename} => {
             let file_opt = OpenOptions::new().append(true).open(filename.clone());
             if file_opt.is_err() {
                 return Err(format!("Unable to open file with path {:?}", filename));
             }
             let mut file = file_opt.unwrap();
+            file.write_all("timestamp, bid, ask".as_bytes())
+                .expect("couldn't write header row to output file.");
 
             let inner = move |t: Tick| {
-                let tick_string = serde_json::to_string(&t).unwrap();
+                let tick_string = t.to_csv_row();
                 file.write_all(tick_string.as_str().as_bytes())
                     .expect(format!("couldn't write to output file: {}, {}", filename, tick_string).as_str());
             };
@@ -242,7 +295,7 @@ pub fn get_rx_closure(dst: DataDst) -> Result<RxCallback, String> {
                 inner: Box::new(inner),
             }
         },
-        DataDst::Postgres{table} => {
+        HistTickDst::Postgres{table} => {
             let pg_conf = PostgresConf {
                 postgres_user: CONF.postgres_user,
                 postgres_db: CONF.postgres_db,
@@ -273,7 +326,7 @@ pub fn get_rx_closure(dst: DataDst) -> Result<RxCallback, String> {
 }
 
 pub struct RxCallback {
-    dst: DataDst,
+    dst: HistTickDst,
     inner: Box<FnMut(Tick)>,
 }
 
@@ -316,43 +369,27 @@ impl FnMut<(uint64_t, c_double, c_double,)> for TxCallback {
     }
 }
 
-/// Acts as a shim for the tick callback closure.  Takes a closure in the from of a c_void which is called
-/// with the arguments received from the remote C++ code.
-pub extern fn tick_callback_shim<F>(
-    closure: *mut c_void, timestamp: uint64_t, bid: c_double, ask: c_double
-) where F: FnMut(uint64_t, c_double, c_double) {
-    println!("{:?}", closure as *const _);
-    let opt_closure = closure as *mut Option<F>;
-    // unsafe {
-    //     (*opt_closure).take().expect("Function pointer was null!")(timestamp, bid, ask);
-    // }
-}
-
 fn main() {
-    let symbol = "EUR/USD";
-    // m.d.Y H:M:S
-    let start_time = "01.01.2012 00:00:00";
-    let end_time   = "12.06.2016 00.00.00";
-    let dst = DataDst::RedisSet{
-        host: CONF.redis_host.to_string(),
-        set_name: "TICKS_EURUSD".to_string()
-    };
+    // ./fxcm_native uuid
+    let args = env::args().collect::<Vec<String>>();
+    if args.len() < 2 {
+        panic!("Usage: ./fxcm_native uuid");
+    }
 
-    let mut downloader = DataDownloader::new();
-    let _ = downloader.init_download::<TxCallback>(symbol, dst, start_time, end_time);
+    let uuid = Uuid::parse_str(args[1].as_str())
+        .expect("Unable to parse Uuid from supplied argument");
+    let mut dd = DataDownloader::new(uuid);
+    dd.listen();
 }
 
-/// Make sure that the C++ code calls the Rust function as a callback
 #[test]
 fn history_downloader_functionality() {
-    use futures::stream::Stream;
-
     let start_time = "01.01.2012 00:00:00";
     let end_time   = "12.06.2016 00.00.00";
     let symbol = "EUR/USD";
 
     let channel_str = "TEST_fxcm_dd_native";
-    let dst = DataDst::RedisChannel{
+    let dst = HistTickDst::RedisChannel{
         host: CONF.redis_host.to_string(),
         channel: channel_str.to_string(),
     };
@@ -365,6 +402,5 @@ fn history_downloader_functionality() {
 
     let rx = sub_channel(CONF.redis_host, channel_str);
     let responses: Vec<Result<String, ()>> = rx.wait().take(50).collect();
-    println!("{:?}", responses);
     assert_eq!(responses.len(), 50);
 }

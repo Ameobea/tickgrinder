@@ -38,6 +38,8 @@ pub enum Command {
     ListBacktests,
     ListSimbrokers,
     SpawnSimbroker{settings: SimBrokerSettings},
+    // Data Downloader Commands
+    DownloadTicks{start_time: String, end_time: String, symbol: String, dst: HistTickDst}
 }
 
 /// Represents a response from the Tick Processor to a Command sent
@@ -67,6 +69,16 @@ impl Command {
             cmd: self.clone()
         }
     }
+}
+
+/// Where to save the recorded ticks to.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum HistTickDst {
+    Flatfile{filename: String},
+    Postgres{table: String},
+    RedisChannel{host: String, channel: String},
+    RedisSet{host: String, set_name: String},
+    Console,
 }
 
 /// Represents a command bound to a unique identifier that can be
@@ -149,7 +161,7 @@ impl WrappedResponse {
 }
 
 /// Utility function to asynchronously sends off a command
-pub fn send_command(cmd: &WrappedCommand, client: &mut redis::Client, commands_channel: &str) -> Result<(), serde_json::Error> {
+pub fn send_command(cmd: &WrappedCommand, client: &redis::Client, commands_channel: &str) -> Result<(), serde_json::Error> {
     let command_string = try!(serde_json::to_string(cmd));
     redis::cmd("PUBLISH")
         .arg(commands_channel)
