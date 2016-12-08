@@ -1,31 +1,31 @@
 //! Configuration for the FXCM Broker
 
-// Copy this to conf.rs once you've filled it with your desired settings
-
 pub struct Conf {
-    pub fxcm_username: &str,
-    pub fxcm_password: &str,
-    pub fxcm_url: &str,
-    pub fxcm_pin: Option<&str>,
+    pub fxcm_username: &'static str,
+    pub fxcm_url: &'static str,
+    pub fxcm_password: &'static str,
+    pub fxcm_pin: Option<&'static str>,
     // postgres settings
-    pub postgres_host: &str,
-    pub postgres_user: &str,
-    pub postgres_password: &str,
-    pub postgres_database: &str,
+    pub postgres_url: &'static str,
+    pub postgres_port: usize,
+    pub postgres_user: &'static str,
+    pub postgres_password: &'static str,
+    pub postgres_db: &'static str,
     // redis settings
-    pub redis_host: &str,
+    pub redis_host: &'static str,
 }
 
 pub const CONF: Conf = Conf {
-    fxcm_username: "Your_username",
-    fxcm_password: "Your_password",
-    fxcm_url: "http://fxcorporate.com/Hosts.jsp",
+    fxcm_username: "D102698627001",
+    fxcm_password: "1576",
+    fxcm_url: "http://www.fxcorporate.com/Hosts.jsp",
     fxcm_pin: Some("1234"),
     // postgres settings
-    postgres_host: "localhost",
-    postgres_user: "username",
+    postgres_url: "localhost",
+    postgres_port: 5432,
+    postgres_user: "trading_bot",
     postgres_password: "password",
-    postgres_database: "database",
+    postgres_db: "trading_bot",
     // redis settings
     redis_host: "redis://localhost",
-}
+};

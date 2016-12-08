@@ -172,7 +172,6 @@ bool init_history_download(
                 std::cout << "Response type: " << response->getType() << std::endl;
                 break;
             }
-            std::cout << "dateTo - dateFrom diff: " << dateTo - dateFrom << std::endl;
         } while (dateTo - dateFrom > 0.0001);
         printf("After do/while\n");
 
@@ -182,4 +181,12 @@ bool init_history_download(
         printf("Unable to connect to broker to download history.\n");
         return false;
     }
+}
+
+/// Returns a void pointer to an OfferRow which can be used along with the other functions to
+/// get information about current offers.
+void* get_offer_row(void* void_session, const char *instrument){
+    IO2GSession * session = (IO2GSession*)void_session;
+    IO2GOfferRow * row = getOffer(session, instrument);
+    return row;
 }
