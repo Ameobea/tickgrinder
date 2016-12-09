@@ -2,19 +2,22 @@
 //!
 //! See README.txt for more information
 
-#![feature(libc, conservative_impl_trait, fn_traits, unboxed_closures)]
+#![feature(custom_derive, plugin, proc_macro, libc, conservative_impl_trait, fn_traits, unboxed_closures)]
 
 extern crate libc;
 extern crate algobot_util;
 extern crate redis;
-extern crate serde_json;
 extern crate time;
 extern crate futures;
 extern crate postgres;
 extern crate uuid;
+extern crate serde_json;
+#[macro_use]
+extern crate serde_derive;
 
 use std::env;
 use std::thread;
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Sender};
 use std::ffi::CString;
 use std::mem::transmute;
@@ -84,9 +87,18 @@ impl CTick {
     }
 }
 
+#[derive(Serialize, PartialEq, Clone)]
+struct DownloadDescriptor {
+    symbol: String,
+    start_time: String,
+    end_time: String,
+    dst: HistTickDst,
+}
+
 struct DataDownloader {
     uuid: Uuid,
     cs: CommandServer,
+    running_downloads: Arc<Mutex<Vec<DownloadDescriptor>>>,
 }
 
 impl DataDownloader {
@@ -98,9 +110,11 @@ impl DataDownloader {
             responses_channel: CONF.responses_channel,
             timeout: 300,
         };
+
         DataDownloader {
             cs: CommandServer::new(css),
             uuid: uuid,
+            running_downloads: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -126,11 +140,16 @@ impl DataDownloader {
                 Command::Ping => Response::Pong{ args: vec![self.uuid.hyphenated().to_string()] },
                 Command::Type => Response::Info{ info: "FXCM Native Data Downloader".to_string() },
                 Command::DownloadTicks{start_time, end_time, symbol, dst} => {
+                    let running_downloads = self.running_downloads.clone();
+                    let cs = self.cs.clone();
                     thread::spawn(move || {
-                        let _ = DataDownloader::init_download::<TxCallback>(symbol.as_str(), dst, start_time.as_str(), end_time.as_str());
+                        let _ = DataDownloader::init_download::<TxCallback>(
+                            symbol.as_str(), dst, start_time.as_str(), end_time.as_str(), running_downloads, cs
+                        );
                     });
                     Response::Ok
                 },
+                Command::ListRunningDownloads => self.list_running_downloads(),
                 Command::Kill => {
                     thread::spawn(|| {
                         thread::sleep(std::time::Duration::from_secs(3));
@@ -147,9 +166,25 @@ impl DataDownloader {
     }
 
     pub fn init_download<F>(
-        symbol: &str, dst: HistTickDst, start_time: &str, end_time: &str,
+        symbol: &str, dst: HistTickDst, start_time: &str, end_time: &str, running_downloads: Arc<Mutex<Vec<DownloadDescriptor>>>, mut cs: CommandServer
     ) -> Result<(), String> where F: FnMut(uint64_t, c_double, c_double) {
         let (tx, rx) = channel::<CTick>();
+
+        // create these now before we convert our arguments into CStrings
+        let descriptor = DownloadDescriptor {
+            symbol: symbol.to_string(),
+            start_time: start_time.to_string(),
+            end_time: end_time.to_string(),
+            dst: dst.clone(),
+        };
+
+        // command to be broadcast after download is complete indicating its completion.
+        let done_cmd = Command::DownloadComplete{
+            start_time: start_time.to_string(),
+            end_time: end_time.to_string(),
+            symbol: symbol.to_string(),
+            dst: dst.clone(),
+        };
 
         // get the digit count after the decimal for tick conversion
         let symbol     = CString::new(symbol).unwrap();
@@ -179,6 +214,11 @@ impl DataDownloader {
             }
         });
 
+        {
+            let mut running_downloads = running_downloads.lock().unwrap();
+            running_downloads.push(descriptor.clone())
+        }
+
         let start_time = CString::new(start_time).unwrap();
         let end_time   = CString::new(end_time).unwrap();
         unsafe {
@@ -194,7 +234,27 @@ impl DataDownloader {
             );
         }
 
+        // remove descriptor from list once backtest is finished.
+        {
+            let mut running_downloads = running_downloads.lock().unwrap();
+            for i in 0..running_downloads.len() {
+                if running_downloads[i] == descriptor {
+                    running_downloads.remove(i);
+                }
+            }
+        }
+
+        // send command indicating download completion
+        let _ = cs.execute(done_cmd, CONF.commands_channel.to_string());
+
         Ok(())
+    }
+
+    /// Returns a list of running downloads
+    pub fn list_running_downloads(&self) -> Response {
+        let running = self.running_downloads.lock().unwrap();
+        let res = serde_json::to_string(&*running).unwrap();
+        Response::Info{info: res}
     }
 }
 

@@ -28,6 +28,7 @@ pub enum Command {
     SpawnOptimizer{strategy: String},
     SpawnTickParser{symbol: String},
     SpawnBacktester,
+    SpawnFxcmDataDownloader,
     KillInstance{uuid: Uuid},
     KillAllInstances,
     // Backtester Commands
@@ -39,7 +40,9 @@ pub enum Command {
     ListSimbrokers,
     SpawnSimbroker{settings: SimBrokerSettings},
     // Data Downloader Commands
-    DownloadTicks{start_time: String, end_time: String, symbol: String, dst: HistTickDst}
+    DownloadTicks{start_time: String, end_time: String, symbol: String, dst: HistTickDst},
+    ListRunningDownloads,
+    DownloadComplete{start_time: String, end_time: String, symbol: String, dst: HistTickDst},
 }
 
 /// Represents a response from the Tick Processor to a Command sent
