@@ -19,7 +19,6 @@ mod processor;
 mod tests;
 
 use std::thread;
-use std::time::Duration;
 use std::env;
 
 use futures::Future;
@@ -31,18 +30,23 @@ use conf::CONF;
 use algobot_util::trading::tick::SymbolTick;
 use algobot_util::transport::postgres::{get_client, reset_db, PostgresConf};
 use algobot_util::transport::redis::sub_multiple;
+use algobot_util::transport::commands::{Command, send_command};
 
 fn handle_messages(symbol: String, uuid: Uuid) {
     let ticks_channel = CONF.redis_ticks_channel;
     let control_channel = CONF.redis_control_channel;
     let uuid_string = uuid.hyphenated().to_string();
 
-    let mut processor = Processor::new(symbol, uuid);
+    let mut processor = Processor::new(symbol, uuid.clone());
 
     let rx = sub_multiple(
-        CONF.redis_url,
-        &[ticks_channel, control_channel, uuid_string.as_str()]
+        CONF.redis_url, &[ticks_channel, control_channel, uuid_string.as_str()]
     );
+
+    let _ = send_command(&Command::Ready{
+        instance_type: "Tick Processor".to_string(),
+        uuid: uuid,
+    }.wrap(), &processor.redis_client, CONF.redis_control_channel);
 
     rx.for_each(move |pair| {
         let (channel, message) = pair;
@@ -95,8 +99,5 @@ fn main() {
     // Start the listeners for everything
     handle_messages(symbol, uuid);
 
-    loop {
-        // keep program alive but don't swamp the CPU
-        thread::sleep(Duration::new(500, 0));
-    }
+    thread::park();
 }

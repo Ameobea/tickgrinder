@@ -15,11 +15,11 @@ pub struct Conf {
     pub redis_host: &'static str,
     // Command settings
     pub commands_channel: &'static str,
-    pub resposnes_channel: &'static str,
+    pub responses_channel: &'static str,
 }
 
 pub const CONF: Conf = Conf {
-    fxcm_username: "D102698627001",
+    fxcm_username: "D102698656801",
     fxcm_password: "1576",
     fxcm_url: "http://www.fxcorporate.com/Hosts.jsp",
     fxcm_pin: Some("1234"),
@@ -33,5 +33,5 @@ pub const CONF: Conf = Conf {
     redis_host: "redis://localhost",
     // Command settings
     commands_channel: "control",
-    resposnes_channel: "responses",
+    responses_channel: "responses",
 };

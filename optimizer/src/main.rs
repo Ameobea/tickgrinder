@@ -1,7 +1,6 @@
 //! Algobot 4 Optimizer
 //! Created by Casey Primozic 2016-2016
 
-#![allow(unconditional_recursion)]
 #![feature(conservative_impl_trait, custom_derive, plugin, test)]
 
 extern crate test;
@@ -17,9 +16,11 @@ extern crate channel_id_sliding_windows;
 
 mod conf;
 
+use uuid::Uuid;
 use algobot_util::transport::command_server::{CommandServer, CsSettings};
 use algobot_util::transport::postgres::PostgresConf;
 use algobot_util::transport::query_server::QueryServer;
+use algobot_util::transport::commands::Command;
 use algobot_util::strategies::Strategy;
 
 // Set this line to the strategy to be used
@@ -35,7 +36,13 @@ fn main() {
         timeout: CONF.cs_timeout,
         max_retries: CONF.cs_max_retries
     };
-    let command_server = CommandServer::new(settings);
+    let mut cs = CommandServer::new(settings);
+    let uuid = Uuid::new_v4();
+
+    cs.execute(Command::Ready{
+        instance_type: "Optimizer".to_string(),
+        uuid: uuid,
+    }, CONF.redis_commands_channel.to_string());
 
     let pg_conf = PostgresConf {
         postgres_user: CONF.postgres_user,
@@ -47,5 +54,5 @@ fn main() {
     let query_server = QueryServer::new(CONF.conn_senders, pg_conf);
 
     // initialize the strategy
-    let mut strat = ActiveStrategy::new(command_server, query_server);
+    let mut strat = ActiveStrategy::new(cs, query_server);
 }

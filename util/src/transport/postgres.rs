@@ -45,9 +45,9 @@ fn tick_table_inner(table_name: &str, client: &Connection, pg_user: &str) -> Res
     let query1 = format!(
     "CREATE TABLE IF NOT EXISTS {}
     (
-      tick_time bigint NOT NULL PRIMARY KEY UNIQUE,
-      bid double precision NOT NULL,
-      ask double precision NOT NULL
+      tick_time BIGINT NOT NULL PRIMARY KEY UNIQUE,
+      bid BIGINT NOT NULL,
+      ask BIGINT NOT NULL
     )
     WITH (
       OIDS=FALSE

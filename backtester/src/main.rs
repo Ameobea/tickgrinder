@@ -11,6 +11,7 @@ extern crate rand;
 extern crate futures;
 extern crate uuid;
 extern crate redis;
+extern crate postgres;
 extern crate serde;
 extern crate serde_json;
 #[macro_use]
@@ -57,14 +58,15 @@ pub enum BacktestType {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DataSource {
     Flatfile,
-    Redis{host: String, channel: String},
-    Random
+    RedisChannel{host: String, channel: String},
+    Postgres,
+    Random,
 }
 
 /// Where to send the backtest's generated data
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DataDest {
-    Redis{host: String, channel: String},
+    RedisChannel{host: String, channel: String},
     Console,
     Null,
     SimBroker{uuid: Uuid}, // Requires that a SimBroker is running on the Backtester in order to work
@@ -227,7 +229,7 @@ impl Backtester {
         println!("{:?}", definition);
         // Create the TickGenerator that provides the backtester with data
         let mut src: Box<TickGenerator> = resolve_data_source(
-            &definition.data_source, definition.symbol.clone()
+            &definition.data_source, definition.symbol.clone(), definition.start_time
         );
 
         // create channel for communicating messages to the running backtest sent externally
@@ -250,7 +252,7 @@ impl Backtester {
 
         // create a TickSink that receives the output of the backtest
         let dst_opt: Result<Box<TickSink + Send>, Uuid> = match &definition.data_dest {
-            &DataDest::Redis{ref host, ref channel} => {
+            &DataDest::RedisChannel{ref host, ref channel} => {
                 Ok(Box::new(RedisSink::new(definition.symbol.clone(), channel.clone(), host.as_str())))
             },
             &DataDest::Console => Ok(Box::new(ConsoleSink{})),
@@ -331,18 +333,24 @@ impl Backtester {
 }
 
 /// Creates a TickGenerator from a DataSource and symbol String
-pub fn resolve_data_source(data_source: &DataSource, symbol: String) -> Box<TickGenerator> {
+pub fn resolve_data_source(data_source: &DataSource, symbol: String, start_time: Option<usize>) -> Box<TickGenerator> {
     match data_source {
         &DataSource::Flatfile => {
-            Box::new(FlatfileReader{symbol: symbol.clone()}) as Box<TickGenerator>
+            Box::new(FlatfileReader{
+                symbol: symbol.clone(),
+                start_time: start_time,
+            }) as Box<TickGenerator>
         },
-        &DataSource::Redis{ref host, ref channel} => {
+        &DataSource::RedisChannel{ref host, ref channel} => {
             Box::new(
                 RedisReader::new(symbol.clone(), host.clone(), channel.clone())
             ) as Box<TickGenerator>
         },
         &DataSource::Random => {
             Box::new(RandomReader::new(symbol.clone())) as Box<TickGenerator>
+        },
+        &DataSource::Postgres => {
+            Box::new(PostgresReader {symbol: symbol, start_time: start_time} )
         },
     }
 }

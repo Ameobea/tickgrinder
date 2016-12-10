@@ -53,6 +53,7 @@ impl SerializableBacktestHandle {
 /// Contains all the information necessary to start a backtest
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BacktestDefinition {
+    pub start_time: Option<usize>,
     /// Stop backtest after timestamp reached or None
     pub max_timestamp: Option<usize>,
     /// Stop backtest after `max_tick_n` ticks have been processed or None

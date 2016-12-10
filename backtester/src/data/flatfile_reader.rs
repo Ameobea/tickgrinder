@@ -16,53 +16,48 @@ use backtest::{BacktestCommand, BacktestMap};
 use conf::CONF;
 
 pub struct FlatfileReader {
-    pub symbol: String
+    pub symbol: String,
+    pub start_time: Option<usize>,
 }
 
 impl TickGenerator for FlatfileReader {
     fn get(
         &mut self, mut map: Box<BacktestMap + Send>, cmd_handle: CommandStream
     )-> Result<Receiver<Tick, ()>, String> {
-        let mut path = PathBuf::from(CONF.tick_data_dir);
-        let filename = format!("{}.csv", self.symbol);
-        path.push(filename.as_str());
-
-        let (mut sender, receiver) = channel::<Tick, ()>();
-        let file_opt = File::open(path);
-        let file = match file_opt {
-            Ok(file) => file,
-            Err(e) => return Err(e.to_string())
-        };
-        let mut buf_reader = BufReader::new(file);
-
         // small atomic communication bus between the handle listener and worker threads
         let internal_message: Arc<Mutex<BacktestCommand>> = Arc::new(Mutex::new(BacktestCommand::Stop));
-        let _internal_message = internal_message.clone();
         let got_mail = Arc::new(AtomicBool::new(false));
-        let mut _got_mail = got_mail.clone();
+        let (mut sender, receiver) = channel::<Tick, ()>();
 
         // spawn the worker thread that does the blocking
+        let mut _got_mail = got_mail.clone();
+        let _internal_message = internal_message.clone();
+        let symbol = self.symbol.clone();
+        let start_time = self.start_time.clone();
         let reader_handle = thread::spawn(move || {
-            let cur_command: Option<BacktestCommand> = None;
-            loop {
+            // open the file and get an iterator over its lines set to the starting point
+            let iter_ = init_reader(&symbol);
+            if iter_.is_err() {
+                return Err("Unable to open the file.".to_string())
+            }
+            let iter = iter_.unwrap().skip_while(|t| {
+                start_time.is_some() && t.timestamp < start_time.unwrap()
+            });
+
+            for tick in iter {
                 if check_mail(&*got_mail, &*_internal_message) {
                     println!("Stop command received; killing reader");
                     break;
                 }
 
-                let mut line = String::new();
-                let n = buf_reader.read_line(&mut line).unwrap();
-                if n == 0 {
-                    break;
-                }
-                let t = Tick::from_csv_string(line.as_str());
-
                 // apply the map
-                let t_mod = map.map(t);
+                let t_mod = map.map(tick);
                 if t_mod.is_some() {
-                    sender = sender.send(Ok(t)).wait().ok().unwrap();
+                    sender = sender.send(Ok(tick)).wait().ok().unwrap();
                 }
             }
+
+            Ok(()) // ???
         }).thread().clone();
 
         // spawn the handle listener thread that awaits commands
@@ -72,4 +67,14 @@ impl TickGenerator for FlatfileReader {
     }
 }
 
-// TODO: Tests for command handling
+/// Trys to open the file containing the historical ticks for the supplied symbol.
+pub fn init_reader(symbol: &str) -> Result<impl Iterator<Item=Tick>, String> {
+    let mut path = PathBuf::from(CONF.tick_data_dir);
+    let filename = format!("{}.csv", symbol.to_uppercase());
+    path.push(filename.as_str());
+
+    let file = try!(File::open(path).map_err( |e| e.to_string() ));
+    Ok(BufReader::new(file).lines().map( |line| {
+        Tick::from_csv_string(line.unwrap().as_str())
+    }))
+}

@@ -163,6 +163,7 @@ function createBacktestDefinition(start_timestamp, max_timestamp, max_tick_n, sy
   }
 
   var obj = {
+    start_time: start_timestamp,
     max_timestamp: max_timestamp,
     max_tick_n: max_tick_n,
     symbol: symbol,
