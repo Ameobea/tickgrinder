@@ -10,11 +10,14 @@ extern crate redis;
 extern crate futures;
 extern crate serde;
 extern crate serde_json;
+extern crate fxcm;
 
 extern crate algobot_util;
-extern crate channel_id_sliding_windows;
+extern crate sample as strat;
 
 mod conf;
+
+use std::collections::HashMap;
 
 use uuid::Uuid;
 use algobot_util::transport::command_server::{CommandServer, CsSettings};
@@ -22,10 +25,7 @@ use algobot_util::transport::postgres::PostgresConf;
 use algobot_util::transport::query_server::QueryServer;
 use algobot_util::transport::commands::Command;
 use algobot_util::strategies::Strategy;
-
-// Set this line to the strategy to be used
-use channel_id_sliding_windows::SlidingWindows as ActiveStrategy;
-
+use fxcm::FXCMNative;
 use conf::CONF;
 
 fn main() {
@@ -54,5 +54,7 @@ fn main() {
     let query_server = QueryServer::new(CONF.conn_senders, pg_conf);
 
     // initialize the strategy
-    let mut strat = ActiveStrategy::new(cs, query_server);
+    let mut broker = FXCMNative::new(HashMap::new());
+    let mut strat = strat::new(cs, query_server, &mut broker);
+    strat.init();
 }

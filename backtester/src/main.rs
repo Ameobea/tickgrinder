@@ -376,12 +376,13 @@ fn backtest_n_early_exit() {
 
     let mut bt = Backtester::new();
     let definition = BacktestDefinition {
+        start_time: None,
         max_tick_n: Some(10),
         max_timestamp: None,
         symbol: "TEST".to_string(),
         backtest_type: BacktestType::Fast{delay_ms: 0},
         data_source: DataSource::Random,
-        data_dest: DataDest::Redis{
+        data_dest: DataDest::RedisChannel{
             host: CONF.redis_url.to_string(),
             channel: "test1_ii".to_string()
         },
@@ -401,12 +402,13 @@ fn backtest_timestamp_early_exit() {
 
     let mut bt = Backtester::new();
     let definition = BacktestDefinition {
+        start_time: None,
         max_tick_n: None,
         max_timestamp: Some(8),
         symbol: "TEST".to_string(),
         backtest_type: BacktestType::Fast{delay_ms: 0},
         data_source: DataSource::Random,
-        data_dest: DataDest::Redis{
+        data_dest: DataDest::RedisChannel{
             host: CONF.redis_url.to_string(),
             channel: "test2_ii".to_string()
         },

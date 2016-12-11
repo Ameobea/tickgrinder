@@ -444,6 +444,7 @@ fn main() {
 
 #[test]
 fn history_downloader_functionality() {
+    use algobot_util::transport::redis::sub_channel;
     let start_time = "01.01.2012 00:00:00";
     let end_time   = "12.06.2016 00.00.00";
     let symbol = "EUR/USD";
@@ -456,8 +457,8 @@ fn history_downloader_functionality() {
 
     // start data download in another thread as to not block
     thread::spawn(move ||{
-        let mut downloader = DataDownloader::new();
-        let _ = downloader.init_download::<TxCallback>(symbol, dst, start_time, end_time);
+        let mut downloader = DataDownloader::new(Uuid::new_v4());
+        let _ = DataDownloader::init_download::<TxCallback>(symbol, dst, start_time, end_time, downloader.running_downloads.clone(), downloader.cs.clone());
     });
 
     let rx = sub_channel(CONF.redis_host, channel_str);
