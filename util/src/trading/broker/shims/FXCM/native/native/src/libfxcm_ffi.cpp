@@ -77,9 +77,14 @@ void sendPrices(IO2GSession *session, IO2GResponse *response, void (*tickcallbac
     if (factory) {
         O2G2Ptr<IO2GMarketDataSnapshotResponseReader> reader = factory->createMarketDataSnapshotReader(response);
         if (reader) {
+            tm *tmBuf = new tm();
+            _SYSTEMTIME* wt = new _SYSTEMTIME();
+            WORD ms;
+            time_t tt;
+            int unix_time_s;
+            uint64_t unix_time_ms;
             for (int i = reader->size() - 1; i >= 0; i--) {
                 const double dt = reader->getDate(i);
-                _SYSTEMTIME* wt = new _SYSTEMTIME();
                 // convert crazy OLT time to SYSTEMTIME
                 // OleTimeToWindowsTime(const double dt, SYSTEMTIME *st);
                 bool success = CO2GDateUtils::OleTimeToWindowsTime(dt, wt);
@@ -89,22 +94,19 @@ void sendPrices(IO2GSession *session, IO2GResponse *response, void (*tickcallbac
                 if(wt == NULL){
                     printf("dt is null!");
                 }
-                tm *tmBuf = new tm();
                 // convert SYSTEMTIME to CTime which causes loss of ms precision
                 // ms is simply dropped, not rounded.
-                WORD ms = wt->wMilliseconds;
+                ms = wt->wMilliseconds;
                 // WindowsTimeToCTime(const SYSTEMTIME *st, struct tm *t)
                 CO2GDateUtils::WindowsTimeToCTime(wt, tmBuf);
                 // convert to unix timestamp precise to the second
-                time_t tt = mktime(tmBuf);
-                int unix_time_s = (int)tt;
+                tt = mktime(tmBuf);
+                unix_time_s = (int)tt;
                 // convert to ms and add ms lost from before
-                uint64_t unix_time_ms = (1000*(uint64_t)unix_time_s)+ms;
-                double bid = reader->getBid(i);
-                double ask = reader->getAsk(i);
+                unix_time_ms = (1000*(uint64_t)unix_time_s)+ms;
 
                 // send the callback to RustLand
-                tickcallback(user_data, unix_time_ms, bid, ask);
+                tickcallback(user_data, unix_time_ms, reader->getBid(i), reader->getAsk(i));
             }
         } else {
             printf("No reader!\n");

@@ -21,7 +21,8 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Sender};
 use std::ffi::CString;
 use std::mem::transmute;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
+use std::path::Path;
 use std::io::prelude::*;
 use std::fmt;
 
@@ -143,9 +144,10 @@ impl DataDownloader {
                     let running_downloads = self.running_downloads.clone();
                     let cs = self.cs.clone();
                     thread::spawn(move || {
-                        let _ = DataDownloader::init_download::<TxCallback>(
+                        let res = DataDownloader::init_download::<TxCallback>(
                             symbol.as_str(), dst, start_time.as_str(), end_time.as_str(), running_downloads, cs
                         );
+                        println!("Results of download: {:?}", res);
                     });
                     Response::Ok
                 },
@@ -336,13 +338,21 @@ pub fn get_rx_closure(dst: HistTickDst) -> Result<RxCallback, String> {
             }
         },
         HistTickDst::Flatfile{filename} => {
-            let file_opt = OpenOptions::new().append(true).open(filename.clone());
+            let fnc = filename.clone();
+            let path = Path::new(&fnc);
+            // create the file if it doesn't exist and write the header row
+            if !path.exists() {
+                let mut f = File::create(path).unwrap();
+                f.write_all("timestamp, bid, ask".as_bytes())
+                    .expect("couldn't write header row to output file.");
+            }
+
+            // try to open the specified filename in append mode
+            let file_opt = OpenOptions::new().append(true).open(path);
             if file_opt.is_err() {
-                return Err(format!("Unable to open file with path {:?}", filename));
+                return Err(format!("Unable to open file with path {}", filename));
             }
             let mut file = file_opt.unwrap();
-            file.write_all("timestamp, bid, ask".as_bytes())
-                .expect("couldn't write header row to output file.");
 
             let inner = move |t: Tick| {
                 let tick_string = t.to_csv_row();

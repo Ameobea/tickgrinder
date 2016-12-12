@@ -42,7 +42,7 @@ impl Tick {
     }
 
     pub fn to_csv_row(&self) -> String {
-        format!("{}, {}, {}", self.timestamp, self.bid, self.ask)
+        format!("{}, {}, {}\n", self.timestamp, self.bid, self.ask)
     }
 
     /// Returns the difference between the bid and the ask
