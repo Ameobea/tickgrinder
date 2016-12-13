@@ -1,0 +1,52 @@
+"use strict";
+/*jslint node: true */
+
+var pg = require('pg').native;
+var Promise = require("bluebird");
+
+const CONF = require("./conf");
+
+var pool_conf = {
+  user: CONF.postgresUser,
+  database: CONF.postgresDatabase,
+  password: CONF.postgresPassword,
+  host: CONF.postgresUrl,
+  port: CONF.postgresPort,
+  max: 10,
+  idleTimeoutMillis: 30000,
+};
+
+var accessors = {
+  get_tick_time_differences(pool, table, start_time, end_time){
+    return new Promise((f,r)=>{
+      pool.connect(function(err, client, done) {
+        if(err) {
+          r(console.error('error fetching client from pool', err));
+          return;
+        }
+        var query = `SELECT tick_time - lag(tick_time) OVER (ORDER BY tick_time), tick_time, diff FROM ${table}
+        WHERE tick_time >= ${start_time} AND tick_time <= ${end_time};`;
+        client.query(query, [], (err, res)=>{
+          done();
+
+          if(err) {
+            r(console.error('error running query', err));
+          } else {
+            f(res.rows);
+          }
+        });
+      });
+    });
+  }
+};
+
+var pool = new pg.Pool(pool_conf).on('error', function (err, client) {
+  console.error('idle client error', err.message, err.stack);
+});
+
+var Db = {
+  pool: pool,
+  accessors: accessors,
+};
+
+module.exports = Db;

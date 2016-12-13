@@ -43,6 +43,7 @@ pub enum Command {
     DownloadTicks{start_time: String, end_time: String, symbol: String, dst: HistTickDst},
     ListRunningDownloads,
     DownloadComplete{start_time: String, end_time: String, symbol: String, dst: HistTickDst},
+    // TODO: TransferHistData
 }
 
 /// Represents a response from the Tick Processor to a Command sent

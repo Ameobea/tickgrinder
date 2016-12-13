@@ -31,6 +31,15 @@ pub fn get_client(pg_conf: PostgresConf) -> Result<Connection, error::ConnectErr
 *  TICK-RELATED FUNCTIONS  *
 ***************************/
 
+pub fn csv_to_tick_table(filename: &str, table_name: &str, client: &Connection) {
+    let query = format!(
+        "COPY {}(tick_time, bid, ask) FROM {} DELIMETER ', ' CSV HEADER",
+        table_name,
+        filename
+    );
+    client.execute(&query, &[]);
+}
+
 /// Creates a new table for ticks with given symbol if such a table doesn't already exist.
 pub fn init_tick_table(symbol: &str, client: &Connection, pg_user: &str) -> Result<(), String> {
     tick_table_inner(format!("ticks_{}", symbol).as_str(), client, pg_user)
@@ -55,9 +64,9 @@ fn tick_table_inner(table_name: &str, client: &Connection, pg_user: &str) -> Res
     let query2 = format!(
     "ALTER TABLE {}
       OWNER TO {};", table_name, pg_user);
-    client.execute(query1.as_str(), &[])
+    client.execute(&query1, &[])
         .map_err(|_| return "Error while querying postgres to set up tick table" );
-    client.execute(query2.as_str(), &[])
+    client.execute(&query2, &[])
         .map_err(|_| return "Error while querying postgres to set up tick table" );
 
     Ok(())
