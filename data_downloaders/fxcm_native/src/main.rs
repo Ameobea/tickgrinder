@@ -38,6 +38,8 @@ use algobot_util::transport::query_server::QueryServer;
 use algobot_util::transport::command_server::{CommandServer, CsSettings};
 use algobot_util::trading::tick::*;
 
+mod util;
+use util::transfer_data;
 mod conf;
 use conf::CONF;
 
@@ -66,6 +68,14 @@ extern {
     fn get_offer_row(connection: *mut c_void, instrument: *const c_char) -> *mut c_void;
     fn getDigits(row: *mut c_void) -> c_int;
 }
+
+pub const PG_CONF: PostgresConf = PostgresConf {
+    postgres_user: CONF.postgres_user,
+    postgres_db: CONF.postgres_db,
+    postgres_password: CONF.postgres_password,
+    postgres_port: CONF.postgres_port,
+    postgres_url: CONF.postgres_url,
+};
 
 #[derive(Debug)]
 #[repr(C)]
@@ -152,6 +162,10 @@ impl DataDownloader {
                     Response::Ok
                 },
                 Command::ListRunningDownloads => self.list_running_downloads(),
+                Command::TransferHistData{src, dst} => {
+                    transfer_data(src, dst);
+                    Response::Ok
+                },
                 Command::Kill => {
                     thread::spawn(|| {
                         thread::sleep(std::time::Duration::from_secs(3));
@@ -366,20 +380,13 @@ pub fn get_rx_closure(dst: HistTickDst) -> Result<RxCallback, String> {
             }
         },
         HistTickDst::Postgres{table} => {
-            let pg_conf = PostgresConf {
-                postgres_user: CONF.postgres_user,
-                postgres_db: CONF.postgres_db,
-                postgres_password: CONF.postgres_password,
-                postgres_port: CONF.postgres_port,
-                postgres_url: CONF.postgres_url,
-            };
-            let connection_opt = get_client(pg_conf.clone());
+            let connection_opt = get_client(PG_CONF);
             if connection_opt.is_err() {
                 return Err(String::from("Unable to connect to PostgreSQL!"))
             }
             let connection = connection_opt.unwrap();
             let _ = try!(init_hist_data_table(table.as_str(), &connection, CONF.postgres_user));
-            let mut qs = QueryServer::new(10, pg_conf);
+            let mut qs = QueryServer::new(10, PG_CONF);
 
             let inner = move |t: Tick| {
                 t.store_table(table.as_str(), &mut qs);

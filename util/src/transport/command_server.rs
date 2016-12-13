@@ -20,8 +20,7 @@ use std::time::Duration;
 use std::sync::{Arc, Mutex};
 use std::str::FromStr;
 
-use futures::Stream;
-use futures::stream::Wait;
+use futures::{Stream, Async};
 use futures::sync::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
 use futures::Future;
 use futures::sync::oneshot::{channel as oneshot, Sender, Receiver};
@@ -118,7 +117,7 @@ impl AlertList {
         let pos_opt = self.list.iter().position(|x| &x.0 == uuid );
         let _ = match pos_opt {
             Some(pos) => { self.list.remove(pos); },
-            None => println!("Error removing element from interest list; it's not in it"),
+            None => println!("Error deregistering element from interest list; it's not in it"),
         };
     }
 }
@@ -129,6 +128,7 @@ pub struct CommandServer {
     settings: CsSettings,
     command_queue: CommandQueue, // internal command queue
     conn_queue: UnboundedSenderQueue, // UnboundedSenders for idle command-UnboundedSender threadss
+    client: redis::Client,
 }
 
 /// Locks the CommandQueue and returns a queued command, if there are any.
@@ -202,19 +202,14 @@ fn send_command_outer(
 
 /// Manually loop over the converted Stream of commands
 fn dispatch_worker(
-    mut iter: &mut Wait<UnboundedReceiver<WorkerTask>>, al: &Mutex<AlertList>,
-    mut client: &mut redis::Client, mut sleeper_tx: &mut UnboundedSender<TimeoutRequest>,
+    work: WorkerTask, al: &Mutex<AlertList>, mut client: &mut redis::Client,
+    mut sleeper_tx: &mut UnboundedSender<TimeoutRequest>,
     command_queue: CommandQueue, s: &CsSettings
 ) -> Option<()> {
-    let (_, idle_c) = match iter.next() {
-        Some(inner) => inner,
-        None => {
-            return None;
-        }
-    }.expect("Couldn't unwrap #2");
+    let (cr, idle_c) = work;
 
-    // completes initial command and internall iterates until queue is empty
-    // send_command_outer(al, &cr.cmd, &mut client, sleeper_tx, cr.future, command_queue.clone(), 0, s, cr.channel);
+    // completes initial command and internally iterates until queue is empty
+    send_command_outer(al, &cr.cmd, &mut client, sleeper_tx, cr.future, command_queue.clone(), 0, s, cr.channel);
     // keep trying to get queued commands to execute until the queue is empty;
     while let Some(cr) = try_get_new_command(command_queue.clone()) {
         send_command_outer(al, &cr.cmd, client, &mut sleeper_tx, cr.future, command_queue.clone(), 0, s, cr.channel);
@@ -249,11 +244,10 @@ fn init_command_processor(
     // channel for communicating with the sleeper thread
     let (mut sleeper_tx, sleeper_rx) = unbounded::<TimeoutRequest>();
     thread::spawn(move || init_sleeper(sleeper_rx) );
-    let mut iter = cmd_rx.wait();
 
-    loop {
+    for task in cmd_rx.wait() {
         let res = dispatch_worker(
-            &mut iter, al, &mut client, &mut sleeper_tx, command_queue.clone(), s
+            task.unwrap(), al, &mut client, &mut sleeper_tx, command_queue.clone(), s
         );
 
         // exit if we're in the process of collapse
@@ -294,11 +288,14 @@ impl CommandServer {
             conn_queue.push_back(tx);
         }
 
+        let client = get_client(s.redis_host.clone());
+
         CommandServer {
             al: al,
             settings: s,
             command_queue: command_queue,
-            conn_queue: Arc::new(Mutex::new(conn_queue))
+            conn_queue: Arc::new(Mutex::new(conn_queue)),
+            client: client,
         }
     }
 
@@ -324,15 +321,15 @@ impl CommandServer {
         if copy_res {
             self.command_queue.lock().unwrap().push_back(cr);
         }else{
+            // type WorkerTask
+            let req = (cr, idle_c);
             let mut tx;
             {
                 tx = self.conn_queue.lock().unwrap().pop_front().unwrap();
+                tx.send(req).unwrap();
             }
             let cq_clone = self.conn_queue.clone();
-            // type WorkerTask
-            let req = (cr, idle_c);
             thread::spawn(move || {
-                tx.send(req).unwrap();
                 // Wait until the worker thread signals that it is idle
                 let _ = idle_o.wait();
                 // Put the UnboundedSender for the newly idle worker into the connection queue
@@ -344,11 +341,10 @@ impl CommandServer {
     }
 
     pub fn broadcast(
-        &mut self, command: Command, commands_channel: String
-    ) -> Receiver<Result<Vec<Response>, String>> {
+        &mut self, command: Command, commands_channel: String, listeners: usize
+    ) -> Receiver<Vec<Response>> {
         // spawn a new timeout thread just for this request
         let (mut sleeper_tx, sleeper_rx) = unbounded::<TimeoutRequest>();
-        thread::spawn(move || init_sleeper(sleeper_rx) );
         let dur = Duration::from_millis(self.settings.timeout);
 
         let (sleepy_c, _) = oneshot::<Thread>();
@@ -356,25 +352,47 @@ impl CommandServer {
         let (awake_c, awake_o) = oneshot::<Result<Response, ()>>();
         let wr_cmd = command.wrap();
         let wr_cmd_c = wr_cmd.clone();
-        let mut client = get_client(self.settings.redis_host);
-        // threadsafe Vec for holding returned commands
-        let responses = Arc::new(Mutex::new(Vec::new()));
-        let responses_c = responses.clone();
         // Oneshot for sending received responses back with.
-        let (all_responses_c, all_responses_o) = oneshot::<Result<Vec<Response>, String>>();
+        let (all_responses_c, all_responses_o) = oneshot::<Vec<Response>>();
+
         let alc = self.al.clone();
 
-        // Broadcast the command
-        let _ = send_command(&wr_cmd, &mut client, commands_channel.as_str());
+        // register interest for `listeners` listeners
+        let mut pendings = Vec::with_capacity(listeners);
+        for _ in 0..listeners {
+            // oneshot triggered with matching message received
+            let (res_recvd_c, res_recvd_o) = oneshot::<Result<Response, ()>>();
+            let mut al_inner = alc.lock().expect("Unable to unlock to lock al in broadcast");
+            al_inner.register(&wr_cmd.uuid, res_recvd_c);
+            pendings.push(res_recvd_o);
+        }
 
-        thread::spawn(move || {
-            // when a timeout happens, send all received responses back to caller.
+        let alc = self.al.clone();
+        thread::spawn(move || { // timer waiter thread
+            // when a timeout happens, poll all the pending interest listners and send results back
             let _ = awake_o.wait();
-            let rr_inner = responses_c.lock().expect("Unable to lock responses_clone");
+
+            let mut responses = Vec::with_capacity(listeners);
             let mut alc_inner = alc.lock().expect("Unable to lock alc");
-            alc_inner.deregister(&wr_cmd_c.uuid);
-            all_responses_c.complete( Ok( (*rr_inner).clone() ) );
+
+            for mut pending in pendings {
+                match pending.poll() {
+                    // Add the results of complete future to the results array
+                    Ok(Async::Ready(res)) => responses.push(res.unwrap()),
+                    // deregister those that are still pending
+                    Ok(Async::NotReady) => alc_inner.deregister(&wr_cmd_c.uuid),
+                    // do nothing if it was already dropped
+                    Err(_) => (),
+                }
+            }
+
+            all_responses_c.complete(responses);
         });
+
+        thread::spawn(move || init_sleeper(sleeper_rx) ); // timer thread
+
+        // actually send the Command
+        let _ = send_command(&wr_cmd, &mut self.client, commands_channel.as_str());
 
         let timeout_msg = TimeoutRequest {
             dur: dur,
@@ -384,39 +402,12 @@ impl CommandServer {
         // initiate timeout
         sleeper_tx.send(timeout_msg).unwrap();
 
-        fn collect_messages(
-            wr_cmd: WrappedCommand, responses: Arc<Mutex<Vec<Response>>>,
-            al: Arc<Mutex<AlertList>>
-        ) {
-            // oneshot triggered with matching message received
-            let (res_recvd_c, res_recvd_o) = oneshot::<Result<Response, ()>>();
-            // register interest in new Responses coming in with our Command's Uuid
-            {
-                let mut al_inner = al.lock().expect("Unable to unlock to lock al in broadcast");
-                al_inner.register(&wr_cmd.uuid, res_recvd_c);
-            }
-
-            // block until a message is received
-            let response = res_recvd_o.wait();
-            // was deregistered
-            if response.is_err() {
-                return
-            }
-
-            {
-                let mut rr_inner = responses.lock().expect("Unable to lock responses_clone");
-                rr_inner.push(response.unwrap().unwrap());
-            }
-            // re-register interest
-            collect_messages(wr_cmd, responses, al);
-        }
-
-        let alc = self.al.clone();
-        thread::spawn(move || {
-            collect_messages(wr_cmd, responses, alc.clone());
-        });
-
         all_responses_o
+    }
+
+    /// Sends a command asynchronously without bothering to wait for responses.
+    pub fn send_forget(&self, cmd: &Command, channel: &str) {
+        let _ = send_command(&cmd.wrap(), &self.client, channel);
     }
 }
 

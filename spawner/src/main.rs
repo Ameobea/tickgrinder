@@ -66,7 +66,7 @@ impl InstanceManager {
         self.spawn_mm();
 
         // find any disconnected instances
-        let stragglers = self.ping_all().wait().unwrap().unwrap();
+        let stragglers = self.ping_all().wait().unwrap();
 
         if CONF.kill_stragglers {
             for straggler_response in stragglers {
@@ -112,7 +112,7 @@ impl InstanceManager {
         // start ping heartbeat
         loop {
             // blocks until all instances return their expected responses or time out
-            let responses = self.ping_all().wait().ok().unwrap().unwrap();
+            let responses = self.ping_all().wait().ok().unwrap();
 
             let dead_uuid_outer = self.get_missing_instance(responses);
             if dead_uuid_outer.is_some() {
@@ -252,7 +252,7 @@ impl InstanceManager {
             Command::SpawnMM => self.spawn_mm(),
             Command::SpawnOptimizer{strategy} => self.spawn_optimizer(strategy),
             Command::SpawnTickParser{symbol} => self.spawn_tick_parser(symbol),
-            Command::SpawnBacktester => self.spawm_backtester(),
+            Command::SpawnBacktester => self.spawn_backtester(),
             Command::SpawnFxcmDataDownloader => self.spawn_fxcm_dd(),
             _ => Response::Error{
                 status: "Command not accepted by the instance spawner".to_string()
@@ -321,7 +321,7 @@ impl InstanceManager {
     }
 
     /// Spawns a Backtester instance.
-    fn spawm_backtester(&mut self) -> Response {
+    fn spawn_backtester(&mut self) -> Response {
         let mod_uuid = Uuid::new_v4();
         let path = CONF.dist_path.to_string() + "backtester";
         let _ = process::Command::new(path)
@@ -346,10 +346,15 @@ impl InstanceManager {
 
     /// Broadcasts a Ping message on the broadcast channel to all running instances.  Returns
     /// a future that fulfills to a Vec containing the uuids of all running instances.
-    fn ping_all(&mut self) -> impl Future<Item = Result<Vec<Response>, String>, Error = futures::Canceled> {
+    fn ping_all(&mut self) -> impl Future<Item = Vec<Response>, Error = futures::Canceled> {
+        let living;
+        {
+            living = self.living.lock().unwrap().len();
+        }
         self.cs.broadcast(
             Command::Ping,
-            CONF.redis_control_channel.to_string()
+            CONF.redis_control_channel.to_string(),
+            living
         )
     }
 
