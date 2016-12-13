@@ -1,6 +1,10 @@
-// functions for communicating with the postgresql database
+// Functions for communicating with the PostgreSQL database
 
 #![allow(unused_must_use)]
+
+extern crate libc;
+
+use libc::{uint64_t, c_void};
 
 use postgres::{Connection, TlsMode};
 use postgres::error;
@@ -61,6 +65,11 @@ fn tick_table_inner(table_name: &str, client: &Connection, pg_user: &str) -> Res
         .map_err(|_| return "Error while querying postgres to set up tick table" );
 
     Ok(())
+}
+
+pub extern "C" fn between_ticks(start_time: uint64_t, end_time: uint64_t) -> *mut c_void {
+    let v = Vec::new::<Tick>();
+    let inner = v.as_slice();
 }
 
 /***************************
