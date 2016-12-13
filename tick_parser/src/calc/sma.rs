@@ -46,6 +46,7 @@ pub struct SimpleMovingAverage {
     ref_tick: Tick,
 }
 
+#[allow(dead_code)]
 impl SimpleMovingAverage {
     pub fn new(period: usize) -> SimpleMovingAverage {
         SimpleMovingAverage {

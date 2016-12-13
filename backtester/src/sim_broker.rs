@@ -9,9 +9,9 @@ use std::thread;
 #[allow(unused_imports)]
 use test;
 
-use futures::Future;
 use futures::{oneshot, Oneshot};
-use futures::stream::{BoxStream, channel, Stream, Receiver};
+use futures::stream::{BoxStream, Stream};
+use futures::sync::mpsc::{unbounded, UnboundedReceiver};
 use uuid::Uuid;
 
 use algobot_util::trading::tick::*;
@@ -24,8 +24,8 @@ pub struct SimBroker {
     tick_receivers: HashMap<String, BoxStream<Tick, ()>>,
     prices: HashMap<String, Arc<(AtomicUsize, AtomicUsize)>>, // broker's view of prices in pips
     timestamp: Arc<AtomicUsize>, // timestamp of last price update received by broker
-    push_stream_handle: mpsc::SyncSender<Result<BrokerMessage, BrokerError>>,
-    push_stream_recv: Option<Receiver<BrokerMessage, BrokerError>>,
+    push_stream_handle: mpsc::SyncSender<BrokerResult>,
+    push_stream_recv: Option<UnboundedReceiver<BrokerResult>>,
 }
 
 impl SimBroker {
@@ -96,8 +96,9 @@ impl Broker for SimBroker {
     }
 
     #[allow(unreachable_code)]
-    fn get_stream(&mut self) -> Result<Receiver<BrokerMessage, BrokerError>, BrokerError> {
+    fn get_stream(&mut self) -> Result<UnboundedReceiver<BrokerResult>, BrokerError> {
         if self.push_stream_recv.is_none() {
+            // TODO: Enable multiple handles to be taken
             return Err(BrokerError::Message{
                 message: "You already took a handle to the push stream and can't take another.".to_string()
             })
@@ -133,9 +134,9 @@ impl SimBroker {
 
     /// Initializes the push stream by creating internal messengers
     #[allow(unreachable_code)] // necessary because bug
-    fn init_stream() -> (mpsc::SyncSender<Result<BrokerMessage, BrokerError>>, Receiver<BrokerMessage, BrokerError>) {
+    fn init_stream() -> (mpsc::SyncSender<Result<BrokerMessage, BrokerError>>, UnboundedReceiver<BrokerResult>) {
         let (mpsc_s, mpsc_r) = mpsc::sync_channel::<Result<BrokerMessage, BrokerError>>(5);
-        let (mut f_s, f_r) = channel::<BrokerMessage, BrokerError>();
+        let (mut f_s, f_r) = unbounded::<BrokerResult>();
 
         thread::spawn(move || {
             // block until message received over a mpsc sender
@@ -143,10 +144,10 @@ impl SimBroker {
             for message in mpsc_r.iter() {
                 match message {
                     Ok(message) => {
-                        f_s = f_s.send(Ok(message)).wait().ok().unwrap();
+                        f_s.send(Ok(message)).unwrap();
                     },
                     Err(err_msg) => {
-                        f_s = f_s.send(Err(err_msg)).wait().ok().unwrap();
+                        f_s.send(Err(err_msg)).unwrap();
                     },
                 }
             }
@@ -301,7 +302,7 @@ impl SimBroker {
     /// Registers a data source into the SimBroker.  Ticks from the supplied generator will be
     /// used to upate the SimBroker's internal prices and transmitted to connected clients.
     pub fn register_tickstream(
-        &mut self, symbol: String, raw_tickstream: Receiver<Tick, ()>
+        &mut self, symbol: String, raw_tickstream: UnboundedReceiver<Tick>
     ) -> Result<(), String> {
         // wire the tickstream so that the broker updates its own prices before sending the
         // price updates off to the client
@@ -324,10 +325,11 @@ impl SimBroker {
     /// Returns the current price for a given symbol or None if the SimBroker
     /// doensn't have a price.
     pub fn get_price(&self, symbol: &String) -> Option<(usize, usize)> {
-        let opt = self.prices.get(symbol).unwrap_or({
+        let opt = self.prices.get(symbol);
+        if opt.is_none() {
             return None
-        });
-        let (ref atom_bid, ref atom_ask) = **opt;
+        }
+        let (ref atom_bid, ref atom_ask) = **opt.unwrap();
         Some((atom_bid.load(Ordering::Relaxed), atom_ask.load(Ordering::Relaxed)))
     }
 
@@ -340,7 +342,7 @@ impl SimBroker {
 /// and uses it to power its own prices, returning a Stream that can be passed off to
 /// a client to serve as its price feed.
 fn wire_tickstream(
-    price_arc: Arc<(AtomicUsize, AtomicUsize)>, symbol: String, tickstream: Receiver<Tick, ()>,
+    price_arc: Arc<(AtomicUsize, AtomicUsize)>, symbol: String, tickstream: UnboundedReceiver<Tick>,
     accounts: Arc<Mutex<HashMap<Uuid, Account>>>, timestamp_atom: Arc<AtomicUsize>,
     push_stream_handle: mpsc::SyncSender<Result<BrokerMessage, BrokerError>>
 ) -> BoxStream<Tick, ()> {
@@ -373,12 +375,10 @@ fn sub_ticks_err() {
 #[bench]
 fn send_push_message(b: &mut test::Bencher) {
     let mut sim_b = SimBroker::new(SimBrokerSettings::default());
-    let receiver = sim_b.get_stream();
-    assert!(receiver.is_ok());
-    receiver.unwrap().for_each(|msg| {
-        // println!("{:?}", msg );
-        Ok(())
-    }).forget();
+    let receiver = sim_b.get_stream().unwrap();
+    thread::spawn(move ||{
+        let _ = receiver.wait();
+    });
 
     b.iter(|| {
         sim_b.push_msg(Ok(BrokerMessage::Success))
@@ -403,6 +403,8 @@ fn tick_positions(b: &mut test::Bencher) {
 #[test]
 fn tick_retransmission() {
     use std::sync::mpsc;
+
+    use futures::Future;
 
     use data::random_reader::RandomReader;
     use data::TickGenerator;

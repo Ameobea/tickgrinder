@@ -7,8 +7,7 @@ use std::thread;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicBool;
 
-use futures::Future;
-use futures::stream::{channel, Receiver};
+use futures::sync::mpsc::{unbounded, UnboundedReceiver};
 use algobot_util::trading::tick::Tick;
 
 use data::*;
@@ -23,11 +22,11 @@ pub struct FlatfileReader {
 impl TickGenerator for FlatfileReader {
     fn get(
         &mut self, mut map: Box<BacktestMap + Send>, cmd_handle: CommandStream
-    )-> Result<Receiver<Tick, ()>, String> {
+    )-> Result<UnboundedReceiver<Tick>, String> {
         // small atomic communication bus between the handle listener and worker threads
         let internal_message: Arc<Mutex<BacktestCommand>> = Arc::new(Mutex::new(BacktestCommand::Stop));
         let got_mail = Arc::new(AtomicBool::new(false));
-        let (mut sender, receiver) = channel::<Tick, ()>();
+        let (mut sender, receiver) = unbounded::<Tick>();
 
         // spawn the worker thread that does the blocking
         let mut _got_mail = got_mail.clone();
@@ -53,7 +52,7 @@ impl TickGenerator for FlatfileReader {
                 // apply the map
                 let t_mod = map.map(tick);
                 if t_mod.is_some() {
-                    sender = sender.send(Ok(tick)).wait().ok().unwrap();
+                    sender.send(tick).unwrap();
                 }
             }
 

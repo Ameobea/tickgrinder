@@ -28,8 +28,8 @@ use std::thread;
 use std::collections::HashMap;
 
 use uuid::Uuid;
-use futures::Future;
-use futures::stream::{Stream, Receiver};
+use futures::stream::Stream;
+use futures::sync::mpsc::UnboundedReceiver;
 use serde_json::to_string;
 
 use algobot_util::transport::command_server::{CommandServer, CsSettings};
@@ -239,7 +239,7 @@ impl Backtester {
 
         // modify the source tickstream to add delay between the ticks or add some other kind of
         // advanced functionality to the way they're outputted
-        let tickstream: Result<Receiver<Tick, ()>, String> = match &definition.backtest_type {
+        let tickstream: Result<UnboundedReceiver<Tick>, String> = match &definition.backtest_type {
             &BacktestType::Fast{delay_ms} => src.get(
                 Box::new(FastMap{delay_ms: delay_ms}), handle_rx
             ),
@@ -267,23 +267,28 @@ impl Backtester {
         // initiate tick flow
         if dst_opt.is_ok() {
             let mut dst = dst_opt.unwrap();
-            let _ = tickstream.unwrap().for_each(move |t| {
-                i += 1;
+            thread::spawn(move || {
+                for t_res in tickstream.unwrap().wait() {
+                    match t_res {
+                        Ok(t) => {
+                            i += 1;
 
-                // send the tick to the sink
-                dst.tick(t);
+                            // send the tick to the sink
+                            dst.tick(t);
 
-                if check_early_exit(&t, &_definition, i) {
-                    println!("Backtest exiting early.");
-                    return Err(())
+                            if check_early_exit(&t, &_definition, i) {
+                                println!("Backtest exiting early.");
+                                return Err(())
+                            }
+                        },
+                        Err(_) => {
+                            println!("Stopping backtest because tickstream has ended");
+                            let _ = internal_handle_tx.send(BacktestCommand::Stop);
+                        }
+                    };
                 }
-
                 Ok(())
-            }).or_else(move |_| {
-                println!("Stopping backtest because tickstream has ended");
-                let _ = internal_handle_tx.send(BacktestCommand::Stop);
-                Ok::<(), ()>(())
-            }).forget();
+            });
         } else {
             let mut simbrokers = self.simbrokers.lock().unwrap();
             let simbroker_opt = simbrokers.get_mut(&dst_opt.err().unwrap());

@@ -6,12 +6,13 @@ use std::thread;
 use std::sync::{Arc, Mutex};
 
 use postgres;
-use futures::stream::{Stream, channel, Sender, Receiver};
-use futures::{Future, oneshot, Complete};
+use futures::{Future, Stream};
+use futures::sync::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
+use futures::sync::oneshot::{channel as oneshot, Sender};
 
 use transport::postgres::{get_client, PostgresConf};
 
-type SenderQueue = Arc<Mutex<VecDeque<Sender<(String, Complete<()>), ()>>>>;
+type SenderQueue = Arc<Mutex<VecDeque<UnboundedSender<(String, Sender<()>)>>>>;
 type QueryQueue = Arc<Mutex<VecDeque<String>>>;
 
 pub struct QueryServer {
@@ -31,7 +32,7 @@ fn execute_query(query: &str, client: &postgres::Connection) {
 }
 
 // Creates a query processor that awaits requests
-fn init_query_processor(rx: Receiver<(String, Complete<()>), ()>, query_queue: QueryQueue,
+fn init_query_processor(rx: UnboundedReceiver<(String, Sender<()>)>, query_queue: QueryQueue,
         pg_conf: PostgresConf) {
     // get a connection to the postgres database
     let client = get_client(pg_conf).expect("Couldn't create postgres connection.");
@@ -43,7 +44,7 @@ fn init_query_processor(rx: Receiver<(String, Complete<()>), ()>, query_queue: Q
         let (query, done_tx) = tup.unwrap();
         execute_query(query.as_str(), &client);
         // keep trying to get queued queries to execute until the queue is empty
-        while let Some(new_query) = try_get_new_query(&*query_queue.clone()) {
+        while let Some(new_query) = try_get_new_query(&*query_queue) {
             execute_query(new_query.as_str(), &client);
         }
         // Let the main thread know it's safe to use the sender again
@@ -59,7 +60,7 @@ impl QueryServer {
         for _ in 0..conn_count {
             let _pg_conf = pg_conf.clone();
             // channel for getting the Sender back from the worker thread
-            let (tx, rx) = channel::<(String, Complete<()>), ()>();
+            let (tx, rx) = unbounded::<(String, Sender<()>)>();
             let qq_copy = query_queue.clone();
             thread::spawn(move || init_query_processor(rx, qq_copy, _pg_conf) );
             // store the sender which can be used to send queries
@@ -73,7 +74,7 @@ impl QueryServer {
         }
     }
 
-    // queues up a query to execute that doesn't return a result
+    // Queues up a query to execute that doesn't return a result.
     pub fn execute(&mut self, query: String) {
         // no connections available
         let temp_lock_res = self.conn_queue.lock().unwrap().is_empty();
@@ -84,19 +85,17 @@ impl QueryServer {
             // push query to the query queue
             self.query_queue.lock().unwrap().push_back(query);
         } else {
-            let tx = self.conn_queue.lock().unwrap().pop_front().unwrap();
+            let mut tx = self.conn_queue.lock().unwrap().pop_front().unwrap();
             let cq_clone = self.conn_queue.clone();
             // future for notifying main thread when query is done and worker is idle
             let (c, o) = oneshot::<()>();
-            tx.send(Ok((query, c))).and_then(|new_tx| {
+            thread::spawn(move || {
+                tx.send( (query, c) ).unwrap();
                 // Wait until the worker thread signals that it is idle
-                o.and_then(move |_| {
-                    // Put the Sender for the newly idle worker into the connection queue
-                    cq_clone.lock().unwrap().push_back(new_tx);
-                    Ok(())
-                }).forget();
-                Ok(())
-            }).forget();
+                let _ = o.wait();
+                // Put the Sender for the newly idle worker into the connection queue
+                cq_clone.lock().unwrap().push_back(tx);
+            });
         }
     }
 }

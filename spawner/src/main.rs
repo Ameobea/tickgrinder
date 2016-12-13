@@ -76,10 +76,14 @@ impl InstanceManager {
                             println!("Malformed Pong received: {:?}", args);
                         } else {
                             println!("Sending Kill message to straggler with uuid {:?}", args[0]);
-                            self.cs.execute(
-                                Command::Kill,
-                                args[0].clone()
-                            );
+                            let mut cs = self.cs.clone();
+                            // TODO: Switch to send_forget when implemented
+                            thread::spawn(move || {
+                                cs.execute(
+                                    Command::Kill,
+                                    args[0].clone()
+                                ).wait().unwrap().unwrap();
+                            });
                         }
                     },
                     _ => {
@@ -354,11 +358,7 @@ impl InstanceManager {
         // TODO: Maybe make this actually verify the responses before returning Ok.
         let mut instances_inner = self.living.lock().unwrap();
         for inst in instances_inner.drain(..) {
-            let prom = self.cs.execute(Command::Kill, inst.uuid.hyphenated().to_string());
-            prom.and_then(|response| {
-                println!("{:?}", response);
-                Ok(())
-            }).forget();
+            let _ = self.cs.execute(Command::Kill, inst.uuid.hyphenated().to_string()).wait();
         }
 
         Response::Ok
@@ -430,21 +430,3 @@ fn spawner_command_processing() {
         Response::Pong{args: vec![spawner.uuid.hyphenated().to_string()]}
     );
 }
-
-// #[test]
-            // disabled until relative pathing implemented TODO
-// fn tick_processor_spawning() {
-//     let mut spawner = InstanceManager::new();
-//     spawner.spawn_tick_parser("_test3".to_string());
-
-//     let living = spawner.living.clone();
-//     let spawned_uuid: Uuid;
-//     {
-//         let living_inner = living.lock().unwrap();
-//         assert_eq!((*living_inner).len(), 1);
-//         spawned_uuid = living_inner[0].uuid.clone();
-//     }
-
-//     let mut cs = CommandServer::new(get_settings());
-//     cs.execute(Command::Kill, spawned_uuid.hyphenated().to_string());
-// }

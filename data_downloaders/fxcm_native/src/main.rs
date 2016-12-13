@@ -467,7 +467,7 @@ fn history_downloader_functionality() {
 
     // start data download in another thread as to not block
     thread::spawn(move ||{
-        let mut downloader = DataDownloader::new(Uuid::new_v4());
+        let downloader = DataDownloader::new(Uuid::new_v4());
         let _ = DataDownloader::init_download::<TxCallback>(symbol, dst, start_time, end_time, downloader.running_downloads.clone(), downloader.cs.clone());
     });
 

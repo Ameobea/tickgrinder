@@ -16,7 +16,9 @@ use std::mem::transmute;
 use libc::{c_char, c_void, uint64_t, c_double};
 use uuid::Uuid;
 use futures::Oneshot;
-use futures::stream::{Stream, Receiver};
+use futures::stream::Stream;
+use futures::sync::oneshot::Receiver;
+use futures::sync::mpsc::{UnboundedSender, UnboundedReceiver};
 
 use algobot_util::trading::broker::*;
 use algobot_util::trading::tick::*;
@@ -73,15 +75,15 @@ pub extern fn tick_downloader_cb(timestamp: uint64_t, bid: uint64_t, ask: uint64
 }
 
 impl Broker for FXCMNative {
-    fn init(&mut self, settings: HashMap<String, String>) -> Oneshot<Result<Self, BrokerError>> where Self:Sized {
+    fn init(&mut self, settings: HashMap<String, String>) -> Receiver<Result<Self, BrokerError>> where Self:Sized {
         unimplemented!();
     }
 
-    fn list_accounts(&mut self) -> Oneshot<Result<HashMap<Uuid, Account>, BrokerError>> {
+    fn list_accounts(&mut self) -> Receiver<Result<HashMap<Uuid, Account>, BrokerError>> {
         unimplemented!();
     }
 
-    fn get_ledger(&mut self, account_id: Uuid) -> Oneshot<Result<Ledger, BrokerError>> {
+    fn get_ledger(&mut self, account_id: Uuid) -> Receiver<Result<Ledger, BrokerError>> {
         unimplemented!();
     }
 
@@ -89,7 +91,7 @@ impl Broker for FXCMNative {
         unimplemented!();
     }
 
-    fn get_stream(&mut self) -> Result<Receiver<BrokerMessage, BrokerError>, BrokerError> {
+    fn get_stream(&mut self) -> Result<UnboundedReceiver<BrokerResult>, BrokerError> {
         unimplemented!();
     }
 

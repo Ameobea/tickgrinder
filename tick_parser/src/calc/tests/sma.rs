@@ -27,6 +27,7 @@ fn sma_accuracy() {
     assert_eq!(avg, man_avg);
 }
 
+#[test]
 fn tick_sma_accuracy() {
     let mut sma = SimpleMovingAverage::new(15);
     let mut t = Tick {bid: 101, ask: 107, timestamp: 1};

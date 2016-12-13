@@ -5,11 +5,11 @@ authors = ["Casey Primozic <me@ameo.link>"]
 
 [dependencies]
 redis = { git = "https://github.com/mitsuhiko/redis-rs" }
-futures = { git = "https://github.com/alexcrichton/futures-rs", rev = "ed43dcc6" }
-postgres = { git = "https://github.com/sfackler/rust-postgres" }
+futures = { git = "https://github.com/alexcrichton/futures-rs" }
+postgres = "0.13"
 serde = "0.8.13"
-serde_json = "0.8.3"
-serde_derive = "<0.8.17"
+serde_json = "0.8"
+serde_derive = "0.8"
 uuid = { version = "0.3.1", features = ["serde", "v4",] }
 
 [lib]

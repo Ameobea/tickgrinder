@@ -4,8 +4,7 @@ use std::thread;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicBool;
 
-use futures::Future;
-use futures::stream::{channel, Receiver};
+use futures::sync::mpsc::{unbounded, UnboundedReceiver};
 use postgres::Connection;
 use postgres::rows::Rows;
 use postgres::error::Error;
@@ -24,11 +23,11 @@ pub struct PostgresReader {
 impl TickGenerator for PostgresReader {
     fn get(
         &mut self, mut map: Box<BacktestMap + Send>, cmd_handle: CommandStream
-    )-> Result<Receiver<Tick, ()>, String> {
+    )-> Result<UnboundedReceiver<Tick>, String> {
         // small atomic communication bus between the handle listener and worker threads
         let internal_message: Arc<Mutex<BacktestCommand>> = Arc::new(Mutex::new(BacktestCommand::Stop));
         let got_mail = Arc::new(AtomicBool::new(false));
-        let (mut sender, receiver) = channel::<Tick, ()>();
+        let (mut tx, rx) = unbounded::<Tick>();
 
         let _got_mail = got_mail.clone();
         let symbol = self.symbol.clone();
@@ -65,7 +64,7 @@ impl TickGenerator for PostgresReader {
                     // apply the map
                     let t_mod = map.map(tick);
                     if t_mod.is_some() {
-                        sender = sender.send(Ok(tick)).wait().ok().unwrap();
+                        tx.send(tick).unwrap();
                     }
 
                     // this should end up being the highest seen timestamp after the inner loop
@@ -79,7 +78,7 @@ impl TickGenerator for PostgresReader {
         // spawn the handle listener thread that awaits commands
         spawn_listener_thread(_got_mail, cmd_handle, internal_message, reader_handle);
 
-        Ok(receiver)
+        Ok(rx)
     }
 }
 

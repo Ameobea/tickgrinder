@@ -1,7 +1,6 @@
 //! A TickGenerator that generates random ticks.
 
-use futures::Future;
-use futures::stream::{channel, Receiver};
+use futures::sync::mpsc::{unbounded, UnboundedReceiver};
 use algobot_util::trading::tick::Tick;
 
 use std::thread;
@@ -21,8 +20,8 @@ pub struct RandomReader{
 impl TickGenerator for RandomReader {
     fn get(
         &mut self, mut map: Box<BacktestMap + Send>, cmd_handle: CommandStream
-    )-> Result<Receiver<Tick, ()>, String> {
-        let (mut tx, rx) = channel::<Tick, ()>();
+    )-> Result<UnboundedReceiver<Tick>, String> {
+        let (mut tx, rx) = unbounded::<Tick>();
         let mut timestamp = 0;
 
         // small atomic communication bus between the handle listener and worker threads
@@ -56,7 +55,7 @@ impl TickGenerator for RandomReader {
                 // apply the map
                 let mod_t = map.map(t);
                 if mod_t.is_some() {
-                    tx = tx.send(Ok(mod_t.unwrap())).wait().ok().unwrap();
+                    tx.send(mod_t.unwrap()).unwrap();
                 }
             }
         }).thread().clone();

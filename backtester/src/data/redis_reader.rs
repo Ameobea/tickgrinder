@@ -2,8 +2,8 @@
 
 use std::thread;
 
-use futures::Future;
-use futures::stream::{Stream, channel, Receiver};
+use futures::Stream;
+use futures::sync::mpsc::{unbounded, UnboundedReceiver};
 use algobot_util::trading::tick::Tick;
 use algobot_util::transport::redis::sub_channel;
 
@@ -19,11 +19,11 @@ pub struct RedisReader {
 impl TickGenerator for RedisReader {
     fn get(
         &mut self, mut map: Box<BacktestMap + Send>, handle: CommandStream
-    )-> Result<Receiver<Tick, ()>, String> {
+    )-> Result<UnboundedReceiver<Tick>, String> {
         let host = self.redis_host.clone();
         let input_channel = self.channel.clone();
 
-        let (mut tx, rx) = channel::<Tick, ()>();
+        let (mut tx, rx) = unbounded::<Tick>();
 
         thread::spawn(move || {
             let in_rx = sub_channel(host.as_str(), input_channel.as_str());
@@ -34,7 +34,7 @@ impl TickGenerator for RedisReader {
                 // apply map
                 let t_mod = map.map(t);
                 if t_mod.is_some() {
-                    tx = tx.send(Ok(t_mod.unwrap())).wait().ok().unwrap();
+                    tx.send(t_mod.unwrap()).unwrap();
                 }
             }
         });

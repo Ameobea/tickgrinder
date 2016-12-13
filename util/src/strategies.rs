@@ -20,7 +20,7 @@ use transport::query_server::QueryServer;
 
 pub trait Strategy<'a> {
     /// Make sure that all strategies include ways to interact with the optimizer in a standardized way
-    fn new<'b, B>(cs: CommandServer, qs: QueryServer, broker: &'a mut B) -> Self where B:Broker + 'b;
+    fn new<'b, B>(cs: CommandServer, qs: QueryServer, broker: &'a mut B) -> Self where B:Broker + 'b + 'a;
 
     /// Instruct the strategy to initialize itself, subscribing to data streams and communicating with the
     /// the rest of the platform as necessary

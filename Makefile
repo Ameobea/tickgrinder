@@ -62,14 +62,14 @@ debug:
 	# build all strategies and copy into dist/lib
 	for dir in ./strategies/*/; \
 	do \
-		cd $$dir && cargo build && \
-		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../dist/lib && \
-		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../util/target/release/deps && \
+		cd $$dir && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build && \
+		cp target/debug/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../dist/lib && \
+		cp target/debug/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../util/target/debug/deps && \
 		cd ../..; \
 	done
 
 	# build the FXCM shim
-	cd util/src/trading/broker/shims/FXCM/native/native ./build.sh
+	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
 	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
 	cd util/src/trading/broker/shims/FXCM/native && RUSTFLAGS="-L ../../../../../../../util/target/debug/deps -L ../../../../../../../dist/lib -C prefer-dynamic" cargo build
 	cp util/src/trading/broker/shims/FXCM/native/target/debug/libfxcm.so dist/lib
@@ -87,7 +87,7 @@ debug:
 	cp ./mm dist -r
 
 	# build the FXCM native data downloader
-	cd data_downloaders/fxcm_native && cargo build
+	cd data_downloaders/fxcm_native && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build
 	cp data_downloaders/fxcm_native/target/debug/fxcm_native dist/fxcm_native_downloader
 
 strip:
@@ -108,6 +108,7 @@ clean:
 	rm backtester/target -rf
 	rm mm/node_modules -rf
 	rm util/src/trading/broker/shims/FXCM/native/native/dist -rf
+	rm util/src/trading/broker/shims/FXCM/native/target -rf
 
 test:
 	make init
@@ -116,6 +117,12 @@ test:
 	cp util/target/debug/libalgobot_util.so dist/lib
 	# copy libstd to the dist/lib directory
 	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
+
+	# build the FXCM shim
+	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
+	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
+	cd util/src/trading/broker/shims/FXCM/native && RUSTFLAGS="-L ../../../../../../../util/target/debug/deps -L ../../../../../../../dist/lib -C prefer-dynamic" cargo build
+	cp util/src/trading/broker/shims/FXCM/native/target/debug/libfxcm.so dist/lib
 
 	# build all strategies and copy into dist/lib
 	for dir in ./strategies/*/; \
@@ -132,8 +139,8 @@ test:
 	cd tick_parser && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd backtester && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd mm && npm install
-	cd util/src/trading/broker/shims/FXCM/native && ./test.sh
-	cd data_downloaders/fxcm_native && ./test.sh
+	cd util/src/trading/broker/shims/FXCM/native && LD_LIBRARY_PATH=native/dist:../../../../../../target/debug/deps cargo test -- --nocapture
+	cd data_downloaders/fxcm_native && LD_LIBRARY_PATH="../../dist/lib" RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	# TODO: Collect the results into a nice format
 
 bench:
@@ -205,23 +212,6 @@ kill:
 
 # used to set up the development environment
 init:
-	if [[ $$(which rustup) ]]; then \
-		if [[ $$(rustup show | grep nightly-2016-10-10 ) ]]; then \
-			rustup override set nightly-2016-10-10; \
-		else \
-			rustup install nightly-2016-10-10; \
-		fi \
-	else \
-		echo -e "\e[91mRustup is not installed or not in the path;"; \
-		echo -e "You need rustup to build this application."; \
-		echo -e "\e[94mYou can install rustup here: https://rustup.rs/\e[0m"; \
-		echo "Would you like to install it now? "; \
-		read -p "[Y/n]:" bool; \
-		if [[ $$bool =~ ^([yY][eE][sS]|[yY])$$ ]]; then \
-			curl https://sh.rustup.rs -sSf | sh; \
-		fi \
-	fi
-
 	if [[ ! -a tick_parser/src/conf.rs ]]; then \
 		cp tick_parser/src/conf.default.rs tick_parser/src/conf.rs; \
 		cp spawner/src/conf.default.rs spawner/src/conf.rs; \

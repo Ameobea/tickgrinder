@@ -7,7 +7,7 @@ use std::thread::Thread;
 #[allow(unused_imports)]
 use test;
 
-use futures::stream::Receiver;
+use futures::sync::mpsc::UnboundedReceiver;
 use algobot_util::trading::tick::Tick;
 
 use backtest::BacktestMap;
@@ -37,7 +37,7 @@ pub type CommandStream = mpsc::Receiver<BacktestCommand>;
 pub trait TickGenerator {
     /// Returns a stream that resolves to new Ticks
     fn get(&mut self, map: Box<BacktestMap + Send>, cmd_handle: CommandStream)
-        -> Result<Receiver<Tick, ()>, String>;
+        -> Result<UnboundedReceiver<Tick>, String>;
 }
 
 /// Handles backtest messages within the backtest's worker thread.  If this returns true,

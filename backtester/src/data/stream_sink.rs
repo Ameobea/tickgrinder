@@ -3,8 +3,7 @@
 use std::thread;
 use std::sync::mpsc;
 
-use futures::Future;
-use futures::stream::Sender;
+use futures::sync::mpsc::UnboundedSender;
 use algobot_util::trading::tick::Tick;
 
 use data::TickSink;
@@ -18,12 +17,12 @@ pub struct StreamSink {
 // futures channel due to the fact that futures-rs is terrible but we're WAY too
 // commmitted to go back now.
 impl StreamSink {
-    pub fn new(symbol: String, dst_tx: Sender<Tick, ()>) -> StreamSink {
+    pub fn new(symbol: String, dst_tx: UnboundedSender<Tick>) -> StreamSink {
         let (tx, rx) = mpsc::channel::<Tick>();
         thread::spawn(move || {
             let mut dst_tx = dst_tx;
             for t in rx.iter() {
-                dst_tx = dst_tx.send(Ok(t)).wait().ok().unwrap();
+                dst_tx.send(t).unwrap();
             }
         });
 

@@ -1,1 +1,1 @@
-make && make dev && ./run.sh
+make debug && make dev && ./run.sh

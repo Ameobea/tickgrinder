@@ -80,7 +80,8 @@ impl Optimizer {
         let rx = sub_multiple(CONF.redis_host, &[self.uuid.hyphenated().to_string().as_str(), CONF.redis_commands_channel]);
         let client = get_client(CONF.redis_host);
 
-        self.cs.execute(Command::Ready{
+        // TODO: Switch to send_forget once implemented
+        let _ = self.cs.execute(Command::Ready{
             instance_type: "Optimizer".to_string(),
             uuid: self.uuid,
         }, CONF.redis_commands_channel.to_string());

@@ -5,6 +5,7 @@ pub struct DataField<T> {
     pub data: Vec<T>
 }
 
+#[allow(dead_code)]
 impl<T> DataField<T> {
     pub fn new() -> DataField<T> {
         DataField {

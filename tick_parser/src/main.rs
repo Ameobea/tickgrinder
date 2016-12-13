@@ -18,10 +18,8 @@ mod conf;
 mod processor;
 mod tests;
 
-use std::thread;
 use std::env;
 
-use futures::Future;
 use futures::stream::Stream;
 use uuid::Uuid;
 
@@ -48,9 +46,8 @@ fn handle_messages(symbol: String, uuid: Uuid) {
         uuid: uuid,
     }.wrap(), &processor.redis_client, CONF.redis_control_channel);
 
-    rx.for_each(move |pair| {
-        let (channel, message) = pair;
-
+    for res in rx.wait() {
+        let (channel, message) = res.unwrap();
         if channel == ticks_channel {
             processor.process(SymbolTick::from_json_string(message))
         } else if channel == uuid_string.as_str()
@@ -63,9 +60,7 @@ fn handle_messages(symbol: String, uuid: Uuid) {
                 message
             );
         }
-
-        Ok(())
-    }).forget();
+    }
 }
 
 fn main() {
@@ -96,8 +91,6 @@ fn main() {
         println!("Database reset");
     }
 
-    // Start the listeners for everything
+    // Start the listeners for everything and blocks
     handle_messages(symbol, uuid);
-
-    thread::park();
 }
