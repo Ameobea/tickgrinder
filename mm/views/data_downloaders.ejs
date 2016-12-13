@@ -67,4 +67,24 @@
 </tr></table>
 
 <h1>Manage Downloaded Data</h1>
-<b>TODO</b>
+
+<h2>Transfer Data</h2>
+<p>Transfers data from one place to another, converting it between formats.</p>
+<table><tr>
+<td>Src: <select>
+    <option value="Postgres">PostgreSQL Table</option>
+    <option value="Flatfile">Flatfile</option>
+</select><br>
+<span id="postgres-config" style="display: none;">
+    Postgres Table: <input type="text" id="postgres-table">
+</span></td>
+<td>Dst: <select>
+    <option value="Postgres">PostgreSQL Table</option>
+    <option value="Flatfile">Flatfile</option>
+</select><br>
+<span id="postgres-config" style="display: none;">
+    Postgres Table: <input type="text" id="postgres-table">
+</span></td>
+</tr><tr><td>
+    <button onclick="alert('TODO')">Transfer Data</button>
+</td></tr></table>

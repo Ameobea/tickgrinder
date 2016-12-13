@@ -21,7 +21,6 @@ use std::sync::{Arc, Mutex};
 use std::str::FromStr;
 
 use futures::Stream;
-use futures::stream::Wait;
 use futures::sync::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
 use futures::Future;
 use futures::sync::oneshot::{channel as oneshot, Sender, Receiver};
@@ -202,19 +201,14 @@ fn send_command_outer(
 
 /// Manually loop over the converted Stream of commands
 fn dispatch_worker(
-    mut iter: &mut Wait<UnboundedReceiver<WorkerTask>>, al: &Mutex<AlertList>,
-    mut client: &mut redis::Client, mut sleeper_tx: &mut UnboundedSender<TimeoutRequest>,
+    work: WorkerTask, al: &Mutex<AlertList>, mut client: &mut redis::Client,
+    mut sleeper_tx: &mut UnboundedSender<TimeoutRequest>,
     command_queue: CommandQueue, s: &CsSettings
 ) -> Option<()> {
-    let (_, idle_c) = match iter.next() {
-        Some(inner) => inner,
-        None => {
-            return None;
-        }
-    }.expect("Couldn't unwrap #2");
+    let (cr, idle_c) = work;
 
-    // completes initial command and internall iterates until queue is empty
-    // send_command_outer(al, &cr.cmd, &mut client, sleeper_tx, cr.future, command_queue.clone(), 0, s, cr.channel);
+    // completes initial command and internally iterates until queue is empty
+    send_command_outer(al, &cr.cmd, &mut client, sleeper_tx, cr.future, command_queue.clone(), 0, s, cr.channel);
     // keep trying to get queued commands to execute until the queue is empty;
     while let Some(cr) = try_get_new_command(command_queue.clone()) {
         send_command_outer(al, &cr.cmd, client, &mut sleeper_tx, cr.future, command_queue.clone(), 0, s, cr.channel);
@@ -249,11 +243,10 @@ fn init_command_processor(
     // channel for communicating with the sleeper thread
     let (mut sleeper_tx, sleeper_rx) = unbounded::<TimeoutRequest>();
     thread::spawn(move || init_sleeper(sleeper_rx) );
-    let mut iter = cmd_rx.wait();
 
-    loop {
+    for task in cmd_rx.wait() {
         let res = dispatch_worker(
-            &mut iter, al, &mut client, &mut sleeper_tx, command_queue.clone(), s
+            task.unwrap(), al, &mut client, &mut sleeper_tx, command_queue.clone(), s
         );
 
         // exit if we're in the process of collapse
@@ -324,15 +317,15 @@ impl CommandServer {
         if copy_res {
             self.command_queue.lock().unwrap().push_back(cr);
         }else{
+            // type WorkerTask
+            let req = (cr, idle_c);
             let mut tx;
             {
                 tx = self.conn_queue.lock().unwrap().pop_front().unwrap();
+                tx.send(req).unwrap();
             }
             let cq_clone = self.conn_queue.clone();
-            // type WorkerTask
-            let req = (cr, idle_c);
             thread::spawn(move || {
-                tx.send(req).unwrap();
                 // Wait until the worker thread signals that it is idle
                 let _ = idle_o.wait();
                 // Put the UnboundedSender for the newly idle worker into the connection queue

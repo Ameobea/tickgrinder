@@ -72,10 +72,10 @@ impl Optimizer {
         let query_server = QueryServer::new(CONF.conn_senders, PG_CONF);
         let mut broker = FXCMNative::new(HashMap::new());
         let cs = self.cs.clone();
-        thread::spawn(move || {
-            let mut strat = strat::new(cs, query_server, &mut broker);
-            strat.init();
-        });
+        // thread::spawn(move || {
+        //     let mut strat = strat::new(cs, query_server, &mut broker);
+        //     strat.init();
+        // });
 
         let rx = sub_multiple(CONF.redis_host, &[self.uuid.hyphenated().to_string().as_str(), CONF.redis_commands_channel]);
         let client = get_client(CONF.redis_host);
