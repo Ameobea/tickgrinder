@@ -20,7 +20,7 @@ use std::time::Duration;
 use std::sync::{Arc, Mutex};
 use std::str::FromStr;
 
-use futures::{Stream, Async};
+use futures::{Stream, Canceled};
 use futures::sync::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
 use futures::Future;
 use futures::sync::oneshot::{channel as oneshot, Sender, Receiver};
@@ -54,9 +54,9 @@ type WorkerTask = (CommandRequest, Sender<()>);
 type UnboundedSenderQueue = Arc<Mutex<VecDeque<UnboundedSender<WorkerTask>>>>;
 /// Threadsafe queue containing commands waiting to be sent
 type CommandQueue = Arc<Mutex<VecDeque<CommandRequest>>>;
-/// A Vec containing a UUID of a Response that's expected and a Sender to send the
+/// A Vec containing a UUID of a Response that's expected and a UnboundedSender to send the
 /// response through once it arrives
-type RegisteredList = Vec<(Uuid, Sender<Result<Response, ()>>)>;
+type RegisteredList = Vec<(Uuid, UnboundedSender<Result<Response, ()>>)>;
 /// A message to be sent to the Timeout thread containing how long to time out for,
 /// a oneshot that resolves to a handle to the Timeout's thread as soon as the timeout begins,
 /// and a oneshot that resolves to Err(()) if the timeout completes.
@@ -78,22 +78,15 @@ struct AlertList {
     pub list: RegisteredList,
 }
 
-/// Send out the Response to any workers that registered interest to its Uuid
+/// Send out the Response to a worker that is registered interest to its Uuid
 fn send_messages(res: WrappedResponse, al: &Mutex<AlertList>) {
-    let mut to_complete = Vec::new();
-    {
-        let mut al_inner = al.lock().expect("Unable to unlock al n send_messages");
-        let pos_opt = al_inner.list.iter_mut().position(|ref x| x.0 == res.uuid );
-        match pos_opt {
-            Some(pos) => {
-                let (_, complete) = al_inner.list.remove(pos);
-                to_complete.push( (complete, res.res) );
-            },
-            None => (),
-        }
-    }
-    for (c, res) in to_complete {
-        c.complete( Ok(res) );
+    let mut al_inner = al.lock().expect("Unable to unlock al n send_messages");
+    let pos_opt: Option<&mut (_, UnboundedSender<Result<Response, ()>>)> = al_inner.list.iter_mut().find(|ref x| x.0 == res.uuid );
+    match pos_opt {
+        Some( &mut (_, ref mut sender) ) => {
+            sender.send( Ok(res.res) ).expect("Unable to send through subscribed future");
+        },
+        None => (),
     }
 }
 
@@ -108,7 +101,7 @@ impl AlertList {
 
     /// Register interest in Results with a specified Uuid and send
     /// the Result over the specified Oneshot when it's received
-    pub fn register(&mut self, response_uuid: &Uuid, c: Sender<Result<Response, ()>>) {
+    pub fn register(&mut self, response_uuid: &Uuid, c: UnboundedSender<Result<Response, ()>>) {
         self.list.push((*response_uuid, c));
     }
 
@@ -160,17 +153,24 @@ fn send_command_outer(
     sleeper_tx.send(timeout_msg).unwrap();
     // sleepy_o fulfills immediately to a handle to the sleeper thread
     let sleepy_handle = sleepy_o.wait();
-    // oneshot for sending the Response back
-    let (res_recvd_c, res_recvd_o) = oneshot::<Result<Response, ()>>();
+    // UnboundedSender for giving to the AlertList and sending the response back
+    let (res_recvd_c, res_recvd_o) = unbounded::<Result<Response, ()>>();
     // register interest in new Responses coming in with our Command's Uuid
     {
-        al.lock().expect("Unlock to lock al in send_command_outer")
+        al.lock().expect("Unlock to lock al in send_command_outer #1")
             .register(&wr_cmd.uuid, res_recvd_c);
     }
-    res_recvd_o.select(awake_o).and_then(move |res| {
+    res_recvd_o.into_future().map(|(item_opt, _)| {
+        item_opt.expect("item_opt was None")
+    }).map_err(|_| Canceled ).select(awake_o).and_then(move |res| {
         let (status, _) = res;
         match status {
             Ok(wrapped_res) => { // command received
+                {
+                    // deregister since we're only waiting on one message
+                    al.lock().expect("Unlock to lock al in send_command_outer #2")
+                        .deregister(&wr_cmd.uuid);
+                }
                 // end the timeout now so that we can re-use sleeper thread
                 sleepy_handle.expect("Couldn't unwrap handle to sleeper thread").unpark();
                 // resolve the Response future
@@ -351,41 +351,47 @@ impl CommandServer {
         // awake_o fulfills when the timeout expires
         let (awake_c, awake_o) = oneshot::<Result<Response, ()>>();
         let wr_cmd = command.wrap();
-        let wr_cmd_c = wr_cmd.clone();
         // Oneshot for sending received responses back with.
         let (all_responses_c, all_responses_o) = oneshot::<Vec<Response>>();
 
         let alc = self.al.clone();
 
-        // register interest for `listeners` listeners
-        let mut pendings = Vec::with_capacity(listeners);
-        for _ in 0..listeners {
+        let (res_recvd_c, res_recvd_o) = unbounded::<Result<Response, ()>>();
+        {
             // oneshot triggered with matching message received
-            let (res_recvd_c, res_recvd_o) = oneshot::<Result<Response, ()>>();
             let mut al_inner = alc.lock().expect("Unable to unlock to lock al in broadcast");
             al_inner.register(&wr_cmd.uuid, res_recvd_c);
-            pendings.push(res_recvd_o);
         }
 
-        let alc = self.al.clone();
+        let responses_container = Arc::new(Mutex::new(Vec::with_capacity(listeners)));
+        let responses_container_clone = responses_container.clone();
+        thread::spawn(move || {
+            for response in res_recvd_o.wait() {
+                match response {
+                    Ok(res) => {
+                        let mut responses = responses_container_clone.lock().unwrap();
+                        responses.push(res.expect("Inner error in responses iterator"))
+                    },
+                    Err(err) => println!("Got error from response iterator: {:?}", err),
+                }
+            }
+        });
+
+        let wr_cmd_c = wr_cmd.clone();
         thread::spawn(move || { // timer waiter thread
             // when a timeout happens, poll all the pending interest listners and send results back
             let _ = awake_o.wait();
 
-            let mut responses = Vec::with_capacity(listeners);
-            let mut alc_inner = alc.lock().expect("Unable to lock alc");
-
-            for mut pending in pendings {
-                match pending.poll() {
-                    // Add the results of complete future to the results array
-                    Ok(Async::Ready(res)) => responses.push(res.unwrap()),
-                    // deregister those that are still pending
-                    Ok(Async::NotReady) => alc_inner.deregister(&wr_cmd_c.uuid),
-                    // do nothing if it was already dropped
-                    Err(_) => (),
-                }
+            // deregister interest
+            {
+                let mut al_inner = alc.lock().expect("Unable to unlock to lock al in broadcast");
+                al_inner.deregister(&wr_cmd_c.uuid);
             }
 
+            let responses;
+            {
+                responses = responses_container.lock().unwrap().clone();
+            }
             all_responses_c.complete(responses);
         });
 

@@ -4,8 +4,8 @@ version = "0.1.0"
 authors = ["Casey Primozic <me@ameo.link>"]
 
 [dependencies]
-redis = { git = "https://github.com/mitsuhiko/redis-rs" }
-futures = { git = "https://github.com/alexcrichton/futures-rs" }
+redis = "0.5.3"
+futures = "0.1.6"
 postgres = "0.13"
 serde = "0.8.13"
 serde_json = "0.8"

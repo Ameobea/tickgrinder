@@ -109,6 +109,7 @@ clean:
 	rm mm/node_modules -rf
 	rm util/src/trading/broker/shims/FXCM/native/native/dist -rf
 	rm util/src/trading/broker/shims/FXCM/native/target -rf
+	rm data_downloaders/fxcm_native/target -rf
 
 test:
 	make init
