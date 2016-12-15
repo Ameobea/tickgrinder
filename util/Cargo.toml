@@ -11,6 +11,7 @@ serde = "0.8.13"
 serde_json = "0.8"
 serde_derive = "0.8"
 uuid = { version = "0.3.1", features = ["serde", "v4",] }
+indoc = "^0.1"
 # diesel = "0.9.0"
 # diesel_codegen = { version = "0.9.0", features = ["postgres"] }
 # dotenv = "0.8.0"
