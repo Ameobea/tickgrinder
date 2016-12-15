@@ -45,6 +45,10 @@ release:
 	cd data_downloaders/fxcm_native && cargo build --release
 	cp data_downloaders/fxcm_native/target/release/fxcm_native dist/fxcm_native_downloader
 
+	# build the configurator
+	cd configurator && cargo build --release
+	cp configurator/target/release/configurator dist
+
 dev:
 	rm dist/mm -r
 	cd dist && ln -s ../mm/ ./mm
@@ -93,6 +97,10 @@ debug:
 	# build the FXCM native data downloader
 	cd data_downloaders/fxcm_native && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build
 	cp data_downloaders/fxcm_native/target/debug/fxcm_native dist/fxcm_native_downloader
+
+	# build the configurator
+	cd configurator && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cp configurator/target/debug/configurator dist
 
 strip:
 	cd dist && strip backtester spawner optimizer tick_processor
