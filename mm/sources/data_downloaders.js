@@ -56,7 +56,7 @@ function writeDataDownloaders(cb) {
     var html = "<tr><td>Instance Type</td><td>UUID</td></tr>";
     for(var i=0; i<ids.length; i++){
       html += `<tr><td>${ids[i][0]}</td><td>${ids[i][1]}</td></tr>`;
-      $("#download-list").append(`<option value="${ids[i][1]}">${ids[i][1]}</option>`);
+      $(".download-list").append(`<option value="${ids[i][1]}">${ids[i][1]}</option>`);
     }
     $("#active_instances").html(html);
     cb(ids);
@@ -111,7 +111,7 @@ function writeBoth() {
 
 function startDownload() {
   var val = $("#data-dst").val();
-  var channel = $("#download-list").val();
+  var channel = $("#download-download-list").val();
   var args = {
     symbol: $("#symbol").val(),
     start_time: $("#start-time").val(),
@@ -146,6 +146,31 @@ function spawnDataDownloader(type) {
   if(type == "FXCM"){
     sendCommand("SpawnFxcmDataDownloader", "control", "", v4(), function(){});
   }
+}
+
+/// Sends a command to the Data Downloader to transfer data from one place to another.
+function transferData() {
+  var downloadId = $("#transfer-downloader-id").val();
+
+  var src = $("#transfer-src").val();
+  var srcArgs = {};
+  if(src == "Flatfile"){
+    srcArgs = {Flatfile: {filename: $("#transfer-src-filename").val()}};
+  } else {
+    srcArgs = {Postgres: {table: $("#transfer-src-postgres-table").val()}};
+  }
+
+  var dst = $("#transfer-dst").val();
+  var dstArgs = {};
+  if(dst == "Flatfile"){
+    dstArgs = {Flatfile: {filename: $("#transfer-dst-filename").val()}};
+  } else {
+    dstArgs = {Postgres: {table: $("#transfer-dst-postgres-table").val()}};
+  }
+
+  var args = {src: srcArgs, dst: dstArgs};
+
+  sendCommand("TransferHistData", downloadId, JSON.stringify(args), v4(), function(){});
 }
 
 function setResponse(html) {

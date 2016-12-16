@@ -357,7 +357,7 @@ pub fn get_rx_closure(dst: HistTickDst) -> Result<RxCallback, String> {
             // create the file if it doesn't exist and write the header row
             if !path.exists() {
                 let mut f = File::create(path).unwrap();
-                f.write_all("timestamp, bid, ask".as_bytes())
+                f.write_all("timestamp, bid, ask\n".as_bytes())
                     .expect("couldn't write header row to output file.");
             }
 
@@ -388,8 +388,20 @@ pub fn get_rx_closure(dst: HistTickDst) -> Result<RxCallback, String> {
             let _ = try!(init_hist_data_table(table.as_str(), &connection, CONF.postgres_user));
             let mut qs = QueryServer::new(10, PG_CONF);
 
+            let mut inner_buffer = Vec::with_capacity(5000);
+
             let inner = move |t: Tick| {
-                t.store_table(table.as_str(), &mut qs);
+                let val = format!("({}, {}, {})", t.timestamp, t.bid, t.ask);
+                inner_buffer.push(val);
+                if inner_buffer.len() > 4999 {
+                    let mut query = String::from(format!("INSERT INTO {} (tick_time, bid, ask) VALUES ", table));
+                    let values = inner_buffer.as_slice().join(", ");
+                    query += &values;
+                    query += ";";
+
+                    qs.execute(query);
+                    inner_buffer.clear();
+                }
             };
 
             RxCallback {

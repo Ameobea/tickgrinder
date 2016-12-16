@@ -97,8 +97,8 @@ impl Tick {
         let spl: Vec<&str> = s.split(", ").collect();
         Tick {
             timestamp: usize::from_str_radix(spl[0], 10).unwrap(),
-            bid: usize::from_str(spl[1]).unwrap(),
-            ask: usize::from_str(spl[2]).unwrap()
+            bid: usize::from_str_radix(spl[1], 10).unwrap(),
+            ask: usize::from_str_radix(spl[2].split("\n").collect::<Vec<_>>()[0], 10).unwrap()
         }
     }
 }
@@ -117,7 +117,7 @@ impl SymbolTick {
 
 #[bench]
 fn from_csv_string(b: &mut test::Bencher) {
-    let s = "1476650327123, 123134, 123156";
+    let s = "1476650327123, 123134, 123156\n";
     let mut t = Tick::null();
     let _ = b.iter(|| {
         t = Tick::from_csv_string(s)

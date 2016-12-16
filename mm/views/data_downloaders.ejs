@@ -36,7 +36,7 @@
 
 <h2>Start Data Download</h2>
 <table><tr>
-    <td>Downloader ID: <select id="download-list"></select></td>
+    <td>Downloader ID: <select id="download-download-list" class="download-list"></select></td>
     <td>Symbol: <input type="text" id="symbol" value="EUR/USD"></td>
 </tr><tr><td colspan=2><center><p><b>Times in format <code>m.d.Y H:M:S</code></b></p></center></td></tr><tr>
     <td>Start Time: <input type="text" id="start-time" value="01.01.2016 00:00:00"></td>
@@ -50,7 +50,7 @@
         <option value="console">Console</option>
     </select></td>
     </tr><tr><td><span id="flatfile-config">
-        Output File Path: <input type="text" id="flatfile-filename" value="/home/user/ticks/EURUSD.csv">
+        Output File Path: <input type="text" id="flatfile-filename">
     </span>
     <span id="redis-channel-config" style="display: none;">
         Host: <input type="text" id="redis-channel-host" value="redis://localhost/">
@@ -71,20 +71,27 @@
 <h2>Transfer Data</h2>
 <p>Transfers data from one place to another, converting it between formats.</p>
 <table><tr>
-<td>Src: <select>
-    <option value="Postgres">PostgreSQL Table</option>
+<td colspan="2">Downloader ID: <select id="transfer-downloader-id" class="download-list"></select></td>
+</tr><tr><td>Src: <select id="transfer-src">
     <option value="Flatfile">Flatfile</option>
+    <option value="Postgres">PostgreSQL Table</option>
 </select><br>
-<span id="postgres-config" style="display: none;">
-    Postgres Table: <input type="text" id="postgres-table">
+<span id="transfer-src-flatfile">
+    Filename: <input type="text" id="transfer-src-filename">
+</span>
+<span id="transfer-src-postgres" style="display: none;">
+    Postgres Table: <input type="text" id="transfer-src-postgres-table">
 </span></td>
-<td>Dst: <select>
+<td>Dst: <select id="transfer-dst">
     <option value="Postgres">PostgreSQL Table</option>
     <option value="Flatfile">Flatfile</option>
 </select><br>
-<span id="postgres-config" style="display: none;">
-    Postgres Table: <input type="text" id="postgres-table">
+<span id="transfer-dst-postgres">
+    Postgres Table: <input type="text" id="transfer-dst-postgres-table">
+</span>
+<span id="transfer-dst-flatfile" style="display: none;">
+    Filename: <input type="text" id="transfer-dst-filename">
 </span></td>
 </tr><tr><td>
-    <button onclick="alert('TODO')">Transfer Data</button>
+    <button onclick="transferData()">Transfer Data</button>
 </td></tr></table>
