@@ -341,7 +341,7 @@ impl CommandServer {
     }
 
     pub fn broadcast(
-        &mut self, command: Command, commands_channel: String, listeners: usize
+        &mut self, command: Command, commands_channel: String
     ) -> Receiver<Vec<Response>> {
         // spawn a new timeout thread just for this request
         let (mut sleeper_tx, sleeper_rx) = unbounded::<TimeoutRequest>();
@@ -363,7 +363,7 @@ impl CommandServer {
             al_inner.register(&wr_cmd.uuid, res_recvd_c);
         }
 
-        let responses_container = Arc::new(Mutex::new(Vec::with_capacity(listeners)));
+        let responses_container = Arc::new(Mutex::new(Vec::new()));
         let responses_container_clone = responses_container.clone();
         thread::spawn(move || {
             for response in res_recvd_o.wait() {

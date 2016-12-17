@@ -347,14 +347,9 @@ impl InstanceManager {
     /// Broadcasts a Ping message on the broadcast channel to all running instances.  Returns
     /// a future that fulfills to a Vec containing the uuids of all running instances.
     fn ping_all(&mut self) -> impl Future<Item = Vec<Response>, Error = futures::Canceled> {
-        let living;
-        {
-            living = self.living.lock().unwrap().len();
-        }
         self.cs.broadcast(
             Command::Ping,
-            CONF.redis_control_channel.to_string(),
-            living
+            CONF.redis_control_channel.to_string()
         )
     }
 

@@ -136,7 +136,7 @@ fn command_server_broadcast() {
             .execute(&mut client);
     }
 
-    let responses = responses_future.wait().unwrap().unwrap();
+    let responses = responses_future.wait().unwrap();
     assert_eq!(responses.len(), 2);
     thread::sleep(Duration::new(3,0));
 }
