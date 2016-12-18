@@ -139,7 +139,7 @@ bool init_history_download(
         strptime(endTime, "%m.%d.%Y %H:%M:%S", &tmBuf);
         CO2GDateUtils::CTimeToOleTime(&tmBuf, &dateTo);
 
-        IO2GRequest * request = reqFactory->createMarketDataSnapshotRequestInstrument("EUR/USD", timeFrame, 300);
+        IO2GRequest * request = reqFactory->createMarketDataSnapshotRequestInstrument(symbol, timeFrame, 300);
         ResponseListener *responseListener = new ResponseListener(session);
         session->subscribeResponse(responseListener);
         do {
@@ -157,12 +157,7 @@ bool init_history_download(
                 if (readerFactory) {
                     O2G2Ptr<IO2GMarketDataSnapshotResponseReader> reader = readerFactory->createMarketDataSnapshotReader(response);
                     if (reader->size() > 0) {
-                        // if (abs(dateTo - reader->getDate(0)) > 0) {
                             dateTo = reader->getDate(0); // earliest datetime of returned data
-                        // } else {
-                        //     // printf("breaking...\n");
-                        //     // break;
-                        // }
                     } else {
                         std::cout << "0 rows received" << std::endl;
                         break;
@@ -177,7 +172,6 @@ bool init_history_download(
         } while (dateTo - dateFrom > 0.0001);
         printf("After do/while\n");
 
-        session->logout();
         return true;
     } else {
         printf("Unable to connect to broker to download history.\n");

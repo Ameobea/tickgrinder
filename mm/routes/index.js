@@ -4,23 +4,23 @@ var router = express.Router();
 var conf = require("../conf");
 
 router.get("/", (req, res, next)=>{
-  res.render("instances");
+  res.render("instances", { conf: conf });
 });
 
 router.get("/monitor", (req, res, next)=>{
-  res.render("monitor");
+  res.render("monitor", { conf: conf });
 });
 
 router.get("/instances", (req, res, next)=>{
-  res.render("instances");
+  res.render("instances", { conf: conf });
 });
 
 router.get("/backtest", (req, res, next)=>{
-  res.render("backtest");
+  res.render("backtest", { conf: conf });
 });
 
 router.get("/data_downloaders", (req, res, next)=>{
-  res.render("data_downloaders");
+  res.render("data_downloaders", { conf: conf });
 });
 
 module.exports = router;

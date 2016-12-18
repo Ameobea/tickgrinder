@@ -1,5 +1,5 @@
 //! Scripts for the Data Downloaders page
-/*jslint browser: true*/ /*global $, initWs, registerCheck, sendCommand, v4, console */
+/*jslint browser: true*/ /*global $, initWs, registerCheck, sendCommand, v4, console, ticks_directory */
 "use strict";
 
 var socket;
@@ -20,14 +20,11 @@ $(document).ready(function(){
 
     $("#data-dst").change(function(){
       var val = $("#data-dst").val();
-      $("#flatfile-config").hide();
       $("#redis-channel-config").hide();
       $("#redis-set-config").hide();
       $("#postgres-config").hide();
 
-      if(val == "flatfile"){
-        $("#flatfile-config").show();
-      } else if(val == "redis-channel") {
+      if(val == "redis-channel") {
         $("#redis-channel-config").show();
       } else if(val == "redis-set") {
         $("#redis-set-config").show();
@@ -112,15 +109,16 @@ function writeBoth() {
 function startDownload() {
   var val = $("#data-dst").val();
   var channel = $("#download-download-list").val();
+  var symbol = $("#symbol").val();
   var args = {
-    symbol: $("#symbol").val(),
+    symbol: symbol,
     start_time: $("#start-time").val(),
     end_time: $("#end-time").val(),
     dst: {},
   };
 
   if(val == "flatfile"){
-    args.dst.Flatfile = {filename: $("#flatfile-filename").val()};
+    args.dst.Flatfile = { filename: ticks_directory + symbol.replace("/", "") + ".csv" };
   } else if(val == "redis-channel") {
     args.dst.RedisChannel = {
       host: $("#redis-channel-host").val(),

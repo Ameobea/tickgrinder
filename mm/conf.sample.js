@@ -16,6 +16,8 @@ var conf = {
   redisPort: 6379,
   redisCommandsChannel: "commands",
   redisResponsesChannel: "responses"
+  // General Config
+  tickDataDirectory: "/home/casey/bot4/data/historical_ticks/"
 };
 
 module.exports = conf;

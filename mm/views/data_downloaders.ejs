@@ -1,6 +1,9 @@
 <html>
 <head>
     <title>Algobot Backtest Management Interface</title>
+    <script>
+        var ticks_directory = "<%= conf.tickDataDirectory %>";
+    </script>
     <script type="text/javascript" src="http://code.jquery.com/jquery-1.10.1.js"></script>
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/react/0.14.7/react-with-addons.js"></script>
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/react/0.14.7/react-dom.js"></script>
@@ -49,9 +52,7 @@
         <option value="postgres">Postgres Table</option>
         <option value="console">Console</option>
     </select></td>
-    </tr><tr><td><span id="flatfile-config">
-        Output File Path: <input type="text" id="flatfile-filename">
-    </span>
+    </tr><tr><td>
     <span id="redis-channel-config" style="display: none;">
         Host: <input type="text" id="redis-channel-host" value="redis://localhost/">
         Channel: <input type="text" id="redis-channel-host" value="HIST_TICKS">

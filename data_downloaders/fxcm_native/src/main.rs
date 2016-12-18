@@ -354,11 +354,9 @@ pub fn get_rx_closure(dst: HistTickDst) -> Result<RxCallback, String> {
         HistTickDst::Flatfile{filename} => {
             let fnc = filename.clone();
             let path = Path::new(&fnc);
-            // create the file if it doesn't exist and write the header row
+            // create the file if it doesn't exist
             if !path.exists() {
-                let mut f = File::create(path).unwrap();
-                f.write_all("timestamp, bid, ask\n".as_bytes())
-                    .expect("couldn't write header row to output file.");
+                let _ = File::create(path).unwrap();
             }
 
             // try to open the specified filename in append mode
