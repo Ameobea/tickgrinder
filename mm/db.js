@@ -24,8 +24,11 @@ var accessors = {
           r(console.error('error fetching client from pool', err));
           return;
         }
-        var query = `SELECT tick_time - lag(tick_time) OVER (ORDER BY tick_time), tick_time, diff FROM ${table}
-        WHERE tick_time >= ${start_time} AND tick_time <= ${end_time};`;
+        var query =
+            `SELECT tick_time - LAG(tick_time) OVER (ORDER BY tick_time) AS time_diff,
+             bid - LAG(bid) OVER(ORDER BY tick_time) AS bid_diff,
+             ask - LAG(ask) OVER(ORDER BY tick_time) AS ask_diff
+             FROM ${table} WHERE tick_time > ${start_time} AND tick_time < ${end_time};`;
         client.query(query, [], (err, res)=>{
           done();
 

@@ -165,8 +165,7 @@ bool init_history_download(
                 }
                 sendPrices(session, response, tickcallback, user_data);
             } else {
-                printf("Received bad resposne type or no response at all.\n");
-                std::cout << "Response type: " << response->getType() << std::endl;
+                printf("Received bad response type or no response at all.\n");
                 break;
             }
         } while (dateTo - dateFrom > 0.0001);
