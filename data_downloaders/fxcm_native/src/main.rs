@@ -250,12 +250,13 @@ impl DataDownloader {
             );
         }
 
-        // remove descriptor from list once backtest is finished.
+        // remove descriptor from list once download is finished.
         {
             let mut running_downloads = running_downloads.lock().unwrap();
             for i in 0..running_downloads.len() {
                 if running_downloads[i] == descriptor {
                     running_downloads.remove(i);
+                    break;
                 }
             }
         }
