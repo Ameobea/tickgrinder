@@ -13,13 +13,13 @@ release:
 	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
 	# build all strategies and copy into dist/lib
-	for dir in ./strategies/*/; \
-	do \
-		cd $$dir && cargo build --release && \
-		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../dist/lib && \
-		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../util/target/release/deps && \
-		cd ../..; \
-	done
+	# cd private && for dir in ./strategies/*/; \
+	# do \
+	# 	cd $$dir && cargo build --release && \
+	# 	cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../../dist/lib && \
+	# 	cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../../util/target/release/deps && \
+	# 	cd ../../..; \
+	# done
 
 	# build the FXCM shim
 	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
@@ -38,6 +38,8 @@ release:
 	cp optimizer/target/release/optimizer dist
 	cd mm && npm install
 	cp ./mm dist -r
+	cd private && cargo build --release
+	cp private/target/release/libprivate.so dist/lib
 
 	# build the FXCM native data downloader
 	cd data_downloaders/fxcm_native && cargo build --release
@@ -60,13 +62,13 @@ debug:
 	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
 	# build all strategies and copy into dist/lib
-	for dir in ./strategies/*/; \
-	do \
-		cd $$dir && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build && \
-		cp target/debug/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../dist/lib && \
-		cp target/debug/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../util/target/debug/deps && \
-		cd ../..; \
-	done
+	# cd private && for dir in ./strategies/*/; \
+	# do \
+	# 	cd $$dir && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build && \
+	# 	cp target/debug/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../../dist/lib && \
+	# 	cp target/debug/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../../util/target/debug/deps && \
+	# 	cd ../../..; \
+	# done
 
 	# build the FXCM shim
 	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
@@ -85,6 +87,8 @@ debug:
 	cp optimizer/target/debug/optimizer dist
 	cd mm && npm install
 	cp ./mm dist -r
+	cd private && cargo build
+	cp private/target/debug/libprivate.so dist/lib
 
 	# build the FXCM native data downloader
 	cd data_downloaders/fxcm_native && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build
@@ -98,15 +102,16 @@ clean:
 	rm optimizer/target -rf
 	rm spawner/target -rf
 
-	for dir in ./strategies/*/; \
-	do \
-		rm $$dir/target -rf; \
-	done
+	# cd private && for dir in ./strategies/*/; \
+	# do \
+	# 	rm $$dir/target -rf; \
+	# done
 
 	rm tick_parser/target -rf
 	rm util/target -rf
 	rm backtester/target -rf
 	rm mm/node_modules -rf
+	rm private/target -rf
 	rm util/src/trading/broker/shims/FXCM/native/native/dist -rf
 	rm util/src/trading/broker/shims/FXCM/native/target -rf
 	rm data_downloaders/fxcm_native/target -rf
@@ -126,13 +131,13 @@ test:
 	cp util/src/trading/broker/shims/FXCM/native/target/debug/libfxcm.so dist/lib
 
 	# build all strategies and copy into dist/lib
-	for dir in ./strategies/*/; \
-	do \
-		cd $$dir && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build && \
-		cp target/debug/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../dist/lib && \
-		cp target/debug/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../util/target/debug/deps && \
-		LD_LIBRARY_PATH="../../dist/lib" RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test --no-fail-fast; \
-	done
+	# cd private && for dir in ./strategies/*/; \
+	# do \
+	# 	cd $$dir && RUSTFLAGS="-L ../../../util/target/debug/deps -L ../../../dist/lib -C prefer-dynamic" cargo build && \
+	# 	cp target/debug/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../../dist/lib && \
+	# 	cp target/debug/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../../util/target/debug/deps && \
+	# 	LD_LIBRARY_PATH="../../../dist/lib" RUSTFLAGS="-L ../../../util/target/debug/deps -L ../../../dist/lib -C prefer-dynamic" cargo test --no-fail-fast; \
+	# done
 
 	cd optimizer && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd spawner && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
@@ -140,6 +145,8 @@ test:
 	cd tick_parser && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd backtester && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd mm && npm install
+	cd private && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
+	cp private/target/release/libprivate.so dist/lib
 	cd util/src/trading/broker/shims/FXCM/native && LD_LIBRARY_PATH=native/dist:../../../../../../target/debug/deps cargo test -- --nocapture
 	cd data_downloaders/fxcm_native && LD_LIBRARY_PATH="../../dist/lib" RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	# TODO: Collect the results into a nice format
@@ -153,20 +160,20 @@ bench:
 	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
 	# build all strategies and copy into dist/lib
-	for dir in ./strategies/*/; \
+	cd private && for dir in ./strategies/*/; \
 	do \
 		cd $$dir && cargo build --release && \
-		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../dist/lib && \
-		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../util/target/release/deps && \
-		LD_LIBRARY_PATH="../../dist/lib" cargo bench; \
+		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../../dist/lib && \
+		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../../util/target/release/deps && \
+		LD_LIBRARY_PATH="../../../dist/lib" cargo bench; \
 	done
 
 	cd optimizer && LD_LIBRARY_PATH="../dist/lib" cargo bench
 	cd spawner && LD_LIBRARY_PATH="../dist/lib" cargo bench
-
 	cd tick_parser && LD_LIBRARY_PATH="../dist/lib" cargo bench
 	cd backtester && LD_LIBRARY_PATH="../dist/lib" cargo bench
 	cd mm && npm install
+	cd private && LD_LIBRARY_PATH="../dist/lib" cargo bench
 	# TODO: Collect the results into a nice format
 
 update:
@@ -174,7 +181,7 @@ update:
 	cd spawner && cargo update
 
 	# Build each strategy
-	for dir in ./strategies/*/; \
+	cd private && for dir in ./strategies/*/; \
 	do \
 		cd $$dir && cargo update; \
 	done
@@ -182,6 +189,7 @@ update:
 	cd tick_parser && cargo update
 	cd util && cargo update
 	cd backtester && cargo update
+	cd private && cargo update
 	cd mm && npm update
 	cd util/src/trading/broker/shims/FXCM/native && cargo update
 	git submodule update
@@ -191,14 +199,15 @@ cdoc:
 	cd spawner && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
 
 	# Build each strategy
-	for dir in ./strategies/*/; \
+	cd private && for dir in ./strategies/*/; \
 	do \
 		cd $$dir && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports; \
 	done
 
 	cd tick_parser && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
-	cd util && cargo test
+	cd util && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
 	cd backtester && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
+	cd private && rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
 	cd mm && npm install
 	# TODO: Collect the results into a nice format
 

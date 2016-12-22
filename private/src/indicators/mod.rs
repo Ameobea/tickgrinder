@@ -1,55 +1,37 @@
-use std::collections::VecDeque;
+//! Contains all private indicators you may devise for your system.
 
-use algobot_util::trading::tick::Tick;
+use std::collections::{VecDeque, HashMap};
+use std::error::Error;
 
-//Calculate weighted average of all ticks within period seconds
-//pop ticks off the front after they leave the period
+use postgres::rows::Row;
+use serde_json;
 
-pub struct SMAList {
-    pub smas: Vec<SimpleMovingAverage>
-}
+use algobot_util::trading::indicators::*;
+use algobot_util::trading::tick::*;
+use algobot_util::transport::postgres::*;
 
-impl SMAList {
-    pub fn new() -> SMAList {
-        SMAList {
-            smas: Vec::new()
-        }
-    }
+use conf::CONF;
 
-    pub fn push_all(&mut self, t: Tick) {
-        let smas = &mut self.smas;
-        for mut sma in smas {
-            let sma = &mut sma;
-            sma.push(t);
-        }
-    }
+pub const PG_CONF: PostgresConf = PostgresConf {
+    postgres_user: CONF.postgres_user,
+    postgres_db: CONF.postgres_db,
+    postgres_password: CONF.postgres_password,
+    postgres_port: CONF.postgres_port,
+    postgres_url: CONF.postgres_url,
+};
 
-    pub fn add(&mut self, period: usize) {
-        self.smas.push(SimpleMovingAverage::new(period));
-    }
-
-    pub fn remove(&mut self, period: usize) {
-        for i in 0..self.smas.len() {
-            if self.smas[i].period == period {
-                self.smas.remove(i);
-                return
-            }
-        }
-        println!("No SMA with period {} currently tracked", period);
-    }
-}
-
-pub struct SimpleMovingAverage {
+/// Alteration of a simple moving average using ticks as input where the prices in a time frame
+/// are weighted by the time the price stayed at that level before changing.
+pub struct Sma {
     pub period: usize,
     pub ticks: VecDeque<Tick>,
     // indicates if an out-of-range tick exists in the front element
     ref_tick: Tick,
 }
 
-#[allow(dead_code)]
-impl SimpleMovingAverage {
-    pub fn new(period: usize) -> SimpleMovingAverage {
-        SimpleMovingAverage {
+impl Sma {
+    pub fn new(period: usize) -> Sma {
+        Sma {
             period: period,
             ticks: VecDeque::new(),
             ref_tick: Tick::null(),
@@ -63,6 +45,7 @@ impl SimpleMovingAverage {
         while self.is_overflown() {
             t = self.ticks.pop_front().unwrap();
         }
+
         t
     }
 
@@ -145,4 +128,66 @@ impl SimpleMovingAverage {
 
         Tick { bid: bid_sum / t_sum, ask: ask_sum / t_sum, timestamp: (*self.ticks.back().unwrap()).timestamp }
     }
+}
+
+impl HistQuery for Sma {
+    /// Queries the database for ticks in a range and returns the average bid and ask in that range.
+    fn get(start_time: usize, end_time: usize, period: usize, args: HashMap<String, String>) -> Result<String, String> {
+        let connection_opt = get_client(PG_CONF);
+        if connection_opt.is_err() {
+            return Err(String::from("Unable to connect to PostgreSQL!"))
+        }
+        let conn = connection_opt.unwrap();
+
+        let table_name = try!( args.get("table_name").ok_or(no_arg_error("table_name")) );
+
+        let query = format!(
+            "SELECT (tick_time, bid, ask) FROM {} WHERE tick_time > {} AND tick_time < {};",
+            table_name,
+            start_time,
+            end_time
+        );
+        let rows = try!(
+            conn.query(&query, &[]).map_err( |err| format!("{}", err) )
+        );
+
+        let mut sma = Sma::new(period);
+        let mut last_time = 0;
+        let mut res = Vec::new();
+
+        for row in rows.iter() {
+            let t: Tick = tick_from_row(&row);
+            let _ = sma.push(t);
+
+            if last_time == 0 || (t.timestamp - last_time) > period {
+                res.push(sma.average_tick());
+                last_time = t.timestamp;
+            }
+        }
+
+        serde_json::to_string(&res).map_err(|err| String::from(err.description()) )
+    }
+}
+
+/// Takes a row and returns a tick from the values of its columns.
+/// Panics if the row doesn't contain properly formatted `tick_time`, `bid`, and `ask` columns.
+fn tick_from_row(row: &Row) -> Tick {
+    let timestamp = row.get::<_, i64>("tick_time") as usize;
+    let bid = row.get::<_, i64>("bid") as usize;
+    let ask = row.get::<_, i64>("ask") as usize;
+
+    Tick {
+        timestamp: timestamp,
+        bid: bid,
+        ask: ask,
+    }
+}
+
+fn no_arg_error(name: &str) -> String {
+    format!("No argument \"{}\" provided in the arguments HashMap.", name)
+}
+
+#[test]
+fn hist_sma_accuracy() {
+    // TODO: Write this test >.>
 }
