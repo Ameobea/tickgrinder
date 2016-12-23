@@ -7,6 +7,8 @@ use uuid::Uuid;
 #[allow(unused_imports)]
 use test;
 
+use trading::trading_condition::*;
+
 use trading::broker::SimBrokerSettings;
 
 /// Represents a Command that can be serde'd and sent over Redis.
@@ -19,9 +21,11 @@ pub enum Command {
     Register{channel: String},
     Type, // returns what kind of instance this is
     Ready{instance_type: String, uuid: Uuid}, // signals that a newly spawned instance is ready to receive commands
-    // Tick Parser Commands
-    AddSMA{period: usize},
-    RemoveSMA{period: usize},
+    // Tick Processor Commands
+    AddCondition{condition_string: String},
+    RemoveCondition{condition_string: String},
+    ListConditions,
+    SubTicks{broker_def: String},
     // Spawner Commands
     SpawnMM,
     Census,
@@ -114,7 +118,7 @@ impl WrappedCommand {
 /// Converts a String into a WrappedCommand
 /// JSON Format: {"uuid": "xxxx-xxxx", "cmd": {"CommandName":{"arg": "val"}}}
 pub fn parse_wrapped_command(raw: String) -> WrappedCommand {
-    let res = serde_json::from_str::<WrappedCommand>(raw.as_str());
+    let res = serde_json::from_str::<WrappedCommand>(&raw);
     match res {
         Ok(wr_cmd) => return wr_cmd,
         Err(_) => panic!("Unable to parse WrappedCommand from String: {}", raw)
@@ -177,7 +181,7 @@ pub fn send_command(cmd: &WrappedCommand, client: &redis::Client, commands_chann
 /// Utility function to asynchronously send off a response
 pub fn send_response(res: &WrappedResponse, client: &redis::Client, channel: &str) -> Result<(), serde_json::Error> {
     let ser = try!(serde_json::to_string(res));
-    let res_str = ser.as_str();
+    let res_str = &ser;
     let _ = redis::cmd("PUBLISH")
         .arg(channel)
         .arg(res_str)
@@ -189,22 +193,22 @@ pub fn send_response(res: &WrappedResponse, client: &redis::Client, channel: &st
 ///
 /// Left in for backwards compatability
 pub fn parse_wrapped_response(raw_res: String) -> WrappedResponse {
-    serde_json::from_str::<WrappedResponse>(raw_res.as_str())
+    serde_json::from_str::<WrappedResponse>(&raw_res)
         .expect("Unable to parse WrappedResponse from String")
 }
 
 #[test]
 fn command_serialization() {
-    let cmd_str = "{\"AddSMA\": {\"period\": 664} }";
+    let cmd_str = "{\"Register\":{\"channel\":\"channel\"}}";
     let cmd: Command = serde_json::from_str(cmd_str).unwrap();
-    assert_eq!(cmd, Command::AddSMA{period: 664});
+    assert_eq!(cmd, Command::Register{channel: String::from("channel")});
 }
 
 #[test]
 fn command_deserialization() {
-    let cmd = Command::RemoveSMA{period: 664};
+    let cmd = Command::Register{channel: String::from("channel")};
     let cmd_string = serde_json::to_string(&cmd).unwrap();
-    assert_eq!("{\"RemoveSMA\":{\"period\":664}}", cmd_string.as_str());
+    assert_eq!("{\"Register\":{\"channel\":\"channel\"}}", &cmd_string);
 }
 
 #[test]
@@ -218,12 +222,12 @@ fn response_serialization() {
 fn response_deserialization() {
     let res = Response::Ok;
     let res_string = serde_json::to_string(&res).unwrap();
-    assert_eq!("\"Ok\"", res_string.as_str());
+    assert_eq!("\"Ok\"", &res_string);
 }
 
 #[bench]
 fn wrappedcmd_to_string(b: &mut test::Bencher) {
-    let cmd = Command::AddSMA{period: 4223423};
+    let cmd = Command::Ping;
     let wr_cmd = WrappedCommand{uuid: Uuid::new_v4(), cmd: cmd};
     b.iter(|| {
         let wr_cmd = &wr_cmd;
@@ -233,7 +237,7 @@ fn wrappedcmd_to_string(b: &mut test::Bencher) {
 
 #[bench]
 fn string_to_wrappedcmd(b: &mut test::Bencher) {
-    let raw = "{\"uuid\":\"2f663301-5b73-4fa0-b201-09ab196ec5fd\",\"cmd\":{\"RemoveSMA\":{\"period\":5.2342}}}";
+    let raw = "{\"uuid\":\"2f663301-5b73-4fa0-b201-09ab196ec5fd\",\"cmd\":{\"Register\":{\"channel\":\"channel\"}}}";
     b.iter(|| {
         let raw = &raw;
         let _: WrappedCommand  = serde_json::from_str(raw).unwrap();

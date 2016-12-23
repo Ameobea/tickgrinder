@@ -15,7 +15,7 @@ extern crate serde_derive;
 extern crate fxcm;
 
 extern crate algobot_util;
-extern crate sample as strat;
+// extern crate sample as strat;
 
 mod conf;
 

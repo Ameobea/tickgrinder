@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use algobot_util::trading::tick::*;
 pub use algobot_util::trading::broker::*;
+use algobot_util::trading::trading_condition::*;
 
 /// A simulated broker that is used as the endpoint for trading activity in backtests.
 pub struct SimBroker {
@@ -159,9 +160,9 @@ impl SimBroker {
     /// actually executes an action sent to the SimBroker
     pub fn exec_action(&mut self, cmd: &BrokerAction) -> BrokerResult {
         match cmd {
-            &BrokerAction::MarketOrder{
+            &BrokerAction::TradingAction{action: TradingAction::MarketOrder{
                 account, ref symbol, long, size, stop, take_profit, max_range
-            } => {
+            }} => {
                 let timestamp = self.get_timestamp();
                 assert!(timestamp != 0);
                 self.market_open(account, symbol, long, size, stop, take_profit, max_range, timestamp)

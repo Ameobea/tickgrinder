@@ -122,3 +122,12 @@ fn from_csv_string(b: &mut test::Bencher) {
         t = Tick::from_csv_string(s)
     });
 }
+
+// parse a JSON String into a Tick
+#[bench]
+fn json_to_tick(b: &mut test::Bencher) {
+    b.iter(|| {
+        let s: String = String::from("{\"bid\": 1.123128412, \"ask\": 1.123128402, \"timestamp\": 1471291001837}");
+        Tick::from_json_string(s);
+    });
+}

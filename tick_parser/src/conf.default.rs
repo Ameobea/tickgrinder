@@ -7,7 +7,6 @@ pub struct Conf {
     pub database_conns: usize, // how many connections to open to the database
     // Redis config
     pub redis_url: &'static str,
-    pub redis_ticks_channel: &'static str,
     pub redis_control_channel: &'static str,
     pub redis_responses_channel: &'static str,
     // Postgres config
@@ -26,7 +25,6 @@ pub const CONF: Conf = Conf {
     database_conns: 10,
     // Redis config
     redis_url: "redis://127.0.0.1/",
-    redis_ticks_channel: "ticks",
     redis_control_channel: "control",
     redis_responses_channel: "responses",
     // Postgres config

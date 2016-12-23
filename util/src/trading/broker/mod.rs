@@ -9,6 +9,7 @@ use futures::stream::Stream;
 use futures::sync::mpsc::UnboundedReceiver;
 
 use trading::tick::Tick;
+use trading::trading_condition::*;
 
 /// A broker is the endpoint for all trading actions taken by the platform.  It processes
 /// trades and supplies information about the condition of portfolios.  The Broker trait
@@ -54,24 +55,7 @@ pub struct Account {
 /// Any action that the platform can take using the broker
 #[derive(Clone, Debug)]
 pub enum BrokerAction {
-    /// Opens an order at market price +-max_range pips.
-    MarketOrder {
-        account: Uuid, symbol: String, long: bool, size: usize, stop: Option<usize>,
-        take_profit: Option<usize>, max_range: Option<f64>
-    },
-    /// Opens an order at a price equal or better to `entry_price` as soon as possible.
-    LimitOrder{
-        account: Uuid, symbol: String, long: bool, size: usize, stop: Option<usize>,
-        take_profit: Option<usize>, entry_price: usize
-    },
-    /// Closes `size` lots of a position with the specified UUID.
-    ClosePosition{
-        uuid: Uuid
-    },
-    /// Modifies a position without taking any trading action.
-    ModifyPosition{
-        uuid: Uuid, stop: Option<usize>, take_profit: Option<usize>, entry_price: Option<usize>
-    },
+    TradingAction{ action: TradingAction },
     /// Returns a Pong with the timestamp the broker received the message
     Ping,
 }
