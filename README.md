@@ -1,4 +1,7 @@
 # Algobot 4
+![](https://camo.githubusercontent.com/79318781f189b2ee91c3a150bf27813c386afaf2/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f72757374632d6e696768746c792d79656c6c6f772e737667)
+![](https://tokei.rs/b1/github/Ameobea/bot4)
+![](https://tokei.rs/b1/github/Ameobea/bot4?category=files)
 
 Bot4 is a high performance algorithmic trading platform primarilly written in Rust.  It is designed with the goal of efficiently processing event-based market data as quickly as possible in order to automatically place and manage trades.
 
