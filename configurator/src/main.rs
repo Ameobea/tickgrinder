@@ -7,13 +7,15 @@
 #![plugin(indoc)]
 
 extern crate cursive;
+extern crate serde_json;
 
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::process::{Child, Command, Stdio};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::rc::Rc;
+use std::io::prelude::*;
 
 use cursive::Cursive;
 use cursive::views::{Dialog, TextView, EditView, ListView, BoxView, IdView};
@@ -21,9 +23,6 @@ use cursive::view::{SizeConstraint, ViewWrapper};
 
 mod theme;
 use theme::THEME;
-
-// type Settings = HashMap<String, String>;
-// type SettingsRef = Arc<Mutex<HashMap<String, String>>>;
 
 #[derive(Clone)]
 struct Settings {
@@ -51,13 +50,36 @@ impl Settings {
     }
 
     /// Dumps the Settings object to a JSON file that can be used to populate the Settings object from scratch
-    pub fn write_json(filename: &str) {
-        unimplemented!();
+    pub fn write_json(&self, filename: &str) {
+        let path = Path::new(filename);
+        if !path.exists() {
+            let _ = File::create(path).unwrap();
+        }
+
+        let mut file = OpenOptions::new().write(true).open(path).expect("Unable to open");
+        let inner = self.inner.lock().unwrap();
+        let content = serde_json::to_string_pretty(&*inner).expect("Unable to serialize settings!");
+        file.write_all((&content).as_bytes()).expect("Unable to write into output file.")
+
     }
 
     /// Reads the supplied JSON file and generates a Settings object from its contents.
     pub fn read_json(filename: &str) -> Settings {
-        unimplemented!();
+        let path = Path::new(filename);
+        if !path.exists() {
+            panic!("No filename exists at that path: {:?}", path);
+        }
+
+        let mut buffer = Vec::new();
+        let mut file = OpenOptions::new().read(true).open(path).expect("Unable to open input file");
+        file.read_to_end(&mut buffer).expect("Unable to read file into buffer");
+        let content = String::from_utf8(buffer).expect("Unable to convert buffer to String");
+        let inner = serde_json::from_str::<HashMap<String, String>>(&content)
+            .expect("Unable to convert String to HashMap.");
+
+        Settings {
+            inner: Arc::new(Mutex::new(inner)),
+        }
     }
 }
 
@@ -250,7 +272,7 @@ fn postgres_local(s: &mut Cursive, installed: bool, settings: Settings) {
             .content(ListView::new()
                 .child("Postgres User", IdView::new("postgres-user", BoxView::new(MIN15, FREE, EditView::new())))
                 .child("Postgres Password", IdView::new("postgres-password", BoxView::new(MIN15, FREE, EditView::new().secret())))
-                .child("Postgres Port", IdView::new("postgres-port", BoxView::new(MIN15, FREE, EditView::new())))
+                .child("Postgres Port", IdView::new("postgres-port", BoxView::new(MIN15, FREE, EditView::new().content("5432"))))
                 .child("Postgres Database", IdView::new("postgres-db", BoxView::new(MIN15, FREE, EditView::new())))
             ).title("Local PostgreSQL Server Settings")
                 .button("Ok", move |s| save_settings(s, settings.clone()) )
