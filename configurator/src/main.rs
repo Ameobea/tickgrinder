@@ -10,19 +10,39 @@ extern crate cursive;
 extern crate serde_json;
 
 use std::fs::{File, OpenOptions};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::rc::Rc;
 use std::io::prelude::*;
+use std::panic::set_hook;
 
 use cursive::Cursive;
-use cursive::views::{Dialog, TextView, EditView, ListView, BoxView, IdView};
+use cursive::views::{Dialog, TextView, EditView, ListView, BoxView, LinearLayout};
 use cursive::view::{SizeConstraint, ViewWrapper};
+use cursive::direction::Orientation;
+use cursive::traits::*;
 
 mod theme;
 use theme::THEME;
+
+struct SettingRow {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub default: Option<&'static str>,
+}
+
+type SettingsPage = &'static [SettingRow];
+
+const POSTGRES_IDS: &'static [&'static str] = &["postgres_host", "postgres_user", "postgres_password", "postgres_port", "postgres_db"];
+
+const FXCM_SETTINGS: SettingsPage = &[
+    SettingRow {id: "fxcm_username", name: "Username", default: Some("D102691234567") },
+    SettingRow {id: "fxcm_password", name: "Password", default: Some("1234")},
+    SettingRow {id: "fxcm_url", name: "URL", default: Some("http://www.fxcorporate.com/Hosts.jsp") },
+    SettingRow {id: "fxcm_pin", name: "PIN (Can leave blank)", default: None },
+];
 
 #[derive(Clone)]
 struct Settings {
@@ -59,8 +79,7 @@ impl Settings {
         let mut file = OpenOptions::new().write(true).open(path).expect("Unable to open");
         let inner = self.inner.lock().unwrap();
         let content = serde_json::to_string_pretty(&*inner).expect("Unable to serialize settings!");
-        file.write_all((&content).as_bytes()).expect("Unable to write into output file.")
-
+        file.write_all((&(content + "\n")).as_bytes()).expect("Unable to write into output file.")
     }
 
     /// Reads the supplied JSON file and generates a Settings object from its contents.
@@ -87,6 +106,11 @@ const MIN15: SizeConstraint = SizeConstraint::AtLeast(10);
 const FREE: SizeConstraint = SizeConstraint::Free;
 
 fn main() {
+    // Register panic hook to reset terminal settings on panic so we can see the error
+    set_hook(Box::new(|_| {
+        clear_console();
+    }));
+
     // Check if this is the first run of the configurator
     let path = Path::new(".platform_conf");
     if !path.exists() {
@@ -95,6 +119,11 @@ fn main() {
     }
 
     // clear console + reset colored background before exiting
+    clear_console();
+}
+
+/// Clears all custom colors and formatting, restoring the terminal to defaults and clearing it.
+fn clear_console() {
     print!(".{}[0m{}[2J", 27 as char, 27 as char);
 }
 
@@ -198,12 +227,12 @@ fn redis_remote(s: &mut Cursive, settings: Settings) {
     s.pop_layer();
     s.add_layer(Dialog::new()
         .content(ListView::new()
-            .child("Redis Host", IdView::new("redis-host", BoxView::new(MIN15, FREE, EditView::new())))
-            .child("Redis Port", IdView::new("redis-port", BoxView::new(MIN15, FREE, EditView::new().content("6379"))))
+            .child("Redis Host", BoxView::new(MIN15, FREE, EditView::new().with_id("redis_host")))
+            .child("Redis Port", BoxView::new(MIN15, FREE, EditView::new().content("6379").with_id("redis_port")))
         ).title("Remote Redis Server Settings")
         .button("Ok", move |s| {
-            settings.set("redis-host", &*get_by_id("redis-host", s).unwrap());
-            settings.set("redis-port", &*get_by_id("redis-port", s).unwrap());
+            settings.set("redis_host", &*get_by_id("redis_host", s).unwrap());
+            settings.set("redis_port", &*get_by_id("redis_port", s).unwrap());
             postgres_config(s, settings.clone())
         })
     );
@@ -224,7 +253,7 @@ fn postgres_config(s: &mut Cursive, settings: Settings) {
         message_text += indoc!(
             "I was unable do detect an active PostgreSQL installation on this host.  In order to use this \
             host for the platform, you must first install PostgreSQL and add the `psql` binary to the system \
-            path.  Once you've installed it, select \"Local\" again.create"
+            path.  Once you've installed it, select \"Local\" again. "
         )
     } else {
         message_text += indoc!(
@@ -246,13 +275,16 @@ fn postgres_remote(s: &mut Cursive, settings: Settings) {
     s.pop_layer();
     s.add_layer(Dialog::new()
         .content(ListView::new()
-            .child("Postgres Host", IdView::new("postgres-host", BoxView::new(MIN15, FREE, EditView::new())))
-            .child("Postgres User", IdView::new("postgres-user", BoxView::new(MIN15, FREE, EditView::new())))
-            .child("Postgres Password", IdView::new("postgres-password", BoxView::new(MIN15, FREE, EditView::new().secret())))
-            .child("Postgres Port", IdView::new("postgres-port", BoxView::new(MIN15, FREE, EditView::new().content("5432"))))
-            .child("Postgres Database", IdView::new("postgres-db", BoxView::new(MIN15, FREE, EditView::new())))
+            .child("Postgres Host", BoxView::new(MIN15, FREE, EditView::new().with_id("postgres_host")))
+            .child("Postgres User", BoxView::new(MIN15, FREE, EditView::new().with_id("postgres_user")))
+            .child("Postgres Password", BoxView::new(MIN15, FREE, EditView::new().secret().with_id("postgres_password")))
+            .child("Postgres Port", BoxView::new(MIN15, FREE, EditView::new().content("5432").with_id("postgres_port")))
+            .child("Postgres Database", BoxView::new(MIN15, FREE, EditView::new().with_id("postgres_db")))
         ).title("Remote PostgreSQL Server Settings")
-            .button("Ok", move |s| save_settings(s, settings.clone()) )
+            .button("Ok", move |s| {
+                save_settings(s, settings.clone(), POSTGRES_IDS);
+                set_data_dir(s, settings.clone())
+            })
     )
 }
 
@@ -270,16 +302,46 @@ fn postgres_local(s: &mut Cursive, installed: bool, settings: Settings) {
         s.pop_layer();
         s.add_layer(Dialog::new()
             .content(ListView::new()
-                .child("Postgres User", IdView::new("postgres-user", BoxView::new(MIN15, FREE, EditView::new())))
-                .child("Postgres Password", IdView::new("postgres-password", BoxView::new(MIN15, FREE, EditView::new().secret())))
-                .child("Postgres Port", IdView::new("postgres-port", BoxView::new(MIN15, FREE, EditView::new().content("5432"))))
-                .child("Postgres Database", IdView::new("postgres-db", BoxView::new(MIN15, FREE, EditView::new())))
-            ).title("Local PostgreSQL Server Settings")
-                .button("Ok", move |s| save_settings(s, settings.clone()) )
+                .child("Postgres User", BoxView::new(MIN15, FREE, EditView::new().with_id("postgres_user")))
+                .child("Postgres Password", BoxView::new(MIN15, FREE, EditView::new().secret().with_id("postgres_password")))
+                .child("Postgres Port", BoxView::new(MIN15, FREE, EditView::new().content("5432").with_id("postgres_port")))
+                .child("Postgres Database", BoxView::new(MIN15, FREE, EditView::new().with_id("postgres_db")))
+            ).title("Local PostgreSQL Server Settings").button("Ok", move |s| {
+                settings.set("postgres_host", "localhost");
+                save_settings(s, settings.clone(), POSTGRES_IDS);
+                set_data_dir(s, settings.clone())
+            })
         )
     }
 }
 
+/// Ask the user for a place to store historical data and do some basic sanity checks on the supplied path.
+fn set_data_dir(s: &mut Cursive, settings: Settings) {
+    s.pop_layer();
+    let dialog = Dialog::around(LinearLayout::new(Orientation::Vertical)
+        .child(TextView::new(
+            indoc!(
+                "The data directory holds all persistant storage for the platform including historical price data, \
+                database dumps, and platform configuration settings.  The entry below should be the absolute path of a \
+                folder that exists and is writable by the user that the platform will be run as.\n\n"
+            )
+        ))
+        .child(ListView::new()
+            .child("Data Directory", BoxView::new(MIN15, FREE, EditView::new().content("/var/bot4_data/").with_id("data_directory")))
+        )
+    ).title("Data Directory").button("Ok", move |s| {
+        let dir = get_by_id("data_directory", s);
+        match check_data_dir(&*dir.unwrap()) {
+            Ok(()) => write_settings(s, settings.clone()),
+            Err(err) => {
+                error_popup(s, err)
+            },
+        };
+    });
+    s.add_layer(dialog)
+}
+
+/// Runs `which [command]` and returns true if the binary is located.
 fn is_installed(command: &str) -> bool {
     let child = Command::new("which")
         .arg(command)
@@ -293,24 +355,66 @@ fn is_installed(command: &str) -> bool {
     output.stdout.len() > 0
 }
 
-fn save_settings(s: &mut Cursive, settings: Settings) {
+/// Creates an error popup with the supplied message and a button to dismiss it.
+fn error_popup(s: &mut Cursive, err_str: &str) {
+    s.add_layer(Dialog::text(err_str).dismiss_button("Ok"));
+}
+
+/// Write the entered settings to a JSON file.
+fn write_settings(s: &mut Cursive, settings: Settings) {
+    let settings_ = settings.clone();
     s.pop_layer();
-    for id in ["postgres-host", "postgres-user", "postgres-password", "postgres-port", "postgres-db"].iter() {
-        let val = get_by_id(id, s);
-        if val.is_some() && *id == "postgres-host" {
-            settings.set(id, &(*val.unwrap()) );
-        }
-    }
 
     s.add_layer(Dialog::text(
         indoc!(
             "The trading platform has been successfully configured.  Run `run.sh` and visit `localhost:8002` in \
             your web browser to start using the platform."
         )
-    ).button("Ok", |s| s.quit() ))
+    ).button("Ok", move |s| {
+        settings_.write_json("settings.json");
+        s.quit()
+    }))
+}
+
+/// Attempts to read the values of all fields with the supplied IDs from the Cursive object and write them
+/// into the Settings object.  Ignores them if such an ID doesn't exist.
+fn save_settings(s: &mut Cursive, settings: Settings, ids: &[&str]) {
+    for id in ids {
+        let val = get_by_id(id, s);
+        if val.is_some() && *id == "postgres_host" {
+            settings.set(id, &(*val.unwrap()) );
+        }
+    }
+}
+
+fn check_data_dir(dir: &str) -> Result<(), &'static str> {
+    let path = Path::new(dir);
+    if !path.exists() {
+        return Err(indoc!(
+            "The path you specified does not exist.  Please make sure that you supplied a directory that the \
+            platform's user has full read and write access to."
+        ))
+    }
+    // TODO: Check that the directory has the correct permissions, maybe auto-create directory if it doesn't exist.
+
+    Ok(())
+}
+
+/// Takes a SettingsPage and generates a ListView for it.
+fn gen_list_view(page: SettingsPage) -> ListView {
+    let mut lv = ListView::new();
+    for row in page {
+        let mut ev = EditView::new();
+        if row.default.is_some() {
+            ev.set_content(row.default.unwrap());
+        }
+        lv = lv.child(row.name, BoxView::new(MIN15, FREE, ev.with_id(row.id)))
+    }
+
+    lv
 }
 
 #[test]
 fn redis_installed_test() {
-    is_isntalled("redis-server");
+    is_installed("redis-server");
 }
