@@ -37,11 +37,10 @@ use algobot_util::transport::postgres::*;
 use algobot_util::transport::query_server::QueryServer;
 use algobot_util::transport::command_server::{CommandServer, CsSettings};
 use algobot_util::trading::tick::*;
+use algobot_util::conf::CONF;
 
 mod util;
 use util::transfer_data;
-mod conf;
-use conf::CONF;
 
 #[link(name="fxtp")]
 #[link(name="gsexpat")]
@@ -74,7 +73,7 @@ pub const PG_CONF: PostgresConf = PostgresConf {
     postgres_db: CONF.postgres_db,
     postgres_password: CONF.postgres_password,
     postgres_port: CONF.postgres_port,
-    postgres_url: CONF.postgres_url,
+    postgres_url: CONF.postgres_host,
 };
 
 #[derive(Debug)]
@@ -118,7 +117,7 @@ impl DataDownloader {
             conn_count: 5,
             max_retries: 3,
             redis_host: CONF.redis_host,
-            responses_channel: CONF.responses_channel,
+            responses_channel: CONF.redis_responses_channel,
             timeout: 300,
         };
 
@@ -132,11 +131,11 @@ impl DataDownloader {
     /// Start listening for commands and responding to them
     pub fn listen(&mut self) {
         let client = get_redis_client(CONF.redis_host);
-        let cmd_rx = sub_multiple(CONF.redis_host, &[self.uuid.hyphenated().to_string().as_str(), CONF.commands_channel]);
+        let cmd_rx = sub_multiple(CONF.redis_host, &[self.uuid.hyphenated().to_string().as_str(), CONF.redis_control_channel]);
         send_command(&Command::Ready{
             instance_type: "FXCM Native Data Downloader".to_string(),
             uuid: self.uuid
-        }.wrap(), &client, CONF.commands_channel)
+        }.wrap(), &client, CONF.redis_control_channel)
             .expect("Unable to send Ready command over Redis.");
 
         for res in cmd_rx.wait() {
@@ -177,7 +176,7 @@ impl DataDownloader {
                 _ => Response::Error{ status: "Data Downloader doesn't recognize that command.".to_string() },
             };
             let wr_res = res.wrap(wr_cmd.uuid);
-            let _ = send_response(&wr_res, &client, CONF.responses_channel);
+            let _ = send_response(&wr_res, &client, CONF.redis_responses_channel);
         }
     }
 
@@ -262,7 +261,7 @@ impl DataDownloader {
         }
 
         // send command indicating download completion
-        let _ = cs.execute(done_cmd, CONF.commands_channel.to_string());
+        let _ = cs.execute(done_cmd, CONF.redis_control_channel.to_string());
 
         Ok(())
     }

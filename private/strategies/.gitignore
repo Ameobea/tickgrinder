@@ -1,7 +1,7 @@
 *
 
 !.gitignore
-!sample
+!sample/*
 !new.sh
 !README.txt
 !.templates

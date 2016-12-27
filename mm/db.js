@@ -8,10 +8,10 @@ const CONF = require("./conf");
 
 var pool_conf = {
   user: CONF.postgresUser,
-  database: CONF.postgresDatabase,
-  password: CONF.postgresPassword,
-  host: CONF.postgresUrl,
-  port: CONF.postgresPort,
+  database: CONF.postgres_database,
+  password: CONF.postgres_password,
+  host: CONF.postgres_url,
+  port: CONF.postgres_port,
   max: 10,
   idleTimeoutMillis: 30000,
 };

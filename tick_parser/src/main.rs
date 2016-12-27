@@ -12,7 +12,6 @@ extern crate uuid;
 extern crate algobot_util;
 
 mod transport;
-mod conf;
 mod processor;
 
 use std::env;
@@ -21,15 +20,15 @@ use futures::stream::Stream;
 use uuid::Uuid;
 
 use processor::Processor;
-use conf::CONF;
 use algobot_util::transport::postgres::{get_client, reset_db, PostgresConf};
 use algobot_util::transport::redis::sub_multiple;
 use algobot_util::transport::commands::{Command, send_command};
+use algobot_util::conf::CONF;
 
 const PG_CONF: PostgresConf = PostgresConf {
     postgres_user: CONF.postgres_user,
     postgres_password: CONF.postgres_password,
-    postgres_url: CONF.postgres_url,
+    postgres_url: CONF.postgres_host,
     postgres_port: CONF.postgres_port,
     postgres_db: CONF.postgres_db
 };
@@ -53,7 +52,7 @@ impl TickProcessor {
         let mut processor = Processor::new(symbol, &self.uuid);
 
         let rx = sub_multiple(
-            CONF.redis_url, &[control_channel, uuid_string.as_str()]
+            CONF.redis_host, &[control_channel, uuid_string.as_str()]
         );
 
         let _ = send_command(&Command::Ready{

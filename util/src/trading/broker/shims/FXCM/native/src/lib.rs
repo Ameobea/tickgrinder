@@ -22,9 +22,7 @@ use futures::sync::mpsc::{UnboundedSender, UnboundedReceiver};
 
 use algobot_util::trading::broker::*;
 use algobot_util::trading::tick::*;
-
-mod conf;
-use conf::CONF;
+use algobot_util::conf::CONF;
 
 #[link(name="fxtp")]
 #[link(name="gsexpat")]

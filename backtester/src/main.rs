@@ -19,7 +19,6 @@ extern crate serde_derive;
 extern crate test;
 
 mod data;
-mod conf;
 mod backtest;
 mod sim_broker;
 
@@ -36,7 +35,7 @@ use algobot_util::transport::command_server::{CommandServer, CsSettings};
 use algobot_util::transport::redis::{sub_multiple, get_client};
 use algobot_util::transport::commands::*;
 use algobot_util::trading::tick::Tick;
-use conf::CONF;
+use algobot_util::conf::CONF;
 use backtest::*;
 use data::*;
 use sim_broker::*;
@@ -84,7 +83,7 @@ impl Backtester {
     pub fn new() -> Backtester {
         let settings = CsSettings {
             conn_count: 2,
-            redis_host: CONF.redis_url,
+            redis_host: CONF.redis_host,
             responses_channel: CONF.redis_responses_channel,
             timeout: 2020,
             max_retries: 3,
@@ -113,9 +112,9 @@ impl Backtester {
     pub fn listen(&mut self) {
         // subscribe to the command channels
         let rx = sub_multiple(
-            CONF.redis_url, &[CONF.redis_control_channel, self.uuid.hyphenated().to_string().as_str()]
+            CONF.redis_host, &[CONF.redis_control_channel, self.uuid.hyphenated().to_string().as_str()]
         );
-        let mut redis_client = get_client(CONF.redis_url);
+        let mut redis_client = get_client(CONF.redis_host);
         let mut copy = self.clone();
 
         // Signal to the platform that we're ready to receive commands
@@ -377,7 +376,7 @@ fn check_early_exit (
 
 #[test]
 fn backtest_n_early_exit() {
-    let rx = algobot_util::transport::redis::sub_channel(CONF.redis_url, "test1_ii");
+    let rx = algobot_util::transport::redis::sub_channel(CONF.redis_host, "test1_ii");
 
     let mut bt = Backtester::new();
     let definition = BacktestDefinition {
@@ -388,7 +387,7 @@ fn backtest_n_early_exit() {
         backtest_type: BacktestType::Fast{delay_ms: 0},
         data_source: DataSource::Random,
         data_dest: DataDest::RedisChannel{
-            host: CONF.redis_url.to_string(),
+            host: CONF.redis_host.to_string(),
             channel: "test1_ii".to_string()
         },
         broker_settings: SimBrokerSettings::default(),
@@ -403,7 +402,7 @@ fn backtest_n_early_exit() {
 
 #[test]
 fn backtest_timestamp_early_exit() {
-    let rx = algobot_util::transport::redis::sub_channel(CONF.redis_url, "test2_ii");
+    let rx = algobot_util::transport::redis::sub_channel(CONF.redis_host, "test2_ii");
 
     let mut bt = Backtester::new();
     let definition = BacktestDefinition {
@@ -414,7 +413,7 @@ fn backtest_timestamp_early_exit() {
         backtest_type: BacktestType::Fast{delay_ms: 0},
         data_source: DataSource::Random,
         data_dest: DataDest::RedisChannel{
-            host: CONF.redis_url.to_string(),
+            host: CONF.redis_host.to_string(),
             channel: "test2_ii".to_string()
         },
         broker_settings: SimBrokerSettings::default(),
