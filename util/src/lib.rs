@@ -15,3 +15,4 @@ extern crate test;
 pub mod transport;
 pub mod strategies;
 pub mod trading;
+pub mod conf;

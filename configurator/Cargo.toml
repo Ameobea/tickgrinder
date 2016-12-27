@@ -6,3 +6,5 @@ authors = ["Casey Primozic <me@ameo.link>"]
 [dependencies]
 cursive = { git = "https://github.com/gyscos/Cursive.git", default-features = false, features = ["termion"] }
 lazy_static = "0.1.*"
+serde_json = "0.8"
+indoc = "^0.1"

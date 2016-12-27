@@ -11,4 +11,3 @@ extern crate serde_derive;
 extern crate algobot_util;
 
 pub mod indicators;
-mod conf;

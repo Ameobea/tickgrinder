@@ -10,10 +10,10 @@ use postgres::rows::Rows;
 use postgres::error::Error;
 use algobot_util::trading::tick::*;
 use algobot_util::transport::postgres::*;
+use algobot_util::conf::CONF;
 
 use data::*;
 use backtest::{BacktestCommand, BacktestMap};
-use conf::CONF;
 
 pub struct PostgresReader {
     pub symbol: String,
@@ -36,7 +36,7 @@ impl TickGenerator for PostgresReader {
             let pg_conf = PostgresConf {
                 postgres_user: CONF.postgres_user,
                 postgres_password: CONF.postgres_password,
-                postgres_url: CONF.postgres_url,
+                postgres_url: CONF.postgres_host,
                 postgres_port: CONF.postgres_port,
                 postgres_db: CONF.postgres_db,
             };

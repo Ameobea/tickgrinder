@@ -13,7 +13,7 @@ use algobot_util::transport::postgres::{self, PostgresConf};
 use algobot_util::transport::query_server::QueryServer;
 use algobot_util::transport::command_server::*;
 use algobot_util::trading::tick::{Tick, SymbolTick};
-use conf::CONF;
+use algobot_util::conf::CONF;
 use processor::Processor;
 
 #[test]
@@ -21,7 +21,7 @@ fn postgres_tick_insertion() {
     let pg_conf = PostgresConf {
         postgres_user: CONF.postgres_user,
         postgres_password: CONF.postgres_password,
-        postgres_url: CONF.postgres_url,
+        postgres_url: CONF.postgres_host,
         postgres_port: CONF.postgres_port,
         postgres_db: CONF.postgres_db
     };
@@ -39,7 +39,7 @@ fn postgres_db_reset() {
     let pg_conf = PostgresConf {
         postgres_user: CONF.postgres_user,
         postgres_password: CONF.postgres_password,
-        postgres_url: CONF.postgres_url,
+        postgres_url: CONF.postgres_host,
         postgres_port: CONF.postgres_port,
         postgres_db: CONF.postgres_db
     };
@@ -52,8 +52,8 @@ fn postgres_db_reset() {
 #[test]
 fn tick_ingestion() {
     let mut processor = Processor::new("test8".to_string(), &Uuid::new_v4());
-    let rx = sub_channel(CONF.redis_url, "TEST_ticks_ii");
-    let mut client = get_client(CONF.redis_url);
+    let rx = sub_channel(CONF.redis_host, "TEST_ticks_ii");
+    let mut client = get_client(CONF.redis_host);
 
     // send 5 ticks to through the redis channel
     for timestamp in 1..6 {
@@ -77,7 +77,7 @@ fn tick_ingestion() {
 #[test]
 fn command_server_broadcast() {
     let settings = CsSettings {
-        redis_host: CONF.redis_url,
+        redis_host: CONF.redis_host,
         responses_channel: "broadcast_test_res",
         conn_count: 3,
         timeout: 399,
@@ -85,8 +85,8 @@ fn command_server_broadcast() {
     };
 
     let mut cs = CommandServer::new(settings);
-    let mut client = get_client(CONF.redis_url);
-    let rx = sub_channel(CONF.redis_url, "broadcast_test_cmd");
+    let mut client = get_client(CONF.redis_host);
+    let rx = sub_channel(CONF.redis_host, "broadcast_test_cmd");
 
     let cmd = Command::Ping;
     let responses_future = cs.broadcast(cmd, "broadcast_test_cmd".to_string());

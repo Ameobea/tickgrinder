@@ -1,3 +1,5 @@
 target
 Cargo.lock
 conf.rs
+conf.js
+settings.json

@@ -16,7 +16,7 @@ use algobot_util::trading::tick::Tick;
 use algobot_util::transport::postgres::{get_client, init_tick_table, PostgresConf};
 use algobot_util::transport::query_server::QueryServer;
 use algobot_util::transport::redis::get_client as get_redis_client;
-use conf::CONF;
+use algobot_util::conf::CONF;
 
 pub struct Processor {
     pub uuid: Uuid,
@@ -31,7 +31,7 @@ impl Processor {
         let pg_conf = PostgresConf {
             postgres_user: CONF.postgres_user,
             postgres_password: CONF.postgres_password,
-            postgres_url: CONF.postgres_url,
+            postgres_url: CONF.postgres_host,
             postgres_port: CONF.postgres_port,
             postgres_db: CONF.postgres_db
         };
@@ -46,7 +46,7 @@ impl Processor {
             symbol: symbol,
             ticks: DataField::new(),
             qs: QueryServer::new(CONF.qs_connections, pg_conf),
-            redis_client: get_redis_client(CONF.redis_url)
+            redis_client: get_redis_client(CONF.redis_host)
         }
     }
 

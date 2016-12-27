@@ -15,14 +15,10 @@ extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 
-mod conf;
-
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::process;
-
-use conf::CONF;
 
 use uuid::Uuid;
 use futures::{Future, oneshot, Complete};
@@ -31,6 +27,7 @@ use futures::stream::Stream;
 use algobot_util::transport::redis::{sub_channel, sub_multiple, get_client};
 use algobot_util::transport::commands::*;
 use algobot_util::transport::command_server::*;
+use algobot_util::conf::CONF;
 
 /// Represents an instance of a platform module.  Contains a Uuid to identify it
 /// as well as some information about its spawning parameters and its type.
@@ -190,7 +187,7 @@ impl InstanceManager {
         thread::spawn(move || {
             // sub to spawer control channel and personal commands channel
             let cmds_rx = sub_multiple(
-                CONF.redis_url,
+                CONF.redis_host,
                 &[CONF.redis_control_channel, own_uuid.hyphenated().to_string().as_str()]
             );
             println!(
@@ -198,7 +195,7 @@ impl InstanceManager {
                 CONF.redis_control_channel,
                 own_uuid.hyphenated().to_string().as_str()
             );
-            let mut redis_client = get_client(CONF.redis_url);
+            let mut redis_client = get_client(CONF.redis_host);
 
             let _ = cmds_rx.for_each(move |message| {
                 let (_, cmd_string) = message;
@@ -282,7 +279,7 @@ impl InstanceManager {
     /// Spawns a new MM server instance and inserts its Uuid into the living instances list
     fn spawn_mm(&mut self) -> Response {
         let mod_uuid = Uuid::new_v4();
-        let path = CONF.dist_path.to_string() + "mm/manager.js";
+        let path = "./mm/manager.js";
         let _ = process::Command::new(CONF.node_binary_path)
                                 .arg(path)
                                 .arg(mod_uuid.to_string().as_str())
@@ -296,7 +293,7 @@ impl InstanceManager {
     /// the living instances list
     fn spawn_tick_parser(&mut self, symbol: String) -> Response {
         let mod_uuid = Uuid::new_v4();
-        let path = CONF.dist_path.to_string() + "tick_processor";
+        let path = "./tick_processor";
         let _ = process::Command::new(path)
                                 .arg(mod_uuid.to_string().as_str())
                                 .arg(symbol.as_str())
@@ -310,7 +307,7 @@ impl InstanceManager {
     /// the living instances list
     fn spawn_optimizer(&mut self, strategy: String) -> Response {
         let mod_uuid = Uuid::new_v4();
-        let path = CONF.dist_path.to_string() + "optimizer";
+        let path = "./optimizer";
         let _ = process::Command::new(path)
                                 .arg(mod_uuid.to_string().as_str())
                                 .arg(strategy.as_str())
@@ -323,7 +320,7 @@ impl InstanceManager {
     /// Spawns a Backtester instance.
     fn spawn_backtester(&mut self) -> Response {
         let mod_uuid = Uuid::new_v4();
-        let path = CONF.dist_path.to_string() + "backtester";
+        let path = "./backtester";
         let _ = process::Command::new(path)
                                 .arg(mod_uuid.to_string().as_str())
                                 .spawn()
@@ -335,7 +332,7 @@ impl InstanceManager {
     /// Spawns a FXCM Data Downloader instance.
     fn spawn_fxcm_dd(&mut self) -> Response {
         let mod_uuid = Uuid::new_v4();
-        let path = CONF.dist_path.to_string() + "fxcm_native_downloader";
+        let path = "./fxcm_native_downloader";
         let _ = process::Command::new(path)
                                 .arg(mod_uuid.to_string().as_str())
                                 .spawn()
@@ -391,7 +388,7 @@ impl InstanceManager {
 
 fn get_settings() -> CsSettings {
     CsSettings {
-        redis_host: CONF.redis_url,
+        redis_host: CONF.redis_host,
         responses_channel: CONF.redis_responses_channel,
         conn_count: 3,
         timeout: 300,
@@ -410,11 +407,11 @@ fn spawner_command_processing() {
     let mut spawner = InstanceManager::new();
     spawner.listen();
 
-    let mut client = get_client(CONF.redis_url);
+    let mut client = get_client(CONF.redis_host);
     let cmd = Command::Ping.wrap();
     let cmd_string = cmd.to_string().unwrap();
 
-    let rx = sub_channel(CONF.redis_url, CONF.redis_responses_channel);
+    let rx = sub_channel(CONF.redis_host, CONF.redis_responses_channel);
     // give the sub a chance to subscribe
     thread::sleep(Duration::from_millis(150));
     // send a Ping command

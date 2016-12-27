@@ -9,10 +9,10 @@ use std::sync::atomic::AtomicBool;
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver};
 use algobot_util::trading::tick::Tick;
+use algobot_util::conf::CONF;
 
 use data::*;
 use backtest::{BacktestCommand, BacktestMap};
-use conf::CONF;
 
 pub struct FlatfileReader {
     pub symbol: String,
@@ -68,7 +68,8 @@ impl TickGenerator for FlatfileReader {
 
 /// Trys to open the file containing the historical ticks for the supplied symbol.
 pub fn init_reader(symbol: &str) -> Result<impl Iterator<Item=Tick>, String> {
-    let mut path = PathBuf::from(CONF.tick_data_dir);
+    let mut path = PathBuf::from(CONF.data_dir);
+    path.push("historical_ticks");
     let filename = format!("{}.csv", symbol.to_uppercase());
     path.push(filename.as_str());
 

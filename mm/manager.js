@@ -62,7 +62,7 @@ manager.start = function(port){
         }
       } catch(e) {}
     });
-  }).listen(parseInt(conf.websocketPort), "0.0.0.0");
+  }).listen(parseInt(conf.websocket_port), "0.0.0.0");
 
   // usage: node manager.js uuid
   uuid = process.argv[2];
@@ -71,15 +71,15 @@ manager.start = function(port){
     console.log("Usage: node manager.js uuid");
     process.exit(0);
   } else {
-    console.log(`MM now listening for commands on ${conf.redisCommandsChannel} and ${uuid}`);
+    console.log(`MM now listening for commands on ${conf.redis_control_channel} and ${uuid}`);
   }
 
   // Create two Redis clients - one for subscribing and one for publishing
   var subClient = getRedisClient();
 
   subClient.subscribe(uuid);
-  subClient.subscribe(conf.redisCommandsChannel);
-  subClient.subscribe(conf.redisResponsesChannel);
+  subClient.subscribe(conf.redis_control_channel);
+  subClient.subscribe(conf.redis_responses_channel);
   subClient.on("message", (channel, message_str)=>{
     // convert the {"Enum"}s to plain strings
     message_str = message_str.replace(/{("\w*")}/g, "$1");
@@ -92,14 +92,14 @@ manager.start = function(port){
     if(wr_msg.cmd){
       var response = getResponse(wr_msg.cmd);
       var wr_res = {uuid: wr_msg.uuid, res: response};
-      pubClient.publish(conf.redisResponsesChannel, JSON.stringify(wr_res));
+      pubClient.publish(conf.redis_responses_channel, JSON.stringify(wr_res));
     }
   });
 
   // signal to the platform that we're up and running
   setTimeout(function(){
-    pubClient.publish(conf.redisCommandsChannel, JSON.stringify({uuid: v4(), cmd: {Ready: {instance_type: "MM", uuid: uuid}}}));
-  }, 1000)
+    pubClient.publish(conf.redis_control_channel, JSON.stringify({uuid: v4(), cmd: {Ready: {instance_type: "MM", uuid: uuid}}}));
+  }, conf.cs_timeout);
 
   app.use(function(err, req, res, next) {
     res.status(err.status || 500);
@@ -115,13 +115,14 @@ manager.start = function(port){
   });
 };
 
-manager.start(conf.mmPort);
+manager.start(conf.mm_port);
 
 /// Returns a new Redis client based on the settings in conf
 function getRedisClient() {
+  var spl = conf.redis_host.split(":");
   return redis.createClient({
-    host: conf.redisUrl,
-    port: conf.redisPort
+    host: spl[0],
+    port: parseInt(spl[1]),
   });
 }
 

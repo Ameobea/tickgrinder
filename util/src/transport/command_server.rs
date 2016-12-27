@@ -36,7 +36,7 @@ pub struct CsSettings {
     pub conn_count: usize,
     pub redis_host: &'static str,
     pub responses_channel: &'static str,
-    pub timeout: u64,
+    pub timeout: usize,
     pub max_retries: usize
 }
 
@@ -143,7 +143,7 @@ fn send_command_outer(
     let (sleepy_c, sleepy_o) = oneshot::<Thread>();
     let (awake_c, awake_o) = oneshot::<Result<Response, ()>>();
     // start the timeout timer on a separate thread
-    let dur = Duration::from_millis(s.timeout);
+    let dur = Duration::from_millis(s.timeout as u64);
     let timeout_msg = TimeoutRequest {
         dur: dur,
         thread_future: sleepy_c,
@@ -345,7 +345,7 @@ impl CommandServer {
     ) -> Receiver<Vec<Response>> {
         // spawn a new timeout thread just for this request
         let (mut sleeper_tx, sleeper_rx) = unbounded::<TimeoutRequest>();
-        let dur = Duration::from_millis(self.settings.timeout);
+        let dur = Duration::from_millis(self.settings.timeout as u64);
 
         let (sleepy_c, _) = oneshot::<Thread>();
         // awake_o fulfills when the timeout expires

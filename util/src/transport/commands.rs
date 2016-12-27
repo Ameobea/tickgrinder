@@ -7,8 +7,6 @@ use uuid::Uuid;
 #[allow(unused_imports)]
 use test;
 
-use trading::trading_condition::*;
-
 use trading::broker::SimBrokerSettings;
 
 /// Represents a Command that can be serde'd and sent over Redis.

@@ -8,137 +8,23 @@
 
 extern crate cursive;
 extern crate serde_json;
-#[macro_use]
-extern crate lazy_static;
 
-use std::fs::{File, OpenOptions};
 use std::process::{Command, Stdio};
-use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::rc::Rc;
-use std::io::prelude::*;
 use std::panic::{set_hook, take_hook};
 
 use cursive::Cursive;
+#[allow(unused_imports)]
 use cursive::views::{Dialog, TextView, EditView, ListView, BoxView, LinearLayout, SelectView, Panel};
-use cursive::view::{SizeConstraint, ViewWrapper};
+use cursive::view::SizeConstraint;
 use cursive::direction::Orientation;
 use cursive::traits::*;
 
 mod theme;
 use theme::THEME;
-
-#[derive(PartialEq)]
-enum SettingType {
-    String,
-    Usize,
-    Boolean,
-    OptionString,
-}
-
-#[derive(PartialEq)]
-struct SettingRow {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub default: Option<&'static str>,
-    pub setting_type: SettingType,
-}
-
-type SettingsPage = &'static [SettingRow];
-
-const POSTGRES_IDS: &'static [&'static str] = &["postgres_host", "postgres_user", "postgres_password", "postgres_port", "postgres_db"];
-
-lazy_static! {
-    /// Maps the names of categories to the `SettingsPage`s that contain those settings.
-    static ref PAGE_MAPPINGS: HashMap<&'static str, SettingsPage> = {
-        let mut m = HashMap::new();
-        m.insert("postgres", POSTGRES_SETTINGS);
-        m.insert("redis", REDIS_SETTINGS);
-        m.insert("fxcm", FXCM_SETTINGS);
-        m
-    };
-}
-
-const POSTGRES_SETTINGS: SettingsPage = &[
-    SettingRow {id: "postgres_host", name: "Host", default: Some("localhost"), setting_type: SettingType::String},
-    SettingRow {id: "postgres_port", name: "Port", default: Some("5432"), setting_type: SettingType::String},
-    SettingRow {id: "postgres_user", name: "Username", default: None, setting_type: SettingType::String},
-    SettingRow {id: "postgres_password", name: "Password", default: None, setting_type: SettingType::String},
-    SettingRow {id: "postgres_db", name: "Database", default: None, setting_type: SettingType::String},
-];
-
-const REDIS_SETTINGS: SettingsPage = &[
-    SettingRow {id: "redis_host", name: "Host", default: Some("localhost"), setting_type: SettingType::String},
-    SettingRow {id: "redis_port", name: "Port", default: Some("6379"), setting_type: SettingType::String}
-];
-
-const FXCM_SETTINGS: SettingsPage = &[
-    SettingRow {id: "fxcm_username", name: "Username", default: Some("D102691234567"), setting_type: SettingType::String },
-    SettingRow {id: "fxcm_password", name: "Password", default: Some("1234"), setting_type: SettingType::String},
-    SettingRow {id: "fxcm_url", name: "URL", default: Some("http://www.fxcorporate.com/Hosts.jsp"), setting_type: SettingType::String },
-    SettingRow {id: "fxcm_pin", name: "PIN (Optional)", default: None, setting_type: SettingType::String },
-];
-
-#[derive(Clone)]
-struct Settings {
-    inner: Arc<Mutex<HashMap<String, String>>>,
-}
-
-impl Settings {
-    pub fn new() -> Settings {
-        Settings {
-            inner: Arc::new(Mutex::new(HashMap::new()))
-        }
-    }
-
-    pub fn set(&self, key: &str, val: &str) {
-        let mut ul = self.inner.lock().unwrap();
-        ul.insert(key.to_string(), val.to_string());
-    }
-
-    pub fn get(&self, key: String) -> Option<String> {
-        let ul = self.inner.lock().unwrap();
-        match ul.get(&key) {
-            Some(val) => Some(val.clone()),
-            None => None
-        }
-    }
-
-    /// Dumps the Settings object to a JSON file that can be used to populate the Settings object from scratch
-    pub fn write_json(&self, filename: &str) {
-        let path = Path::new(filename);
-        if !path.exists() {
-            let _ = File::create(path).unwrap();
-        }
-
-        let mut file = OpenOptions::new().write(true).open(path).expect("Unable to open");
-        let inner = self.inner.lock().unwrap();
-        let content = serde_json::to_string_pretty(&*inner).expect("Unable to serialize settings!");
-        file.write_all((&(content + "\n")).as_bytes()).expect("Unable to write into output file.")
-    }
-
-    /// Reads the supplied JSON file and generates a Settings object from its contents.
-    pub fn read_json(filename: &str) -> Settings {
-        let path = Path::new(filename);
-        if !path.exists() {
-            panic!("No filename exists at that path: {:?}", path);
-        }
-
-        let mut buffer = Vec::new();
-        let mut file = OpenOptions::new().read(true).open(path).expect("Unable to open input file");
-        file.read_to_end(&mut buffer).expect("Unable to read file into buffer");
-        let content = String::from_utf8(buffer).expect("Unable to convert buffer to String");
-        let inner = serde_json::from_str::<HashMap<String, String>>(&content)
-            .expect("Unable to convert String to HashMap.");
-
-        Settings {
-            inner: Arc::new(Mutex::new(inner)),
-        }
-    }
-
-
-}
+mod misc;
+use misc::*;
 
 const MIN15: SizeConstraint = SizeConstraint::AtLeast(10);
 const FREE: SizeConstraint = SizeConstraint::Free;
@@ -152,19 +38,27 @@ fn main() {
     }));
 
     // Check if this is the first run of the configurator
-    let path = Path::new(".platform_conf");
+    let path = Path::new("settings.json");
     if !path.exists() {
-        // File::create(path).expect("Unable to create config placeholder file; do you have write permissions to this directory?");
         first_time();
-    }
 
-    // clear console + reset colored background before exiting
-    clear_console();
+        // clear console + reset colored background before exiting
+        clear_console();
+    } else {
+        // if we're already configured, just read in the old settings and re-generate Rust config files.
+        let settings = Settings::read_json("settings.json");
+        write_settings(&mut Cursive::new(), settings);
+        clear_console();
+        println!("{}", &format!("{}[35mSettings files have been regenerated.", 27 as char));
+        println!("{}", &format!("However, the platform must be rebuilt (`make`) in order for any changes to be reflected.{}[0m\n", 27 as char));
+        println!("Edit `settings.json` in the `configurator` directory and run `make config` again to change settings.");
+        println!("Delete `settings.json` and re-run configurator to start from scratch.");
+    }
 }
 
 /// Clears all custom colors and formatting, restoring the terminal to defaults and clearing it.
 fn clear_console() {
-    print!(".{}[0m{}[2J", 27 as char, 27 as char);
+    print!("{}[0m{}[2J", 27 as char, 27 as char);
 }
 
 /// Returns the content of the EditView with the given ID.
@@ -193,7 +87,17 @@ fn first_time() {
                 modules."
             )
         )).title("Welcome")
-            .button("Continue", move |s| redis_config(s, settings.clone()) )
+            .button("Continue", move |s| {
+                if !is_installed("node") {
+                    s.add_layer(Dialog::text(indoc!(
+                        "NodeJS is required in order to run the platform's Management+Monitoring (MM) Web GUI.
+
+                        Please install NodeJS and add the `node` binary to the system path before installing the platform."
+                    )).button("Ok", |s| s.quit() ));
+                }
+                settings.set("node_binary_path", &which("node"));
+                redis_config(s, settings.clone());
+            })
     );
 
     // Start the event loop
@@ -240,8 +144,6 @@ fn redis_config(s: &mut Cursive, settings: Settings) {
 }
 
 fn redis_local(s: &mut Cursive, installed: bool, settings: Settings) {
-    settings.set("redis_host", "localhost");
-
     if !installed {
         s.add_layer(Dialog::text(
             indoc!(
@@ -253,7 +155,10 @@ fn redis_local(s: &mut Cursive, installed: bool, settings: Settings) {
         s.pop_layer();
         let mut port_box = EditView::new()
             .on_submit(move |s, port| {
-                settings.set("redis_port", port);
+                settings.set("redis_host", &format!(
+                    "redis://localhost:{}/",
+                    port
+                ));
                 postgres_config(s, settings.clone())
             });
         port_box.set_content("6379");
@@ -272,8 +177,11 @@ fn redis_remote(s: &mut Cursive, settings: Settings) {
             .child("Redis Port", BoxView::new(MIN15, FREE, EditView::new().content("6379").with_id("redis_port")))
         ).title("Remote Redis Server Settings")
         .button("Ok", move |s| {
-            settings.set("redis_host", &*get_by_id("redis_host", s).unwrap());
-            settings.set("redis_port", &*get_by_id("redis_port", s).unwrap());
+            settings.set("redis_host", &format!(
+                "redis://{}:{}/",
+                &*get_by_id("redis_host", s).unwrap(),
+                &*get_by_id("redis_port", s).unwrap()
+            ));
             postgres_config(s, settings.clone())
         })
     );
@@ -372,8 +280,11 @@ fn set_data_dir(s: &mut Cursive, settings: Settings) {
         )
     ).title("Data Directory").button("Ok", move |s| {
         let dir = get_by_id("data_directory", s);
-        match check_data_dir(&*dir.unwrap()) {
-            Ok(()) => show_directory(s, settings.clone()),
+        match check_data_dir(&*(dir.clone()).unwrap()) {
+            Ok(()) => {
+                settings.set("data_dir", &*dir.unwrap());
+                show_directory(s, settings.clone())
+            },
             Err(err) => {
                 error_popup(s, err)
             },
@@ -384,27 +295,40 @@ fn set_data_dir(s: &mut Cursive, settings: Settings) {
 
 /// Draws the global configuration directory which contains all possible settings and their current values.  Users can
 /// page through the various configuration settings and modify them as they desire.
+/// -------
+/// This is currently broken; probably an internal Cursive bug.  Will work on implementing this later.  For now, it just
+/// calls `write_settings` and calls it a day.
 fn show_directory(s: &mut Cursive, settings: Settings) {
-    s.pop_layer();
-    let mut sv: SelectView<SettingsPage> = SelectView::new()
-        .popup()
-        .on_select(move |s, new_page| {
-            let last_page_name = settings.get(String::from("last-page"))
-                .expect("`last-page` wasn't in settings.");
-            let last_page = PAGE_MAPPINGS.get(last_page_name.as_str()).unwrap();
-            let changed = check_changes(s, *last_page, settings.clone());
-            if changed {
-                s.add_layer(get_save_dialog(last_page, *new_page, settings.clone()));
-            }
-        });
-    for (k, v) in PAGE_MAPPINGS.iter() {
-        sv.add_item(*k, *v);
-    }
-    let directory = Dialog::around(LinearLayout::new(Orientation::Vertical)
-        .child(sv.with_id("directory-category"))
-        .child(Panel::new(ListView::new()).with_id("directory-panel"))
-    ).button("Exit", |s| s.quit() );
-    s.add_layer(directory);
+    write_settings(s, settings);
+    // let settings_ = settings.clone();
+    // s.pop_layer();
+    // let mut sv: SelectView<SettingsPage> = SelectView::new()
+    //     .popup()
+    //     .on_submit(move |s, new_page| {
+    //         let last_page_name = settings_.get(String::from("last-page"))
+    //             .expect("`last-page` wasn't in settings.");
+    //         let last_page = PAGE_MAPPINGS.get(last_page_name.as_str()).expect("Last page name wasn't in mapping");
+    //         let changed = check_changes(s, *last_page, settings_.clone());
+    //         if changed {
+    //             // s.add_layer(get_save_dialog(last_page, *new_page, settings_.clone()));
+    //         } else {
+    //             switch_categories(s, new_page, settings_.clone());
+    //         }
+    //     });
+    // sv.add_item("postgres", POSTGRES_SETTINGS);
+    // settings.set("last-page", "postgres");
+    // for (k, v) in PAGE_MAPPINGS.iter() {
+    //     if *k != "postgres" {
+    //         sv.add_item(*k, *v);
+    //     }
+    // }
+    // let directory = Dialog::around(LinearLayout::new(Orientation::Vertical)
+    //     .child(sv.v_align(VAlign::Center).fixed_size((20, 10)).with_id("directory-category"))
+    //     .child(ListView::new().with_id("directory-lv").fixed_width(30))
+    // ).button("Exit", |s| s.quit() );
+    // s.add_layer(directory);
+    // // s.add_layer(Dialog::around(sv.fixed_size))
+    // switch_categories(s, &POSTGRES_SETTINGS, settings);
 }
 
 /// Returns the Dialog shown when switching between different settings categories in the main settings catalog.
@@ -414,30 +338,71 @@ fn get_save_dialog(last_page: SettingsPage, new_page: SettingsPage, settings: Se
     let settings_ = settings.clone();
     Dialog::text("You have unsaved changes!  Do you want to preserve them?")
         .button("Save", move |s| {
-            save_changes(s, last_page, settings.clone());
+            save_changes(s, &last_page, settings.clone());
         }).button("Discard", move |s| {
             switch_categories(s, &new_page, settings_.clone());
         })
 }
 
 fn switch_categories(s: &mut Cursive, new_page: &SettingsPage, settings: Settings) {
-    let panel: &mut Panel<ListView> = s.find_id("directory-panel").unwrap();
-    let lv = panel.get_view_mut();
+    let lv: &mut ListView = s.find_id("directory-lv").expect("directory-lv not found");
     populate_list_view(new_page, lv);
     // do a dirty manual reverse lookup
     let mut cur_page_name_opt = None;
-    for (k, v) in PAGE_MAPPINGS.iter() {
-        if v == new_page {
-            cur_page_name_opt = Some(k);
+    for page in PAGE_LIST.iter() {
+        if page.name == new_page.name {
+            cur_page_name_opt = Some(page.name);
         }
     }
     settings.set("last-page", cur_page_name_opt.expect("Failed to reverse lookup last page name."));
 }
 
+/// Takes a SettingsPage and ListView and fills the ListView with the SettingRows contained inside the SettingsPage.
+fn populate_list_view(page: &SettingsPage, lv: &mut ListView) {
+    lv.clear();
+    for row in page.iter() {
+        let mut ev = EditView::new();
+        if row.default.is_some() {
+            ev.set_content(row.default.unwrap());
+        }
+        lv.add_child(row.name, BoxView::new(MIN15, FREE, ev.with_id(row.id)))
+    }
+}
+
+/// Returns true if the values any of the EditViews with IDs corresponding to the SettingsRows from the given page
+/// differ from the default values for that page.
+fn check_changes(s: &mut Cursive, page: SettingsPage, settings: Settings) -> bool {
+    for row in page.iter() {
+        let cur_val = get_by_id(row.id, s).unwrap();
+        let last_val = settings.get(String::from(row.id))
+            .expect(&format!("Unable to get past val in check_changes: {}", row.id));
+        if last_val != *cur_val {
+            return true
+        }
+    }
+    false
+}
+
+/// Commits all changes for a page to the internal Settings object and then writes them to all files.
+fn save_changes(s: &mut Cursive, page: &SettingsPage, settings: Settings) {
+    for row in page.iter() {
+        let cur_val = get_by_id(row.id, s).unwrap();
+        settings.set(row.id, &*cur_val);
+    }
+
+    write_settings(s, settings);
+}
+
 /// Runs `which [command]` and returns true if the binary is located.
-fn is_installed(command: &str) -> bool {
+fn is_installed(binary: &str) -> bool {
+    let res = which(binary);
+
+    res.len() > 0
+}
+
+fn which(binary: &str) -> String {
     let child = Command::new("which")
-        .arg(command)
+        .arg(binary)
         .stdout(Stdio::piped())
         .spawn()
         .expect("Unable to spawn `which redis_server`");
@@ -445,7 +410,7 @@ fn is_installed(command: &str) -> bool {
     let output = child.wait_with_output()
         .expect("Unable to get output from `which redis_server`");
 
-    output.stdout.len() > 0
+    String::from(String::from_utf8(output.stdout).expect("Couldn't convert UTF8 buffer to String").trim())
 }
 
 /// Creates an error popup with the supplied message and a button to dismiss it.
@@ -455,16 +420,22 @@ fn error_popup(s: &mut Cursive, err_str: &str) {
 
 /// Display completion message and write the entered settings to a JSON file.
 fn write_settings(s: &mut Cursive, settings: Settings) {
-    let settings_ = settings.clone();
+    settings.write_json("settings.json");
+    settings.write_rust("conf.rs");
+    settings.write_js("conf.js");
+
     s.pop_layer();
 
     s.add_layer(Dialog::text(
         indoc!(
             "The trading platform has been successfully configured.  Run `run.sh` and visit `localhost:8002` in \
-            your web browser to start using the platform."
+            your web browser to start using the platform.
+
+            To change settings, edit `config.json` and re-run the configurator via running `make configure` in the \
+            project root.  To start the configuration process over and reset all settings, delete `config.json` and \
+            re-run the configurator."
         )
     ).button("Ok", move |s| {
-        settings_.write_json("settings.json");
         s.quit()
     }))
 }
@@ -492,42 +463,6 @@ fn check_data_dir(dir: &str) -> Result<(), &'static str> {
     // TODO: Check that the directory has the correct permissions, maybe auto-create directory if it doesn't exist.
 
     Ok(())
-}
-
-/// Takes a SettingsPage and ListView and fills the ListView with the SettingRows contained inside the SettingsPage.
-fn populate_list_view(page: SettingsPage, lv: &mut ListView) {
-    lv.clear();
-    for row in page {
-        let mut ev = EditView::new();
-        if row.default.is_some() {
-            ev.set_content(row.default.unwrap());
-        }
-        lv.add_child(row.name, BoxView::new(MIN15, FREE, ev.with_id(row.id)))
-    }
-}
-
-/// Returns true if the values any of the EditViews with IDs corresponding to the SettingsRows from the given page
-/// differ from the default values for that page.
-fn check_changes(s: &mut Cursive, page: SettingsPage, settings: Settings) -> bool {
-    for row in page {
-        let cur_val = get_by_id(row.id, s).unwrap();
-        let last_val = settings.get(String::from(row.id))
-            .expect("Unable to get past val in check_changes");
-        if last_val != *cur_val {
-            return true
-        }
-    }
-    false
-}
-
-/// Commits all changes for a page to the internal Settings object and then writes them to all files.
-fn save_changes(s: &mut Cursive, page: SettingsPage, settings: Settings) {
-    for row in page {
-        let cur_val = get_by_id(row.id, s).unwrap();
-        settings.set(row.id, &*cur_val);
-    }
-
-    write_settings(s, settings);
 }
 
 #[test]

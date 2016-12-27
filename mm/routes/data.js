@@ -11,11 +11,11 @@ var pg = require("pg");
 var conf = require("../conf");
 
 var config = {
-  user: conf.postgresUser,
-  database: conf.postgresDatabase,
-  password: conf.postgresPassword,
-  host: conf.posgresUrl,
-  port: conf.posrgresPort,
+  user: conf.postgres_user,
+  database: conf.postgres_database,
+  password: conf.postgres_password,
+  host: conf.postgres_url,
+  port: conf.postgres_port,
   max: 10,
   idleTimeoutMillis: 835672,
 };
