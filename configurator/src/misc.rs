@@ -396,6 +396,13 @@ pub const GENERAL_SETTINGS: SettingsPage = SettingsPage {
             comment: Some("Changing this will currently break the platform; it's just here for backwards compability."),
         },
         SettingRow {
+            id: "redis_log_channel",
+            name: "Log Channel",
+            default: Some("log"),
+            setting_type: SettingType::String,
+            comment: None,
+        },
+        SettingRow {
             id: "data_dir",
             name: "Data Directory",
             default: None,

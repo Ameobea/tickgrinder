@@ -29,16 +29,7 @@ use redis;
 
 use transport::redis::{get_client, sub_channel};
 use transport::commands::*;
-
-/// Static settings for the CommandServer
-#[derive(Clone, Debug)]
-pub struct CsSettings {
-    pub conn_count: usize,
-    pub redis_host: &'static str,
-    pub responses_channel: &'static str,
-    pub timeout: usize,
-    pub max_retries: usize
-}
+use conf::CONF;
 
 /// A command waiting to be sent plus a Sender to send the Response/Error String
 /// through and the channel on which to broadcast the Command.
@@ -118,10 +109,10 @@ impl AlertList {
 #[derive(Clone)]
 pub struct CommandServer {
     al: Arc<Mutex<AlertList>>,
-    settings: CsSettings,
     command_queue: CommandQueue, // internal command queue
     conn_queue: UnboundedSenderQueue, // UnboundedSenders for idle command-UnboundedSender threadss
     client: redis::Client,
+    instance: Instance, // The instance that owns this CommandServer
 }
 
 /// Locks the CommandQueue and returns a queued command, if there are any.
@@ -134,8 +125,7 @@ fn try_get_new_command(command_queue: CommandQueue) -> Option<CommandRequest> {
 fn send_command_outer(
     al: &Mutex<AlertList>, command: &Command, client: &mut redis::Client,
     mut sleeper_tx: &mut UnboundedSender<TimeoutRequest>, res_c: Sender<Result<Response, String>>,
-    command_queue: CommandQueue, mut attempts: usize, s: &CsSettings,
-    commands_channel: String
+    command_queue: CommandQueue, mut attempts: usize, commands_channel: String
 ) {
     let wr_cmd = command.wrap();
     let _ = send_command(&wr_cmd, client, commands_channel.as_str());
@@ -143,7 +133,7 @@ fn send_command_outer(
     let (sleepy_c, sleepy_o) = oneshot::<Thread>();
     let (awake_c, awake_o) = oneshot::<Result<Response, ()>>();
     // start the timeout timer on a separate thread
-    let dur = Duration::from_millis(s.timeout as u64);
+    let dur = Duration::from_millis(CONF.cs_timeout as u64);
     let timeout_msg = TimeoutRequest {
         dur: dur,
         thread_future: sleepy_c,
@@ -183,7 +173,7 @@ fn send_command_outer(
                         .deregister(&wr_cmd.uuid);
                 }
                 attempts += 1;
-                if attempts >= s.max_retries {
+                if attempts >= CONF.cs_max_retries {
                     // Let the main thread know it's safe to use the UnboundedSender again
                     // This essentially indicates that the worker thread is idle
                     let err_msg = String::from_str("Timed out too many times!").unwrap();
@@ -192,7 +182,7 @@ fn send_command_outer(
                 } else { // re-send the command
                     // we can do this recursively since it's only a few retries
                     send_command_outer(al, &wr_cmd.cmd, client, sleeper_tx, res_c,
-                        command_queue, attempts, s, commands_channel)
+                        command_queue, attempts, commands_channel)
                 }
             }
         }
@@ -203,16 +193,15 @@ fn send_command_outer(
 /// Manually loop over the converted Stream of commands
 fn dispatch_worker(
     work: WorkerTask, al: &Mutex<AlertList>, mut client: &mut redis::Client,
-    mut sleeper_tx: &mut UnboundedSender<TimeoutRequest>,
-    command_queue: CommandQueue, s: &CsSettings
+    mut sleeper_tx: &mut UnboundedSender<TimeoutRequest>, command_queue: CommandQueue
 ) -> Option<()> {
     let (cr, idle_c) = work;
 
     // completes initial command and internally iterates until queue is empty
-    send_command_outer(al, &cr.cmd, &mut client, sleeper_tx, cr.future, command_queue.clone(), 0, s, cr.channel);
+    send_command_outer(al, &cr.cmd, &mut client, sleeper_tx, cr.future, command_queue.clone(), 0, cr.channel);
     // keep trying to get queued commands to execute until the queue is empty;
     while let Some(cr) = try_get_new_command(command_queue.clone()) {
-        send_command_outer(al, &cr.cmd, client, &mut sleeper_tx, cr.future, command_queue.clone(), 0, s, cr.channel);
+        send_command_outer(al, &cr.cmd, client, &mut sleeper_tx, cr.future, command_queue.clone(), 0, cr.channel);
     }
     idle_c.complete(());
 
@@ -237,17 +226,16 @@ fn init_sleeper(rx: UnboundedReceiver<TimeoutRequest>,) {
 
 /// Creates a command processor that awaits requests
 fn init_command_processor(
-    cmd_rx: UnboundedReceiver<WorkerTask>, command_queue: CommandQueue,
-    al: &Mutex<AlertList>, s: &CsSettings
+    cmd_rx: UnboundedReceiver<WorkerTask>, command_queue: CommandQueue, al: &Mutex<AlertList>
 ) {
-    let mut client = get_client(s.redis_host);
+    let mut client = get_client(CONF.redis_host);
     // channel for communicating with the sleeper thread
     let (mut sleeper_tx, sleeper_rx) = unbounded::<TimeoutRequest>();
     thread::spawn(move || init_sleeper(sleeper_rx) );
 
     for task in cmd_rx.wait() {
         let res = dispatch_worker(
-            task.unwrap(), al, &mut client, &mut sleeper_tx, command_queue.clone(), s
+            task.unwrap(), al, &mut client, &mut sleeper_tx, command_queue.clone()
         );
 
         // exit if we're in the process of collapse
@@ -258,14 +246,14 @@ fn init_command_processor(
 }
 
 impl CommandServer {
-    pub fn new(s: CsSettings) -> CommandServer {
-        let mut conn_queue = VecDeque::with_capacity(s.conn_count);
+    pub fn new(instance_uuid: Uuid, instance_type: &str) -> CommandServer {
+        let mut conn_queue = VecDeque::with_capacity(CONF.conn_senders);
         let command_queue = Arc::new(Mutex::new(VecDeque::new()));
         let al = Arc::new(Mutex::new(AlertList::new()));
         let al_clone = al.clone();
 
         // Handle newly received Responses
-        let rx = sub_channel(s.redis_host, s.responses_channel);
+        let rx = sub_channel(CONF.redis_host, CONF.redis_responses_channel);
         thread::spawn(move || {
             for raw_res_res in rx.wait() {
                 let raw_res = raw_res_res.expect("Res was error in CommandServer response UnboundedReceiver thread.");
@@ -274,28 +262,27 @@ impl CommandServer {
             }
         });
 
-        for _ in 0..s.conn_count {
+        for _ in 0..CONF.conn_senders {
             let al_clone = al.clone();
-            let settings = s.clone();
             let qq_copy = command_queue.clone();
 
             // channel for getting the UnboundedSender back from the worker thread
             let (tx, rx) = unbounded::<WorkerTask>();
 
-            thread::spawn(move || init_command_processor(rx, qq_copy, &*al_clone, &settings) );
+            thread::spawn(move || init_command_processor(rx, qq_copy, &*al_clone) );
             // store the UnboundedSender which can be used to send queries
             // to the worker in the connection queue
             conn_queue.push_back(tx);
         }
 
-        let client = get_client(s.redis_host.clone());
+        let client = get_client(CONF.redis_host.clone());
 
         CommandServer {
             al: al,
-            settings: s,
             command_queue: command_queue,
             conn_queue: Arc::new(Mutex::new(conn_queue)),
             client: client,
+            instance: Instance{ uuid: instance_uuid, instance_type: String::from(instance_type), },
         }
     }
 
@@ -345,7 +332,7 @@ impl CommandServer {
     ) -> Receiver<Vec<Response>> {
         // spawn a new timeout thread just for this request
         let (mut sleeper_tx, sleeper_rx) = unbounded::<TimeoutRequest>();
-        let dur = Duration::from_millis(self.settings.timeout as u64);
+        let dur = Duration::from_millis(CONF.cs_timeout as u64);
 
         let (sleepy_c, _) = oneshot::<Thread>();
         // awake_o fulfills when the timeout expires
@@ -414,6 +401,46 @@ impl CommandServer {
     /// Sends a command asynchronously without bothering to wait for responses.
     pub fn send_forget(&self, cmd: &Command, channel: &str) {
         let _ = send_command(&cmd.wrap(), &self.client, channel);
+    }
+
+    /// Sends a message to the logger with the specified severity
+    pub fn log(&mut self, message_type_opt: Option<&str>, message: &str, level: LogLevel) {
+        let message_type = match message_type_opt {
+            Some(t) => t,
+            None => "General",
+        };
+        let line = LogMessage {
+            level: level,
+            message_type: String::from(message_type),
+            message: String::from(message),
+            sender: self.instance.clone(),
+        };
+        self.send_forget(&Command::Log{msg: line}, CONF.redis_log_channel);
+    }
+
+    /// Shortcut method for logging a debug-level message.
+    pub fn debug(&mut self, message_type: Option<&str>, message: &str) {
+        self.log(message_type, message, LogLevel::Debug);
+    }
+
+    /// Shortcut method for logging a notice-level message.
+    pub fn notice(&mut self, message_type: Option<&str>, message: &str) {
+        self.log(message_type, message, LogLevel::Notice);
+    }
+
+    /// Shortcut method for logging a warning-level message.
+    pub fn warning(&mut self, message_type: Option<&str>, message: &str) {
+        self.log(message_type, message, LogLevel::Warning);
+    }
+
+    /// Shortcut method for logging a error-level message.
+    pub fn error(&mut self, message_type: Option<&str>, message: &str) {
+        self.log(message_type, message, LogLevel::Error);
+    }
+
+    /// Shortcut method for logging a critical-level message.
+    pub fn critical(&mut self, message_type: Option<&str>, message: &str) {
+        self.log(message_type, message, LogLevel::Critical);
     }
 }
 

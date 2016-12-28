@@ -30,6 +30,7 @@ pub enum Command {
     SpawnOptimizer{strategy: String},
     SpawnTickParser{symbol: String},
     SpawnBacktester,
+    SpawnLogger,
     SpawnFxcmDataDownloader,
     KillInstance{uuid: Uuid},
     KillAllInstances,
@@ -46,6 +47,8 @@ pub enum Command {
     ListRunningDownloads,
     DownloadComplete{start_time: String, end_time: String, symbol: String, dst: HistTickDst},
     TransferHistData{src: HistTickDst, dst: HistTickDst},
+    // Logger Commands
+    Log{msg: LogMessage},
 }
 
 /// Represents a response from the Tick Processor to a Command sent
@@ -85,6 +88,32 @@ pub enum HistTickDst {
     RedisChannel{host: String, channel: String},
     RedisSet{host: String, set_name: String},
     Console,
+}
+
+/// A log message from some part of the platform
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LogMessage {
+    pub sender: Instance,
+    pub message_type: String,
+    pub message: String,
+    pub level: LogLevel,
+}
+
+/// Represents an instance of a platform module.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Instance {
+    pub instance_type: String,
+    pub uuid: Uuid,
+}
+
+/// Severity of a log message, Notice through Critical
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub enum LogLevel {
+    Debug,
+    Notice,
+    Warning,
+    Error,
+    Critical,
 }
 
 /// Represents a command bound to a unique identifier that can be

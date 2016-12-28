@@ -30,6 +30,8 @@ release:
 	cp tick_parser/target/release/tick_processor dist
 	cd optimizer && cargo build --release
 	cp optimizer/target/release/optimizer dist
+	cd logger && cargo build --release
+	cp logger/target/release/logger dist
 	cd mm && npm install
 	cp ./mm dist -r
 	cd private && cargo build --release
@@ -73,6 +75,8 @@ debug:
 	cp tick_parser/target/debug/tick_processor dist
 	cd optimizer && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
 	cp optimizer/target/debug/optimizer dist
+	cd logger && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cp logger/target/debug/logger dist
 	cd mm && npm install
 	cp ./mm dist -r
 	cd private && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
@@ -88,8 +92,8 @@ strip:
 
 clean:
 	rm optimizer/target -rf
+	rm logger/target -rf
 	rm spawner/target -rf
-
 	rm tick_parser/target -rf
 	rm util/target -rf
 	rm backtester/target -rf
@@ -114,6 +118,7 @@ test:
 	cp util/src/trading/broker/shims/FXCM/native/target/debug/libfxcm.so dist/lib
 
 	cd optimizer && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
+	cd logger && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd spawner && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 
 	cd tick_parser && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
@@ -143,6 +148,7 @@ bench:
 	done
 
 	cd optimizer && LD_LIBRARY_PATH="../dist/lib" cargo bench
+	cd logger && LD_LIBRARY_PATH="../dist/lib" cargo bench
 	cd spawner && LD_LIBRARY_PATH="../dist/lib" cargo bench
 	cd tick_parser && LD_LIBRARY_PATH="../dist/lib" cargo bench
 	cd backtester && LD_LIBRARY_PATH="../dist/lib" cargo bench
@@ -153,6 +159,7 @@ bench:
 
 update:
 	cd optimizer && cargo update
+	cd logger && cargo update
 	cd spawner && cargo update
 
 	# Build each strategy
@@ -172,6 +179,7 @@ update:
 
 cdoc:
 	cd optimizer && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
+	cd logger && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
 	cd spawner && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
 
 	# Build each strategy

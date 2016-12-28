@@ -29,15 +29,6 @@ use algobot_util::transport::commands::*;
 use algobot_util::transport::command_server::*;
 use algobot_util::conf::CONF;
 
-/// Represents an instance of a platform module.  Contains a Uuid to identify it
-/// as well as some information about its spawning parameters and its type.
-#[derive(Serialize, Debug, Clone)]
-struct Instance {
-    // TODO: Spawning parameters
-    instance_type: String,
-    uuid: Uuid
-}
-
 /// Holds a list of all instances that the spawner has spawned and thinks are alive
 #[derive(Clone)]
 struct InstanceManager {
