@@ -6,11 +6,8 @@ use uuid::Uuid;
 use trading::tick::Tick;
 
 pub trait TradingCondition {
-    fn eval(&self, t: Tick) -> Option<TradingAction>;
-
-    fn to_string(&self) -> String;
-
-    fn from_string(s: String) -> Self;
+    /// Evaulate a new Tick with the condition.  Returns a TradingAction to take or None.
+    fn eval(&mut self, t: &Tick) -> Option<TradingAction>;
 }
 
 #[derive(Clone, Debug)]

@@ -64,11 +64,11 @@ pub enum Response {
 
 impl Command {
     pub fn from_str(raw: &str) -> Result<Command, ()> {
-        serde_json::from_str(raw).map_err(|_| { () } )
+        serde_json::from_str(raw).map_err(|_| () )
     }
 
     pub fn to_string(&self) -> Result<String, ()> {
-        serde_json::to_string(self).map_err(|_| { () } )
+        serde_json::to_string(self).map_err(|_| () )
     }
 
     /// Generates a new Uuid and creates a new WrappedCommand

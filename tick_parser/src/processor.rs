@@ -9,10 +9,12 @@ use std::env;
 
 use redis;
 use uuid::Uuid;
-use algobot_util::transport::commands::*;
+use serde_json;
 
+use algobot_util::transport::commands::*;
 use algobot_util::trading::datafield::DataField;
 use algobot_util::trading::tick::Tick;
+use algobot_util::trading::trading_condition::*;
 use algobot_util::transport::postgres::{get_client, init_tick_table};
 use algobot_util::transport::query_server::QueryServer;
 use algobot_util::transport::redis::get_client as get_redis_client;
@@ -68,6 +70,16 @@ impl Processor {
             Command::Type => {
                 Response::Info{info: "Tick Processor".to_string()}
             },
+            Command::AddCondition{condition_string} => {
+                Response::Ok
+            },
+            Command::RemoveCondition{condition_string} => {
+                Response::Ok
+            },
+            Command::ListConditions => {
+                unimplemented!();
+                // Response::Info{info: }
+            },
             _ => {
                 Response::Error{status: "Command not recognized".to_string()}
             }
@@ -77,3 +89,7 @@ impl Processor {
         let _ = send_response(&wr, &self.redis_client, res_channel);
     }
 }
+
+// fn try_parse_conditionstring(condition_string: String) -> Result<impl TradingCondition, String> {
+//     let res = serde_json::from_str::<TradingCondition>
+// }

@@ -11,6 +11,7 @@ use algobot_util::trading::tick::*;
 use algobot_util::transport::postgres::*;
 #[allow(unused_imports)]
 use algobot_util::trading::datafield::DataField;
+use algobot_util::trading::trading_condition::*;
 
 /// Alteration of a simple moving average using ticks as input where the prices in a time frame
 /// are weighted by the time the price stayed at that level before changing.
