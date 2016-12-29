@@ -430,6 +430,13 @@ pub const GENERAL_SETTINGS: SettingsPage = SettingsPage {
             setting_type: SettingType::String,
             comment: None,
         },
+        SettingRow {
+            id: "logger_persistance_table",
+            name: "Logger Table Name",
+            default: Some("logs"),
+            setting_type: SettingType::String,
+            comment: None,
+        },
     ],
     comment: None,
 };

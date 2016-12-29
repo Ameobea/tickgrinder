@@ -13,7 +13,7 @@ use algobot_util::transport::commands::*;
 
 use algobot_util::trading::datafield::DataField;
 use algobot_util::trading::tick::Tick;
-use algobot_util::transport::postgres::{get_client, init_tick_table, PostgresConf};
+use algobot_util::transport::postgres::{get_client, init_tick_table};
 use algobot_util::transport::query_server::QueryServer;
 use algobot_util::transport::redis::get_client as get_redis_client;
 use algobot_util::conf::CONF;
@@ -28,15 +28,8 @@ pub struct Processor {
 
 impl Processor {
     pub fn new(symbol: String, uuid: &Uuid) -> Processor {
-        let pg_conf = PostgresConf {
-            postgres_user: CONF.postgres_user,
-            postgres_password: CONF.postgres_password,
-            postgres_url: CONF.postgres_host,
-            postgres_port: CONF.postgres_port,
-            postgres_db: CONF.postgres_db
-        };
         // Create database connection and initialize some tables
-        let pg_client = get_client(pg_conf.clone()).expect("Could not connect to Postgres");
+        let pg_client = get_client().expect("Could not connect to Postgres");
 
         println!("Successfully connected to Postgres");
         let _ = init_tick_table(symbol.as_str(), &pg_client, CONF.postgres_user);
@@ -45,7 +38,7 @@ impl Processor {
             uuid: *uuid,
             symbol: symbol,
             ticks: DataField::new(),
-            qs: QueryServer::new(CONF.qs_connections, pg_conf),
+            qs: QueryServer::new(10),
             redis_client: get_redis_client(CONF.redis_host)
         }
     }

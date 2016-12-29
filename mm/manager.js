@@ -80,6 +80,7 @@ manager.start = function(port){
   subClient.subscribe(uuid);
   subClient.subscribe(conf.redis_control_channel);
   subClient.subscribe(conf.redis_responses_channel);
+  subClient.subscribe(conf.redis_log_channel);
   subClient.on("message", (channel, message_str)=>{
     // convert the {"Enum"}s to plain strings
     message_str = message_str.replace(/{("\w*")}/g, "$1");
@@ -89,7 +90,7 @@ manager.start = function(port){
       var ws_msg = {channel: channel, message: wr_msg};
       connection.sendText(JSON.stringify(ws_msg));
     });
-    if(wr_msg.cmd){
+    if(wr_msg.cmd && !wr_msg.cmd.Log){
       var response = getResponse(wr_msg.cmd);
       var wr_res = {uuid: wr_msg.uuid, res: response};
       pubClient.publish(conf.redis_responses_channel, JSON.stringify(wr_res));
@@ -119,7 +120,7 @@ manager.start(conf.mm_port);
 
 /// Returns a new Redis client based on the settings in conf
 function getRedisClient() {
-  var spl = conf.redis_host.split(":");
+  var spl = conf.redis_host.split("://")[1].split(":");
   return redis.createClient({
     host: spl[0],
     port: parseInt(spl[1]),

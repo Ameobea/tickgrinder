@@ -10,7 +10,7 @@ use futures::{Future, Stream};
 use futures::sync::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
 use futures::sync::oneshot::{channel as oneshot, Sender};
 
-use transport::postgres::{get_client, PostgresConf};
+use transport::postgres::get_client;
 
 type SenderQueue = Arc<Mutex<VecDeque<UnboundedSender<(String, Sender<()>)>>>>;
 type QueryQueue = Arc<Mutex<VecDeque<String>>>;
@@ -32,10 +32,9 @@ fn execute_query(query: &str, client: &postgres::Connection) {
 }
 
 // Creates a query processor that awaits requests
-fn init_query_processor(rx: UnboundedReceiver<(String, Sender<()>)>, query_queue: QueryQueue,
-        pg_conf: PostgresConf) {
+fn init_query_processor(rx: UnboundedReceiver<(String, Sender<()>)>, query_queue: QueryQueue) {
     // get a connection to the postgres database
-    let client = get_client(pg_conf).expect("Couldn't create postgres connection.");
+    let client = get_client().expect("Couldn't create postgres connection.");
     // Handler for new queries from main thread
     // This blocks the worker thread until a new message is received
     // .wait() consumes the stream immediately, so the main thread has to wait
@@ -54,15 +53,14 @@ fn init_query_processor(rx: UnboundedReceiver<(String, Sender<()>)>, query_queue
 }
 
 impl QueryServer {
-    pub fn new(conn_count: usize, pg_conf: PostgresConf) -> QueryServer {
+    pub fn new(conn_count: usize) -> QueryServer {
         let mut conn_queue = VecDeque::with_capacity(conn_count);
         let query_queue = Arc::new(Mutex::new(VecDeque::new()));
         for _ in 0..conn_count {
-            let _pg_conf = pg_conf.clone();
             // channel for getting the Sender back from the worker thread
             let (tx, rx) = unbounded::<(String, Sender<()>)>();
             let qq_copy = query_queue.clone();
-            thread::spawn(move || init_query_processor(rx, qq_copy, _pg_conf) );
+            thread::spawn(move || init_query_processor(rx, qq_copy) );
             // store the sender which can be used to send queries
             // to the worker in the connection queue
             conn_queue.push_back(tx);

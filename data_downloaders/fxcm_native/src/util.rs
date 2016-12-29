@@ -7,7 +7,7 @@ use std::io::{BufRead, BufReader};
 
 use postgres::Connection;
 
-use super::{get_rx_closure, PG_CONF};
+use super::get_rx_closure;
 
 use algobot_util::trading::tick::*;
 use algobot_util::transport::postgres::*;
@@ -126,7 +126,7 @@ impl HistTickGen for PostgresReader {
 
 impl PostgresReader {
     pub fn new(table_name: String) -> PostgresReader {
-        let conn = get_client(PG_CONF);
+        let conn = get_client();
 
         PostgresReader {
             buffer: Vec::with_capacity(500),

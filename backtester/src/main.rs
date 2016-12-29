@@ -3,8 +3,8 @@
 //! Plays back market data and executes strategies, providing a simulated broker and
 //! account as well as statistics and data about the results of the strategy.
 
-#![feature(conservative_impl_trait, associated_consts, custom_derive, proc_macro, test)]
-#![allow(unused_variables, dead_code)]
+#![feature(conservative_impl_trait, associated_consts, custom_derive, proc_macro, test, slice_patterns)]
+#![allow(unused_variables, dead_code,)]
 
 extern crate algobot_util;
 extern crate rand;
@@ -24,6 +24,7 @@ mod sim_broker;
 
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
+use std::env;
 use std::collections::HashMap;
 
 use uuid::Uuid;
@@ -31,7 +32,7 @@ use futures::stream::Stream;
 use futures::sync::mpsc::UnboundedReceiver;
 use serde_json::to_string;
 
-use algobot_util::transport::command_server::{CommandServer, CsSettings};
+use algobot_util::transport::command_server::CommandServer;
 use algobot_util::transport::redis::{sub_multiple, get_client};
 use algobot_util::transport::commands::*;
 use algobot_util::trading::tick::Tick;
@@ -42,7 +43,18 @@ use sim_broker::*;
 
 /// Starts the backtester module, initializing its interface to the rest of the platform
 fn main() {
-    let mut backtester = Backtester::new();
+    let args = env::args().collect::<Vec<String>>();
+    let uuid: Uuid;
+
+    match args.as_slice() {
+        &[_, ref uuid_str] => {
+            uuid = Uuid::parse_str(uuid_str.as_str())
+                .expect("Unable to parse Uuid from supplied argument");
+        },
+        _ => panic!("Wrong number of arguments provided!  Usage: ./tick_processor [uuid] [symbol]"),
+    }
+
+    let mut backtester = Backtester::new(uuid);
     backtester.listen();
 }
 
@@ -80,20 +92,10 @@ struct Backtester {
 }
 
 impl Backtester {
-    pub fn new() -> Backtester {
-        let settings = CsSettings {
-            conn_count: 2,
-            redis_host: CONF.redis_host,
-            responses_channel: CONF.redis_responses_channel,
-            timeout: 2020,
-            max_retries: 3,
-        };
-
-        let uuid = Uuid::new_v4();
-
+    pub fn new(uuid: Uuid) -> Backtester {
         Backtester {
             uuid: uuid,
-            cs: CommandServer::new(settings),
+            cs: CommandServer::new(uuid, "Backtester"),
             running_backtests: Arc::new(Mutex::new(HashMap::new())),
             simbrokers: Arc::new(Mutex::new(HashMap::new())),
         }

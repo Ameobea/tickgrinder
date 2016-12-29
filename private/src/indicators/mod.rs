@@ -5,12 +5,4 @@ use algobot_util::conf::CONF;
 
 mod sma;
 
-pub const PG_CONF: PostgresConf = PostgresConf {
-    postgres_user: CONF.postgres_user,
-    postgres_db: CONF.postgres_db,
-    postgres_password: CONF.postgres_password,
-    postgres_port: CONF.postgres_port,
-    postgres_url: CONF.postgres_host,
-};
-
 pub use self::sma::Sma;

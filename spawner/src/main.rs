@@ -37,13 +37,19 @@ struct InstanceManager {
     pub cs: CommandServer
 }
 
+fn main() {
+    let mut spawner = InstanceManager::new();
+    spawner.init();
+}
+
 impl InstanceManager {
     /// Creates a new spawner instance.
     pub fn new() -> InstanceManager {
+        let uuid = Uuid::new_v4();
         InstanceManager {
-            uuid: Uuid::new_v4(),
+            uuid: uuid.clone(),
             living: Arc::new(Mutex::new(Vec::new())),
-            cs: CommandServer::new(get_settings())
+            cs: CommandServer::new(uuid, "Spawner"),
         }
     }
 
@@ -52,6 +58,9 @@ impl InstanceManager {
     pub fn init(&mut self) {
         // spawn a MM instance
         self.spawn_mm();
+
+        // spawn a logger instance
+        self.spawn_logger();
 
         // find any disconnected instances
         let stragglers = self.ping_all().wait().unwrap();
@@ -280,7 +289,18 @@ impl InstanceManager {
         Response::Ok
     }
 
-    /// Spawns a new Tick Processor instance with the given symbol andinserts its Uuid into
+    /// Spawns a logger instance and inserts it into the list of running instances
+    fn spawn_logger(&mut self) -> Response {
+        let mod_uuid = Uuid::new_v4();
+        let path = "./logger";
+        let _ = process::Command::new(path)
+                                .arg(&mod_uuid.hyphenated().to_string())
+                                .spawn()
+                                .expect("Unable to spawn logger");
+        Response::Ok
+    }
+
+    /// Spawns a new Tick Processor instance with the given symbol and inserts its Uuid into
     /// the living instances list
     fn spawn_tick_parser(&mut self, symbol: String) -> Response {
         let mod_uuid = Uuid::new_v4();
@@ -294,7 +314,7 @@ impl InstanceManager {
         Response::Ok
     }
 
-    /// Spawns a new Optimizer instance with the specified strategy andinserts its Uuid into
+    /// Spawns a new Optimizer instance with the specified strategy and inserts its Uuid into
     /// the living instances list
     fn spawn_optimizer(&mut self, strategy: String) -> Response {
         let mod_uuid = Uuid::new_v4();
@@ -375,21 +395,6 @@ impl InstanceManager {
             ll.remove(_i.unwrap());
         }
     }
-}
-
-fn get_settings() -> CsSettings {
-    CsSettings {
-        redis_host: CONF.redis_host,
-        responses_channel: CONF.redis_responses_channel,
-        conn_count: 3,
-        timeout: 300,
-        max_retries: 3
-    }
-}
-
-fn main() {
-    let mut spawner = InstanceManager::new();
-    spawner.init();
 }
 
 /// Tests the instance manager's ability to process incoming Commands.

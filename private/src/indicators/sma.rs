@@ -12,8 +12,6 @@ use algobot_util::transport::postgres::*;
 #[allow(unused_imports)]
 use algobot_util::trading::datafield::DataField;
 
-use super::PG_CONF;
-
 /// Alteration of a simple moving average using ticks as input where the prices in a time frame
 /// are weighted by the time the price stayed at that level before changing.
 pub struct Sma {
@@ -142,7 +140,7 @@ impl Sma {
 impl HistQuery for Sma {
     /// Queries the database for ticks in a range and returns the average bid and ask in that range.
     fn get(start_time: usize, end_time: usize, period: usize, args: HashMap<String, String>) -> Result<String, String> {
-        let connection_opt = get_client(PG_CONF);
+        let connection_opt = get_client();
         if connection_opt.is_err() {
             return Err(String::from("Unable to connect to PostgreSQL!"))
         }

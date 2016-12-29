@@ -9,7 +9,7 @@ use std::time::Duration;
 use algobot_util::transport;
 use algobot_util::transport::redis::*;
 use algobot_util::transport::commands::*;
-use algobot_util::transport::postgres::{self, PostgresConf};
+use algobot_util::transport::postgres;
 use algobot_util::transport::query_server::QueryServer;
 use algobot_util::transport::command_server::*;
 use algobot_util::trading::tick::{Tick, SymbolTick};

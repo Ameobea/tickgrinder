@@ -10,7 +10,6 @@ use postgres::rows::Rows;
 use postgres::error::Error;
 use algobot_util::trading::tick::*;
 use algobot_util::transport::postgres::*;
-use algobot_util::conf::CONF;
 
 use data::*;
 use backtest::{BacktestCommand, BacktestMap};
@@ -33,14 +32,7 @@ impl TickGenerator for PostgresReader {
         let symbol = self.symbol.clone();
         let start_time = self.start_time.clone();
         let reader_handle = thread::spawn(move || {
-            let pg_conf = PostgresConf {
-                postgres_user: CONF.postgres_user,
-                postgres_password: CONF.postgres_password,
-                postgres_url: CONF.postgres_host,
-                postgres_port: CONF.postgres_port,
-                postgres_db: CONF.postgres_db,
-            };
-            let conn_opt = get_client(pg_conf);
+            let conn_opt = get_client();
             if conn_opt.is_err() {
                 return Err("Unable to create Postgres client".to_string())
             }

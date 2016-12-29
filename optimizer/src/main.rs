@@ -1,7 +1,7 @@
 //! Algobot 4 Optimizer
 //! Created by Casey Primozic 2016-2016
 
-#![feature(custom_derive, plugin, proc_macro, conservative_impl_trait, custom_derive, plugin, test)]
+#![feature(custom_derive, plugin, proc_macro, conservative_impl_trait, custom_derive, plugin, test, slice_patterns)]
 
 extern crate test;
 extern crate uuid;
@@ -19,34 +19,18 @@ extern crate algobot_util;
 use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
+use std::env;
 
 use uuid::Uuid;
 use futures::stream::Stream;
 
 use algobot_util::transport::redis::*;
 use algobot_util::transport::commands::*;
-use algobot_util::transport::command_server::{CommandServer, CsSettings};
-use algobot_util::transport::postgres::PostgresConf;
+use algobot_util::transport::command_server::CommandServer;
 use algobot_util::transport::query_server::QueryServer;
 use algobot_util::strategies::Strategy;
 use algobot_util::conf::CONF;
 use fxcm::FXCMNative;
-
-const CS_SETTINGS: CsSettings = CsSettings {
-    redis_host: CONF.redis_host,
-    responses_channel: CONF.redis_responses_channel,
-    conn_count: CONF.conn_senders,
-    timeout: CONF.cs_timeout,
-    max_retries: CONF.cs_max_retries
-};
-
-const PG_CONF: PostgresConf = PostgresConf {
-    postgres_user: CONF.postgres_user,
-    postgres_password: CONF.postgres_password,
-    postgres_url: CONF.postgres_host,
-    postgres_port: CONF.postgres_port,
-    postgres_db: CONF.postgres_db
-};
 
 struct Optimizer {
     cs: CommandServer,
@@ -54,10 +38,8 @@ struct Optimizer {
 }
 
 impl Optimizer {
-    pub fn new() -> Optimizer {
-        let cs = CommandServer::new(CS_SETTINGS);
-        let uuid = Uuid::new_v4();
-
+    pub fn new(uuid: Uuid) -> Optimizer {
+        let cs = CommandServer::new(uuid.clone(), "Optimizer");
         Optimizer {
             cs: cs,
             uuid: uuid,
@@ -66,7 +48,7 @@ impl Optimizer {
 
     pub fn init(mut self) {
         // initialize the strategy
-        let query_server = QueryServer::new(CONF.conn_senders, PG_CONF);
+        let query_server = QueryServer::new(CONF.conn_senders);
         let mut broker = FXCMNative::new(HashMap::new());
         let cs = self.cs.clone();
         // thread::spawn(move || {
@@ -115,5 +97,16 @@ impl Optimizer {
 }
 
 fn main() {
-    Optimizer::new().init()
+    let args = env::args().collect::<Vec<String>>();
+    let uuid: Uuid;
+
+    match args.as_slice() {
+        &[_, ref uuid_str] => {
+            uuid = Uuid::parse_str(uuid_str.as_str())
+                .expect("Unable to parse Uuid from supplied argument");
+        },
+        _ => panic!("Wrong number of arguments provided!  Usage: ./tick_processor [uuid] [symbol]"),
+    }
+
+    Optimizer::new(uuid).init()
 }

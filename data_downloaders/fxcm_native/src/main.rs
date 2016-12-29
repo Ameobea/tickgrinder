@@ -35,7 +35,7 @@ use algobot_util::transport::redis::get_client as get_redis_client;
 use algobot_util::transport::redis::sub_multiple;
 use algobot_util::transport::postgres::*;
 use algobot_util::transport::query_server::QueryServer;
-use algobot_util::transport::command_server::{CommandServer, CsSettings};
+use algobot_util::transport::command_server::CommandServer;
 use algobot_util::trading::tick::*;
 use algobot_util::conf::CONF;
 
@@ -67,14 +67,6 @@ extern {
     fn get_offer_row(connection: *mut c_void, instrument: *const c_char) -> *mut c_void;
     fn getDigits(row: *mut c_void) -> c_int;
 }
-
-pub const PG_CONF: PostgresConf = PostgresConf {
-    postgres_user: CONF.postgres_user,
-    postgres_db: CONF.postgres_db,
-    postgres_password: CONF.postgres_password,
-    postgres_port: CONF.postgres_port,
-    postgres_url: CONF.postgres_host,
-};
 
 #[derive(Debug)]
 #[repr(C)]
@@ -113,16 +105,8 @@ struct DataDownloader {
 
 impl DataDownloader {
     pub fn new(uuid: Uuid) -> DataDownloader {
-        let css = CsSettings {
-            conn_count: 5,
-            max_retries: 3,
-            redis_host: CONF.redis_host,
-            responses_channel: CONF.redis_responses_channel,
-            timeout: 300,
-        };
-
         DataDownloader {
-            cs: CommandServer::new(css),
+            cs: CommandServer::new(uuid, "FXCM Native Data Downloader"),
             uuid: uuid,
             running_downloads: Arc::new(Mutex::new(Vec::new())),
         }
@@ -378,13 +362,13 @@ pub fn get_rx_closure(dst: HistTickDst) -> Result<RxCallback, String> {
             }
         },
         HistTickDst::Postgres{table} => {
-            let connection_opt = get_client(PG_CONF);
+            let connection_opt = get_client();
             if connection_opt.is_err() {
                 return Err(String::from("Unable to connect to PostgreSQL!"))
             }
             let connection = connection_opt.unwrap();
             let _ = try!(init_hist_data_table(table.as_str(), &connection, CONF.postgres_user));
-            let mut qs = QueryServer::new(10, PG_CONF);
+            let mut qs = QueryServer::new(10);
 
             let mut inner_buffer = Vec::with_capacity(5000);
 
@@ -436,7 +420,6 @@ impl fmt::Debug for RxCallback {
         write!(f, "RxCallback: {:?}",  self.dst)
     }
 }
-
 
 struct TxCallback {
     inner: Box<FnMut(uint64_t, c_double, c_double)>,

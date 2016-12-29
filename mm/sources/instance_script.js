@@ -40,13 +40,13 @@ $(document).ready(function(){
   // populate the list of running instances
   setTimeout(function(){
     update();
-  }, 1212);
+  }, 499);
 });
 
 /// Parses the messages into JSON, displays them in the messages list, and handles registered interest.
 function processWsMsg(wr_msg) {
   var msg = wr_msg.message;
-  if(!(squelchPings && ((msg.cmd && msg.cmd == "Ping") || (msg.res && msg.res.Pong)))) {
+  if(!(squelchPings && ((msg.cmd && msg.cmd == "Ping") || (msg.res && msg.res.Pong))) && !(msg.cmd && msg.cmd.Log) ) {
     var oldhtml = $("#cmdres").html();
     var split = oldhtml.split("\n");
     outputLen += 1;

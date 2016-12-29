@@ -5,22 +5,15 @@
 use postgres::{Connection, TlsMode};
 use postgres::error;
 
-#[derive(Clone)]
-pub struct PostgresConf {
-    pub postgres_user: &'static str,
-    pub postgres_password: &'static str,
-    pub postgres_url: &'static str,
-    pub postgres_port: usize,
-    pub postgres_db: &'static str
-}
+use conf::CONF;
 
-pub fn get_client(pg_conf: PostgresConf) -> Result<Connection, error::ConnectError> {
+pub fn get_client() -> Result<Connection, error::ConnectError> {
     let conn_string = format!("postgres://{}:{}@{}:{}/{}",
-        pg_conf.postgres_user,
-        pg_conf.postgres_password,
-        pg_conf.postgres_url,
-        pg_conf.postgres_port,
-        pg_conf.postgres_db
+        CONF.postgres_user,
+        CONF.postgres_password,
+        CONF.postgres_host,
+        CONF.postgres_port,
+        CONF.postgres_db
     );
 
     // TODO: Look into setting up TLS

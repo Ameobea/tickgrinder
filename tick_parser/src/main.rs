@@ -20,18 +20,10 @@ use futures::stream::Stream;
 use uuid::Uuid;
 
 use processor::Processor;
-use algobot_util::transport::postgres::{get_client, reset_db, PostgresConf};
+use algobot_util::transport::postgres::{get_client, reset_db};
 use algobot_util::transport::redis::sub_multiple;
 use algobot_util::transport::commands::{Command, send_command};
 use algobot_util::conf::CONF;
-
-const PG_CONF: PostgresConf = PostgresConf {
-    postgres_user: CONF.postgres_user,
-    postgres_password: CONF.postgres_password,
-    postgres_url: CONF.postgres_host,
-    postgres_port: CONF.postgres_port,
-    postgres_db: CONF.postgres_db
-};
 
 struct TickProcessor {
     uuid: Uuid
@@ -92,7 +84,7 @@ fn main() {
     }
 
     if CONF.reset_db_on_load {
-        reset_db(&get_client(PG_CONF).expect("Unable to get postgres client"), CONF.postgres_user)
+        reset_db(&get_client().expect("Unable to get postgres client"), CONF.postgres_user)
             .expect("Unable to reset database");
         println!("Database reset");
     }

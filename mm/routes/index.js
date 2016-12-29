@@ -23,4 +23,8 @@ router.get("/data_downloaders", (req, res, next)=>{
   res.render("data_downloaders", { conf: conf });
 });
 
+router.get("/log", (req, res, next)=>{
+  res.render("log", { conf: conf });
+});
+
 module.exports = router;
