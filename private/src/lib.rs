@@ -9,6 +9,12 @@ extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 extern crate algobot_util;
+extern crate futures;
+extern crate fxcm;
 
 pub mod indicators;
 pub mod trading_conditions;
+pub mod strategies;
+
+// Sets up the defaults for your application
+pub use fxcm::FXCMNative as ActiveBroker;

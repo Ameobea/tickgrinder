@@ -53,7 +53,7 @@ impl SimBroker {
 }
 
 impl Broker for SimBroker {
-    fn init(&mut self, settings: HashMap<String, String>) -> Oneshot<Result<Self, BrokerError>> {
+    fn init(settings: HashMap<String, String>) -> Oneshot<Result<Self, BrokerError>> {
         let (c, o) = oneshot::<Result<Self, BrokerError>>();
         let broker_settings = SimBrokerSettings::from_hashmap(settings);
         if broker_settings.is_ok() {

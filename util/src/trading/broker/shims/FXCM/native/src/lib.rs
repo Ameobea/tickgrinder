@@ -73,7 +73,7 @@ pub extern fn tick_downloader_cb(timestamp: uint64_t, bid: uint64_t, ask: uint64
 }
 
 impl Broker for FXCMNative {
-    fn init(&mut self, settings: HashMap<String, String>) -> Receiver<Result<Self, BrokerError>> where Self:Sized {
+    fn init(settings: HashMap<String, String>) -> Receiver<Result<Self, BrokerError>> where Self:Sized {
         unimplemented!();
     }
 

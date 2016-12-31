@@ -18,17 +18,18 @@ use trading::broker::Broker;
 use transport::command_server::CommandServer;
 use transport::query_server::QueryServer;
 
-pub trait Strategy<'a> {
+pub trait Strategy {
     /// Make sure that all strategies include ways to interact with the optimizer in a standardized way
-    fn new<'b, B>(cs: CommandServer, qs: QueryServer, broker: &'a mut B) -> Self where B:Broker + 'b + 'a;
+    fn new(cs: CommandServer, qs: QueryServer) -> Self;
 
     /// Instruct the strategy to initialize itself, subscribing to data streams and communicating with the
     /// the rest of the platform as necessary
     fn init(&mut self);
 
-    /// Indicates that the strategy should save a copy of its internal state of its internal state to
-    /// the database.  The supplied future should be resolved when the dump is complete.
-    fn dump_state(&mut self, done: futures::Complete<()>);
+    // /// Indicates that the strategy should save a copy of its internal state of its internal state to
+    // /// the database.  The supplied future should be resolved when the dump is complete.
+            // Disabled for now until a time when the platform supports that kind of functionality.
+    // fn dump_state(&mut self, done: futures::Complete<()>);
 
     /// Indicates that the platform is going into an inoperable state and that
     /// the strategy should do whatever necessary to exit as soon as possible.

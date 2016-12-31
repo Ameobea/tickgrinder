@@ -17,7 +17,7 @@ use trading::trading_condition::*;
 pub trait Broker {
     /// Creates a connection to the broker and initializes its internal environment.
     /// Takes a Key:Value HashMap containing configuration settings.
-    fn init(&mut self, settings: HashMap<String, String>) -> Receiver<Result<Self, BrokerError>> where Self:Sized;
+    fn init(settings: HashMap<String, String>) -> Receiver<Result<Self, BrokerError>> where Self:Sized;
 
     /// Returns a list of all accounts the user has on the broker.
     fn list_accounts(&mut self) -> Receiver<Result<HashMap<Uuid, Account>, BrokerError>>;

@@ -15,6 +15,7 @@ use transport::postgres::get_client;
 type SenderQueue = Arc<Mutex<VecDeque<UnboundedSender<(String, Sender<()>)>>>>;
 type QueryQueue = Arc<Mutex<VecDeque<String>>>;
 
+#[derive(Clone)]
 pub struct QueryServer {
     query_queue: QueryQueue, // internal query queue
     conn_queue: SenderQueue, // senders for idle query threads
