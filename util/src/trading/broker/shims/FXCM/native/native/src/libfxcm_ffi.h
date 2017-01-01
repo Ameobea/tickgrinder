@@ -28,3 +28,30 @@ extern "C" int getVolume(void* row);
 extern "C" const char *getTradingStatus(void* row);
 extern "C" double getPointSize(void* row);
 extern "C" double getPipSize(void* row);
+
+// broker server
+
+/// Contains all possible commands that can be received by the broker server.
+enum ServerCommand {
+    MARKET_OPEN,
+    MARKET_CLOSE,
+    LIST_ACCOUNTS,
+    DISCONNECT,
+};
+
+/// Contains all possible responses that can be sent by the broker server.
+enum ServerResponse {
+    POSITION_OPENED,
+    POSITION_CLOSED,
+    SESSION_TERMINATED,
+};
+
+struct ServerMessage {
+    ServerResponse response;
+    void* payload;
+};
+
+/// returns a server environment that is sent along with BrokerCommands to access the server
+extern "C" void* init_broker_server(void* void_session, void (*cb)(ServerResponse res, void* payload));
+/// takes a reference to the server environment, a command, and the command's arguments and executes it.
+extern "C" void exec_command(ServerCommand command, void* args, void* env);

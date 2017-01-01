@@ -81,6 +81,7 @@ impl CTick {
         let multiplier = 10usize.pow(decimals as u32) as f64;
         let bid_pips = self.bid * multiplier;
         let ask_pips = self.ask * multiplier;
+
         Tick {
             timestamp: self.timestamp as usize,
             bid: bid_pips as usize,
@@ -258,7 +259,8 @@ impl DataDownloader {
     }
 }
 
-extern fn handler(tx_ptr: *mut c_void, timestamp: uint64_t, bid: c_double, ask: c_double) {
+#[no_mangle]
+pub extern fn handler(tx_ptr: *mut c_void, timestamp: uint64_t, bid: c_double, ask: c_double) {
     let sender: &Sender<CTick> = unsafe { transmute(tx_ptr) };
     let _ = sender.send( CTick{
         timestamp: timestamp,
