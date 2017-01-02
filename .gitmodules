@@ -1,6 +1,3 @@
 [submodule "util/src/trading/broker/shims/FXCM/native/native/include/ForexConnectAPI-Linux-x86_64"]
 	path = util/src/trading/broker/shims/FXCM/native/native/include/ForexConnectAPI-Linux-x86_64
 	url = https://github.com/FXCMAPI/ForexConnectAPI-Linux-x86_64.git
-[submodule "util/src/trading/broker/shims/FXCM/native/native/include/boost/lockfree"]
-	path = util/src/trading/broker/shims/FXCM/native/native/include/boost/lockfree
-	url = https://github.com/boostorg/lockfree.git

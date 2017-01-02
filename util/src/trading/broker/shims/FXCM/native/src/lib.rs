@@ -14,6 +14,7 @@ use std::ptr::null;
 use std::thread;
 use std::mem::transmute;
 use std::sync::mpsc;
+use std::time::Duration;
 
 use libc::{c_char, c_void, uint64_t, c_double};
 use uuid::Uuid;
@@ -51,21 +52,26 @@ extern {
     );
 
     // broker server commands
-    fn init_broker_server(session: *mut c_void, cb: Option<extern fn (tx_ptr: *mut c_void, message: *mut ServerMessage)>) -> *mut c_void;
+    fn init_server_environment(cb: Option<extern fn (tx_ptr: *mut c_void, message: *mut ServerMessage)>, tx_ptr: *mut c_void) -> *mut c_void;
+    fn start_server(session: *mut c_void, env: *mut c_void);
     fn exec_command(command: ServerCommand, args: *mut c_void, server_env: *mut c_void);
+    fn push_client_message(message: ClientMessage, env: *mut c_void);
 }
 
 /// Contains all possible commands that can be received by the broker server.
 #[repr(C)]
+#[derive(Clone)]
 enum ServerCommand {
     MARKET_OPEN,
     MARKET_CLOSE,
     LIST_ACCOUNTS,
     DISCONNECT,
+    PING,
 }
 
 /// Contains all possible responses that can be received by the broker server.
 #[repr(C)]
+#[derive(Clone)]
 enum ServerResponse {
     POSITION_OPENED,
     POSITION_CLOSED,
@@ -76,8 +82,17 @@ enum ServerResponse {
 
 /// A packet of information asynchronously received from the broker server.
 #[repr(C)]
-struct ServerMessage {
+#[derive(Clone)]
+pub struct ServerMessage {
     response: ServerResponse,
+    payload: *mut c_void,
+}
+
+/// A packet of information that can be sent to the broker server.
+#[repr(C)]
+#[derive(Clone)]
+pub struct ClientMessage {
+    command: ServerCommand,
     payload: *mut c_void,
 }
 
@@ -86,7 +101,14 @@ pub struct FXCMNative {
     server_environment: *mut c_void,
 }
 
+// something to hold our environment so we can convince Rust to send it between threads
+#[derive(Clone)]
+struct Spaceship(*mut c_void);
+
+unsafe impl Send for Spaceship{}
 unsafe impl Send for FXCMNative {}
+unsafe impl Send for ServerMessage {}
+unsafe impl Send for ClientMessage {}
 
 /// Called for every historical tick downloaded by the `init_history_download` function.  This function is called
 /// asynchronously from within the C++ code of the native FXCM broker library.
@@ -112,26 +134,36 @@ extern fn handle_message(tx_ptr: *mut c_void, message: *mut ServerMessage) {
             _ => unimplemented!(),
         };
 
-        sender.send(res);
+        let _ = sender.send(res);
     }
 }
 
 impl Broker for FXCMNative {
     fn init(settings: HashMap<String, String>) -> Receiver<Result<Self, BrokerError>> where Self:Sized {
-        let (tx, rx) = oneshot::channel::<Result<Self, BrokerError>>();
+        let (ext_tx, ext_rx) = oneshot::channel::<Result<Self, BrokerError>>();
         thread::spawn(move || {
-            let session: *mut c_void = login();
-            let server_environment: *mut c_void = unsafe { init_broker_server(session, Some(handle_message)) };
+            // channel with which to receive messages from the server
+            let (tx, rx) = mpsc::channel::<ServerMessage>();
+            let tx_ptr = &tx as *const _ as *mut c_void;
+
+            let server_environment: *mut c_void = unsafe { init_server_environment(Some(handle_message), tx_ptr) };
+            let ship = Spaceship(server_environment.clone());
+
+            thread::spawn(move || {
+                let session: *mut c_void = login();
+                // blocks on C++ event loop
+                unsafe { start_server(session, ship.0) };
+            });
 
             let inst = FXCMNative {
                 settings_hash: settings,
                 server_environment: server_environment,
             };
 
-            tx.complete(Ok(inst));
+            ext_tx.complete(Ok(inst));
         });
 
-        rx
+        ext_rx
     }
 
     fn list_accounts(&mut self) -> Receiver<Result<HashMap<Uuid, Account>, BrokerError>> {
@@ -180,4 +212,37 @@ fn login_test() {
         success = test_login(username.as_ptr(), password.as_ptr(), url.as_ptr(), false);
     }
     assert!(!success, "Test function returned true even for bad credentials.");
+}
+
+#[test]
+fn broker_server() {
+    // channel with which to receive responses from the server
+    let (tx, rx) = mpsc::channel::<ServerMessage>();
+    let tx_ptr = &tx as *const _ as *mut c_void;
+
+    let env: *mut c_void = unsafe { init_server_environment(Some(handle_message), tx_ptr) };
+    let ship  = Spaceship(env);
+    let ship2 = ship.clone();
+
+    let handle = thread::spawn(move || {
+        // TODO: wait until the connection is ready before starting to process messages
+        // let session = login();
+        // block on the C++ event loop code and start processing messages
+        unsafe { start_server(0 as *mut c_void, ship.0) };
+        println!("WTF");
+    });
+
+    let message = ClientMessage {
+        command: ServerCommand::PING,
+        payload: 0 as *mut c_void,
+    };
+
+    thread::spawn(move || {
+        for i in 0..10 {
+            println!("Sending message on rust side...");
+            unsafe { push_client_message(message.clone(), ship2.0) };
+        }
+    });
+
+    thread::park();
 }

@@ -1,10 +1,7 @@
 SHELL := /bin/bash
 
 release:
-	git submodule update --init
-	rm -rf dist
-	mkdir dist
-	mkdir dist/lib
+	make init
 
 	# Run the configurator if no settings exist from a previous run
 	if [[ ! -f configurator/settings.json ]]; then cd configurator && cargo run; fi;
@@ -46,10 +43,7 @@ dev:
 	cd dist && ln -s ../mm/ ./mm
 
 debug:
-	git submodule update --init
-	rm -rf dist
-	mkdir dist
-	mkdir dist/lib
+	make init
 
 	# build the configurator
 	cd configurator && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
@@ -212,3 +206,9 @@ configure:
 
 config:
 	make configure
+
+init:
+	git submodule update --init
+	rm -rf dist
+	mkdir dist
+	mkdir dist/lib

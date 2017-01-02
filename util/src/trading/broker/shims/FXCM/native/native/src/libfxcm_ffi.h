@@ -37,12 +37,15 @@ enum ServerCommand {
     MARKET_CLOSE,
     LIST_ACCOUNTS,
     DISCONNECT,
+    PING,
 };
 
 /// Contains all possible responses that can be sent by the broker server.
 enum ServerResponse {
     POSITION_OPENED,
     POSITION_CLOSED,
+    ORDER_PLACED,
+    ORDER_REMOVED,
     SESSION_TERMINATED,
 };
 
@@ -51,7 +54,16 @@ struct ServerMessage {
     void* payload;
 };
 
+struct ClientMessage {
+    ServerCommand command;
+    void* payload;
+};
+
 /// returns a server environment that is sent along with BrokerCommands to access the server
-extern "C" void* init_broker_server(void* void_session, void (*cb)(ServerResponse res, void* payload));
-/// takes a reference to the server environment, a command, and the command's arguments and executes it.
+extern "C" void* init_server_environment(void (*cb)(void* tx_ptr, ServerMessage* res), void* tx_ptr);
+/// starts the server event loop, blocking and waiting for messages from the client.
+extern "C" void start_server(void* void_session, void* void_env);
+/// takes a reference to the server environment, a command, and the command's arguments and executes it
 extern "C" void exec_command(ServerCommand command, void* args, void* env);
+/// sends a message to the server to be processed
+extern "C" void push_client_message(ClientMessage msg, void* void_env);
