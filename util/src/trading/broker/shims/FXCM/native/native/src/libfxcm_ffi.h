@@ -47,6 +47,8 @@ enum ServerResponse {
     ORDER_PLACED,
     ORDER_REMOVED,
     SESSION_TERMINATED,
+    PONG,
+    ERROR,
 };
 
 struct ServerMessage {

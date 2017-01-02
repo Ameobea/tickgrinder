@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::ptr::null;
 use std::thread;
-use std::mem::transmute;
+use std::mem::{self, transmute};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ use futures::Oneshot;
 use futures::sync::oneshot;
 use futures::stream::Stream;
 use futures::sync::oneshot::Receiver;
-use futures::sync::mpsc::{UnboundedSender, UnboundedReceiver};
+use futures::sync::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
 
 use algobot_util::trading::broker::*;
 use algobot_util::trading::tick::*;
@@ -78,6 +78,8 @@ enum ServerResponse {
     ORDER_PLACED,
     ORDER_REMOVED,
     SESSION_TERMINATED,
+    PONG,
+    ERROR,
 }
 
 /// A packet of information asynchronously received from the broker server.
@@ -99,6 +101,7 @@ pub struct ClientMessage {
 pub struct FXCMNative {
     settings_hash: HashMap<String, String>,
     server_environment: *mut c_void,
+    raw_rx: Option<mpsc::Receiver<BrokerResult>>,
 }
 
 // something to hold our environment so we can convince Rust to send it between threads
@@ -126,10 +129,15 @@ pub extern fn tick_downloader_cb(timestamp: uint64_t, bid: uint64_t, ask: uint64
 /// stream returned by `get_stream`.
 extern fn handle_message(tx_ptr: *mut c_void, message: *mut ServerMessage) {
     unsafe {
-        let mut sender: &mut UnboundedSender<BrokerResult> = transmute(tx_ptr);
+        let sender: &mut mpsc::Sender<BrokerResult> = transmute(tx_ptr);
         let res: BrokerResult = match (*message).response {
             ServerResponse::POSITION_OPENED => {
                 unimplemented!();
+            },
+            ServerResponse::PONG => {
+                let micros: &u64 = transmute((*message).payload);
+                let msg = BrokerMessage::Pong{time_received: *micros};
+                Ok(msg)
             },
             _ => unimplemented!(),
         };
@@ -143,8 +151,8 @@ impl Broker for FXCMNative {
         let (ext_tx, ext_rx) = oneshot::channel::<Result<Self, BrokerError>>();
         thread::spawn(move || {
             // channel with which to receive messages from the server
-            let (tx, rx) = mpsc::channel::<ServerMessage>();
-            let tx_ptr = &tx as *const _ as *mut c_void;
+            let (mut tx, rx) = mpsc::channel::<BrokerResult>();
+            let tx_ptr = &mut tx as *const _ as *mut c_void;
 
             let server_environment: *mut c_void = unsafe { init_server_environment(Some(handle_message), tx_ptr) };
             let ship = Spaceship(server_environment.clone());
@@ -158,6 +166,7 @@ impl Broker for FXCMNative {
             let inst = FXCMNative {
                 settings_hash: settings,
                 server_environment: server_environment,
+                raw_rx: Some(rx),
             };
 
             ext_tx.complete(Ok(inst));
@@ -179,7 +188,15 @@ impl Broker for FXCMNative {
     }
 
     fn get_stream(&mut self) -> Result<UnboundedReceiver<BrokerResult>, BrokerError> {
-        unimplemented!();
+        let (mut ext_tx, ext_rx) = unbounded::<BrokerResult>();
+        let raw_rx = mem::replace::<Option<mpsc::Receiver<BrokerResult>>>(&mut self.raw_rx, None).unwrap();
+        thread::spawn(move || {
+            for res in raw_rx.iter() {
+                let _ = ext_tx.send(res);
+            }
+        });
+
+        Ok(ext_rx)
     }
 
     fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()> + Send>, BrokerError> {
@@ -217,7 +234,7 @@ fn login_test() {
 #[test]
 fn broker_server() {
     // channel with which to receive responses from the server
-    let (tx, rx) = mpsc::channel::<ServerMessage>();
+    let (tx, rx) = mpsc::channel::<BrokerResult>();
     let tx_ptr = &tx as *const _ as *mut c_void;
 
     let env: *mut c_void = unsafe { init_server_environment(Some(handle_message), tx_ptr) };
@@ -229,7 +246,6 @@ fn broker_server() {
         // let session = login();
         // block on the C++ event loop code and start processing messages
         unsafe { start_server(0 as *mut c_void, ship.0) };
-        println!("WTF");
     });
 
     let message = ClientMessage {
@@ -241,8 +257,11 @@ fn broker_server() {
         for i in 0..10 {
             println!("Sending message on rust side...");
             unsafe { push_client_message(message.clone(), ship2.0) };
+            thread::sleep(Duration::from_millis(10));
         }
     });
 
-    thread::park();
+    for res in rx.iter().take(10) {
+        println!("Response received from server: {:?}", res);
+    }
 }
