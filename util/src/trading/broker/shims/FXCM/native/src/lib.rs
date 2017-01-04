@@ -106,6 +106,33 @@ pub struct FXCMNative {
     raw_rx: Option<UnboundedReceiver<BrokerResult>>,
 }
 
+// TODO: Move to Util
+#[derive(Debug)]
+#[repr(C)]
+struct CTick {
+    timestamp: uint64_t,
+    bid: c_double,
+    ask: c_double,
+}
+
+// TODO: Move to Util
+#[derive(Debug)]
+#[repr(C)]
+struct CSymbolTick {
+    symbol: const* c_char,
+    timestamp: uint64_t,
+    bid: c_double,
+    ask: c_double,
+}
+
+/// Contains data necessary to initialize a tickstream
+#[repr(C)]
+struct TickstreamDef {
+    tx_ptr: *mut c_void,
+    symbol: *mut c_char,
+    cb: Option<extern fn (tx_ptr: *mut c_void, cst: CSymbolTick)>,
+}
+
 // something to hold our environment so we can convince Rust to send it between threads
 #[derive(Clone)]
 struct Spaceship(*mut c_void);

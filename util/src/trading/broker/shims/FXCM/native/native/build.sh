@@ -2,7 +2,7 @@ rm dist -r
 mkdir -p dist
 cp -u include/ForexConnectAPI-Linux-x86_64/lib/*.so dist
 cp include/ForexConnectAPI-Linux-x86_64/samples/cpp/sample_tools/lib/libsample_tools.so dist
-g++ -g -rdynamic -shared -fPIC -std=c++11 src/libfxcm_ffi.cpp src/broker_server.cpp \
+g++ -g -rdynamic -shared -fPIC -std=c++11 -O3 src/libfxcm_ffi.cpp src/broker_server.cpp \
 include/ForexConnectAPI-Linux-x86_64/samples/cpp/NonTableManagerSamples/GetHistPrices/source/CommonSources.cpp \
 -lboost_system -lboost_thread include/ForexConnectAPI-Linux-x86_64/samples/cpp/NonTableManagerSamples/GetHistPrices/source/ResponseListener.cpp \
 -Wl,--no-undefined -o dist/libfxcm_ffi.so \

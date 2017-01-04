@@ -1,4 +1,6 @@
 #include "stdafx.h"
+#include <mutex>
+#include <condition_variable>
 
 // really returns a IO2GSession*
 extern "C" void* fxcm_login(char *username, char *password, char *url, bool live);
@@ -38,6 +40,8 @@ enum ServerCommand {
     LIST_ACCOUNTS,
     DISCONNECT,
     PING,
+    INIT_TICK_SUB,
+    SUB_SYMBOL,
 };
 
 /// Contains all possible responses that can be sent by the broker server.
@@ -49,6 +53,7 @@ enum ServerResponse {
     SESSION_TERMINATED,
     PONG,
     ERROR,
+    TICK_SUB_SUCCESSFUL,
 };
 
 struct ServerMessage {
@@ -61,6 +66,34 @@ struct ClientMessage {
     void* payload;
 };
 
+struct CSymbolTick {
+    const char* symbol;
+    timestamp: uint64_t;
+    bid: double;
+    ask: double;
+}
+
+typedef void (*ResponseCallback)(void* tx_ptr, ServerMessage* res);
+typedef void (*TickCallback)(void* tx_ptr, CSymbolTick cst);
+typedef boost::lockfree::spsc_queue<ClientMessage, boost::lockfree::capacity<1024> > MessageQueue;
+
+/// Contains pointers to a bunch of heap-allocated interal variables that are used by the server
+/// to maintain state, provide synchronization, and store messages.
+struct Environment {
+    ResponseCallback cb;
+    void* tx_ptr;
+    MessageQueue* q;
+    std::condition_variable* cond_var;
+    std::mutex* m;
+};
+
+/// Contains data necessary to initialize a tickstream
+struct TickstreamDef {
+    void* tx_ptr;
+    const char* symbol;
+    TickCallback cb;
+};
+
 /// returns a server environment that is sent along with BrokerCommands to access the server
 extern "C" void* init_server_environment(void (*cb)(void* tx_ptr, ServerMessage* res), void* tx_ptr);
 /// starts the server event loop, blocking and waiting for messages from the client.
@@ -69,3 +102,7 @@ extern "C" void start_server(void* void_session, void* void_env);
 extern "C" void exec_command(ServerCommand command, void* args, void* env);
 /// sends a message to the server to be processed
 extern "C" void push_client_message(ClientMessage msg, void* void_env);
+
+// internal use only
+void init_tick_stream(const char* init_symbol, void* tx_ptr, TickCallback cb, IO2GSession* session);
+void add_symbol(const char* symbol);

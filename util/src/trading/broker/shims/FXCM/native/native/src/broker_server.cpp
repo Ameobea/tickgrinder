@@ -18,22 +18,10 @@
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
 
-typedef void (*ResponseCallback)(void* tx_ptr, ServerMessage* res);
 typedef void (*QueuePush)(ClientMessage message);
-typedef boost::lockfree::spsc_queue<ClientMessage, boost::lockfree::capacity<1024> > MessageQueue;
 
 using namespace boost::posix_time;
 using namespace boost::gregorian;
-
-/// Contains pointers to a bunch of heap-allocated interal variables that are used by the server
-/// to maintain state, provide synchronization, and store messages.
-struct Environment {
-    ResponseCallback cb;
-    void* tx_ptr;
-    MessageQueue* q;
-    std::condition_variable* cond_var;
-    std::mutex* m;
-};
 
 /// Puts a ClientMessage into the queue.
 void push_client_message(ClientMessage msg, void* void_env) {
@@ -46,7 +34,7 @@ void push_client_message(ClientMessage msg, void* void_env) {
 }
 
 /// Processes a message from the client and returns a message to be sent back or NULL.
-void process_client_message(ClientMessage* message, ServerMessage* response) {
+void process_client_message(ClientMessage* message, ServerMessage* response, IO2GSession* session) {
     switch(message->command) {
         case PING: {
             // get current timestamp in microseconds
@@ -58,6 +46,20 @@ void process_client_message(ClientMessage* message, ServerMessage* response) {
             long stack_micros = diff.total_microseconds();
             *heap_micros = stack_micros;
             *response = ServerMessage({PONG, (void*)heap_micros});
+            break;
+        }
+        case INIT_TICK_SUB: {
+            TickstreamDef* def = (TickstreamDef*)message->payload;
+            init_tick_stream(def->symbol, def->tx_ptr, def->cb, session);
+            break;
+        }
+        case SUB_SYMBOL: {
+            const* char symbol = (char*)message->payload;
+            add_symbol(symbol);
+            *response = ServerMessage({TICK_SUB_SUCCESSFUL, NULL});
+            break;
+        }
+        case LIST_ACCOUNTS: {
             break;
         }
         default: {
@@ -81,7 +83,7 @@ void start_server(void* void_session, void* void_env) {
         std::unique_lock<std::mutex> lock(*env->m);
         env->cond_var->wait(lock, [env, &message](){ return env->q->pop(message); });
 
-        process_client_message(&message, &response);
+        process_client_message(&message, &response, session);
         // send the response asynchronously back to the client if there is one to send.
         if(&response != NULL)
             env->cb(env->tx_ptr, &response);

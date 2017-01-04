@@ -68,6 +68,7 @@ extern {
     fn getDigits(row: *mut c_void) -> c_int;
 }
 
+// TODO: Move to Util
 #[derive(Debug)]
 #[repr(C)]
 struct CTick {
