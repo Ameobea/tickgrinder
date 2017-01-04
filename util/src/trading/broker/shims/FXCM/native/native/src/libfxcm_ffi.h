@@ -78,10 +78,11 @@ typedef void (*TickCallback)(void* tx_ptr, CSymbolTick cst);
 typedef boost::lockfree::spsc_queue<ClientMessage, boost::lockfree::capacity<1024> > MessageQueue;
 
 /// Contains pointers to a bunch of heap-allocated interal variables that are used by the server
-/// to maintain state, provide synchronization, and store messages.
+/// to maintain state, provide synchronization, and store messages.  The whole thing should be
+/// Threadsafe (+Sync) so we can pass it around everywhere with impunity.
 struct Environment {
     ResponseCallback cb;
-    void* tx_ptr;
+    void* tx_ptr; // TODO: Make sure this is +Sync in Rust; we may need to Mutex-wrap it Rust-side
     MessageQueue* q;
     std::condition_variable* cond_var;
     std::mutex* m;
@@ -106,3 +107,4 @@ extern "C" void push_client_message(ClientMessage msg, void* void_env);
 // internal use only
 void init_tick_stream(const char* init_symbol, void* tx_ptr, TickCallback cb, IO2GSession* session);
 void add_symbol(const char* symbol);
+uint64_t date_to_unix_ms(DATE date)

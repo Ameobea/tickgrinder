@@ -14,6 +14,7 @@
 /// nullptr if unsuccessful.
 void* fxcm_login(char *username, char *password, char *url, bool live){
     IO2GSession *session = CO2GTransport::createSession();
+    session->useTableManager(Yes, NULL);
     SessionStatusListener *sessionListener = new SessionStatusListener(
         // session, false, session_id, pin
         session, false, 0, 0
@@ -21,13 +22,14 @@ void* fxcm_login(char *username, char *password, char *url, bool live){
     session->subscribeSessionStatus(sessionListener);
     sessionListener->reset();
 
-    const char *conn_name;
+    char conn_name[5];
+    memset(conn_name, '\0', sizeof(conn_name));
     if(live){
-        conn_name = "Live";
+        strcpy(conn_name, "Live");
     } else {
-        conn_name = "Demo";
+        strcpy(conn_name, "Demo");
     }
-    session->login(username, password, "http://www.fxcorporate.com/Hosts.jsp", conn_name);
+    session->login(username, password, "http://www.fxcorporate.com/Hosts.jsp", &conn_name);
     bool isConnected = sessionListener->waitEvents() && sessionListener->isConnected();
     if(isConnected){
         return (void*)session;
@@ -85,25 +87,7 @@ void sendPrices(IO2GSession *session, IO2GResponse *response, void (*tickcallbac
             uint64_t unix_time_ms;
             for (int i = reader->size() - 1; i >= 0; i--) {
                 const double dt = reader->getDate(i);
-                // convert crazy OLT time to SYSTEMTIME
-                // OleTimeToWindowsTime(const double dt, SYSTEMTIME *st);
-                bool success = CO2GDateUtils::OleTimeToWindowsTime(dt, wt);
-                if(!success){
-                    printf("Unable to convert OLE Time to Windows Time!\n");
-                }
-                if(wt == NULL){
-                    printf("dt is null!");
-                }
-                // convert SYSTEMTIME to CTime which causes loss of ms precision
-                // ms is simply dropped, not rounded.
-                ms = wt->wMilliseconds;
-                // WindowsTimeToCTime(const SYSTEMTIME *st, struct tm *t)
-                CO2GDateUtils::WindowsTimeToCTime(wt, tmBuf);
-                // convert to unix timestamp precise to the second
-                tt = mktime(tmBuf);
-                unix_time_s = (int)tt;
-                // convert to ms and add ms lost from before
-                unix_time_ms = (1000*(uint64_t)unix_time_s)+ms;
+                unix_time_ms = date_to_unix_ms(dt);
 
                 // send the callback to RustLand
                 tickcallback(user_data, unix_time_ms, reader->getBid(i), reader->getAsk(i));
@@ -114,6 +98,29 @@ void sendPrices(IO2GSession *session, IO2GResponse *response, void (*tickcallbac
     } else {
         printf("No factory!\n");
     }
+}
+
+/// converts the given OLE Automation date (double) into milliseconds since the epoch (unix timestamp)
+uint64_t date_to_unix_ms(DATE date) {
+    // convert crazy OLT time to SYSTEMTIME
+    // OleTimeToWindowsTime(const double dt, SYSTEMTIME *st);
+    bool success = CO2GDateUtils::OleTimeToWindowsTime(dt, wt);
+    if(!success){
+        printf("Unable to convert OLE Time to Windows Time!\n");
+    }
+    if(wt == NULL){
+        printf("dt is null!");
+    }
+    // convert SYSTEMTIME to CTime which causes loss of ms precision
+    // ms is simply dropped, not rounded.
+    ms = wt->wMilliseconds;
+    // WindowsTimeToCTime(const SYSTEMTIME *st, struct tm *t)
+    CO2GDateUtils::WindowsTimeToCTime(wt, tmBuf);
+    // convert to unix timestamp precise to the second
+    tt = mktime(tmBuf);
+    unix_time_s = (int)tt;
+    // convert to ms and add ms lost from before
+    return (1000*(uint64_t)unix_time_s)+ms;
 }
 
 /// Initializes a history downloader instance.  It takes a function is called as a callback for every tick downloaded.
@@ -139,8 +146,8 @@ bool init_history_download(
         strptime(endTime, "%m.%d.%Y %H:%M:%S", &tmBuf);
         CO2GDateUtils::CTimeToOleTime(&tmBuf, &dateTo);
 
-        IO2GRequest * request = reqFactory->createMarketDataSnapshotRequestInstrument(symbol, timeFrame, 300);
-        ResponseListener *responseListener = new ResponseListener(session);
+        IO2GRequest* request = reqFactory->createMarketDataSnapshotRequestInstrument(symbol, timeFrame, 300);
+        ResponseListener* responseListener = new ResponseListener(session);
         session->subscribeResponse(responseListener);
         do {
             reqFactory->fillMarketDataSnapshotRequestTime(request, dateFrom, dateTo, false);
@@ -181,7 +188,7 @@ bool init_history_download(
 /// Returns a void pointer to an OfferRow which can be used along with the other functions to
 /// get information about current offers.
 void* get_offer_row(void* void_session, const char *instrument){
-    IO2GSession * session = (IO2GSession*)void_session;
-    IO2GOfferRow * row = getOffer(session, instrument);
+    IO2GSession* session = (IO2GSession*)void_session;
+    IO2GOfferRow* row = getOffer(session, instrument);
     return row;
 }

@@ -1,8 +1,8 @@
 #pragma once
 
-class OffersResponseListener : public IO2GTableListener {
+class GlobalResponseListener : public IO2GTableListener {
 public:
-    OffersResponseListener();
+    GlobalResponseListener();
     virtual long addRef();
     virtual long release();
 

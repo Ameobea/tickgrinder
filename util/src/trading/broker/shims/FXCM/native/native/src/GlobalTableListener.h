@@ -1,8 +1,8 @@
 #pragma once
 
-class OffersTableListener : public IO2GTableListener {
+class GlobalTableListener : public IO2GTableListener {
 public:
-    OffersTableListener(ResponseListener *responseListener);
+    GlobalTableListener(ResponseListener *responseListener);
 
     virtual long addRef();
     virtual long release();
@@ -14,15 +14,14 @@ public:
     void onChanged(const char*, IO2GRow*);
     void onDeleted(const char*, IO2GRow*);
 
-    void subscribeEvents(IO2GTableManager *manager);
-    void unsubscribeEvents(IO2GTableManager *manager);
+    void subscribeTradingEvents(IO2GTableManager *manager);
+    void unsubscribeTradingEvents(IO2GTableManager *manager);
 
 private:
     long mRefCount;
     ResponseListener *mResponseListener;
     std::vector<std::string> mRequestIDs;
 
- protected:
-    /** Destructor. */
-    virtual ~OffersTableListener();
+protected:
+    virtual ~GlobalTableListener();
 }
