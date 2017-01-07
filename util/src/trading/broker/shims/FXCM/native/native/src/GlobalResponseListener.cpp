@@ -41,7 +41,15 @@ void GlobalResponseListener::stopWaiting() {
 }
 
 void GlobalResponseListener::onRequestCompleted(const char* requestId, IO2GResponse *response) {
-    // TODO???
+    switch(response->getType()) {
+        case GetOffers: {
+            break;
+        }
+        default: {
+            // TOOD: log
+            break;
+        }
+    }
 }
 
 void GlobalResponseListener::onRequestFailed(const char* requestId , const char* error) {
@@ -52,4 +60,7 @@ void GlobalResponseListener::onRequestFailed(const char* requestId , const char*
     }
 }
 
-void ResponseListener::onTablesUpdates(IO2GResponse* data) {}
+void GlobalResponseListener::onTablesUpdates(IO2GResponse* data) {
+    // You should also capture IO2GResponse in the onTablesUpdates function of a response listener class.
+    // TODO: just log to Rust for now
+}

@@ -1,9 +1,6 @@
 //! Functions for dealing with offer rows, getting information from/about them and things like that.
 
 #include "stdafx.h"
-#include "ResponseListener.h"
-#include "SessionStatusListener.h"
-#include "LoginParams.h"
 #include "CommonSources.h"
 
 // For all the below functions, see the IO2GOfferRow documentation for their usage.

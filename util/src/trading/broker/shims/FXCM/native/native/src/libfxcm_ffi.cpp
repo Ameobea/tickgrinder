@@ -3,33 +3,24 @@
 #include <ctime>
 
 #include "stdafx.h"
+#include "libfxcm_ffi.h"
 #include "ResponseListener.h"
-#include "SessionStatusListener.h"
 #include "LoginParams.h"
 #include "CommonSources.h"
 
-#include "libfxcm_ffi.h"
-
 /// Attempts to create a connection to the FXCM servers with the supplied credentials; returns a
 /// nullptr if unsuccessful.
-void* fxcm_login(char *username, char *password, char *url, bool live){
+void* fxcm_login(char *username, char *password, char *url, bool live, LogCallback log_cb, void* log_cb_env){
     IO2GSession *session = CO2GTransport::createSession();
     session->useTableManager(Yes, NULL);
     SessionStatusListener *sessionListener = new SessionStatusListener(
-        // session, false, session_id, pin
-        session, false, 0, 0
+        session, log_cb, log_cb_env
     );
     session->subscribeSessionStatus(sessionListener);
     sessionListener->reset();
 
-    char conn_name[5];
-    memset(conn_name, '\0', sizeof(conn_name));
-    if(live){
-        strcpy(conn_name, "Live");
-    } else {
-        strcpy(conn_name, "Demo");
-    }
-    session->login(username, password, "http://www.fxcorporate.com/Hosts.jsp", &conn_name);
+    const char* conn_name = (live) ? "Live" : "Demo";
+    session->login(username, password, "http://www.fxcorporate.com/Hosts.jsp", conn_name);
     bool isConnected = sessionListener->waitEvents() && sessionListener->isConnected();
     if(isConnected){
         return (void*)session;
@@ -42,7 +33,7 @@ void* fxcm_login(char *username, char *password, char *url, bool live){
 /// Connects to the broker and attempts to list the account balance.  Returns true if successful and false
 /// if unsuccessful.
 bool test_login(char *username, char *password, char *url, bool live){
-    IO2GSession * session = (IO2GSession*)fxcm_login(username, password, url, live);
+    IO2GSession * session = (IO2GSession*)fxcm_login(username, password, url, live, NULL, NULL);
     if(session != NULL){
         print_accounts(session);
         session->logout();
@@ -56,8 +47,7 @@ bool test_login(char *username, char *password, char *url, bool live){
 /// https://github.com/FXCMAPI/ForexConnectAPI-Linux-x86_64/blob/master/samples/cpp/NonTableManagerSamples/Login/source/main.cpp
 void print_accounts(IO2GSession *session){
     O2G2Ptr<IO2GResponseReaderFactory> readerFactory = session->getResponseReaderFactory();
-    if (!readerFactory)
-    {
+    if (!readerFactory) {
         std::cout << "Cannot create response reader factory" << std::endl;
         return;
     }
@@ -65,8 +55,7 @@ void print_accounts(IO2GSession *session){
     O2G2Ptr<IO2GResponse> response = loginRules->getTableRefreshResponse(Accounts);
     O2G2Ptr<IO2GAccountsTableResponseReader> accountsResponseReader = readerFactory->createAccountsTableReader(response);
     std::cout.precision(2);
-    for (int i = 0; i < accountsResponseReader->size(); ++i)
-    {
+    for (int i = 0; i < accountsResponseReader->size(); ++i) {
         O2G2Ptr<IO2GAccountRow> accountRow = accountsResponseReader->getRow(i);
         std::cout << "AccountID: " << accountRow->getAccountID() << ", "
                 << "Balance: " << std::fixed << accountRow->getBalance() << ", "
@@ -79,11 +68,6 @@ void sendPrices(IO2GSession *session, IO2GResponse *response, void (*tickcallbac
     if (factory) {
         O2G2Ptr<IO2GMarketDataSnapshotResponseReader> reader = factory->createMarketDataSnapshotReader(response);
         if (reader) {
-            tm *tmBuf = new tm();
-            _SYSTEMTIME* wt = new _SYSTEMTIME();
-            WORD ms;
-            time_t tt;
-            int unix_time_s;
             uint64_t unix_time_ms;
             for (int i = reader->size() - 1; i >= 0; i--) {
                 const double dt = reader->getDate(i);
@@ -102,23 +86,28 @@ void sendPrices(IO2GSession *session, IO2GResponse *response, void (*tickcallbac
 
 /// converts the given OLE Automation date (double) into milliseconds since the epoch (unix timestamp)
 uint64_t date_to_unix_ms(DATE date) {
+    tm tmBuf = tm({0});
+    _SYSTEMTIME* wt = new _SYSTEMTIME();
+    WORD ms;
+    time_t tt;
+
     // convert crazy OLT time to SYSTEMTIME
     // OleTimeToWindowsTime(const double dt, SYSTEMTIME *st);
-    bool success = CO2GDateUtils::OleTimeToWindowsTime(dt, wt);
+    bool success = CO2GDateUtils::OleTimeToWindowsTime(date, wt);
     if(!success){
         printf("Unable to convert OLE Time to Windows Time!\n");
     }
     if(wt == NULL){
-        printf("dt is null!");
+        printf("date is null!");
     }
     // convert SYSTEMTIME to CTime which causes loss of ms precision
     // ms is simply dropped, not rounded.
     ms = wt->wMilliseconds;
     // WindowsTimeToCTime(const SYSTEMTIME *st, struct tm *t)
-    CO2GDateUtils::WindowsTimeToCTime(wt, tmBuf);
+    CO2GDateUtils::WindowsTimeToCTime(wt, &tmBuf);
     // convert to unix timestamp precise to the second
-    tt = mktime(tmBuf);
-    unix_time_s = (int)tt;
+    tt = mktime(&tmBuf);
+    int unix_time_s = (int)tt;
     // convert to ms and add ms lost from before
     return (1000*(uint64_t)unix_time_s)+ms;
 }
@@ -185,10 +174,63 @@ bool init_history_download(
     }
 }
 
+IO2GOfferRow* _getOffer(IO2GSession *session, const char *sInstrument, Environment* env) {
+    if (!session || !sInstrument){
+        rustlog(env, "Session or Instrument wasn't provided!", CRITICAL);
+        return NULL;
+    }
+
+    O2G2Ptr<IO2GLoginRules> loginRules = session->getLoginRules();
+    if (loginRules) {
+        O2G2Ptr<IO2GResponse> response = loginRules->getTableRefreshResponse(Offers);
+        if (response) {
+            O2G2Ptr<IO2GResponseReaderFactory> readerFactory = session->getResponseReaderFactory();
+            if (readerFactory) {
+                O2G2Ptr<IO2GOffersTableResponseReader> reader = readerFactory->createOffersTableReader(response);
+
+                for (int i = 0; i < reader->size(); ++i) {
+                    O2G2Ptr<IO2GOfferRow> offer = reader->getRow(i);
+                    if (offer) {
+                        if (strcmp(sInstrument, offer->getInstrument()) == 0) {
+                            if (strcmp(offer->getSubscriptionStatus(), "T") == 0) {
+                                printf("Returning offer...\n");
+                                return offer.Detach();
+                            }
+                        }
+                        // std::cout << offer->getInstrument() << std::endl << sInstrument << std::endl;
+                    } else {
+                        rustlog(env, "offer was NULL!\n", WARNING);
+                        printf("offer was NULL!\n");
+                    }
+                }
+            } else {
+                rustlog(env, "readerFactor was NULL!\n", CRITICAL);
+                printf("readerFactor was NULL!\n");
+            }
+        } else {
+            rustlog(env, "response was NULL!\n", CRITICAL);
+            printf("response was NULL!\n");
+        }
+    } else {
+        rustlog(env, "loginRules was NULL!\n", CRITICAL);
+        printf("loginRules was NULL!\n");
+    }
+
+    rustlog(env, "Some other error occured while trying to get offer row!\n", CRITICAL);
+    printf("Some other error occured while trying to get offer row!\n");
+    return NULL;
+}
+
 /// Returns a void pointer to an OfferRow which can be used along with the other functions to
 /// get information about current offers.
 void* get_offer_row(void* void_session, const char *instrument){
     IO2GSession* session = (IO2GSession*)void_session;
-    IO2GOfferRow* row = getOffer(session, instrument);
+    IO2GOfferRow* row = _getOffer(session, instrument, NULL);
+    return row;
+}
+
+void* get_offer_row_log(IO2GSession* session, const char *instrument, Environment* env){
+    IO2GOfferRow* row = _getOffer(session, instrument, env);
+
     return row;
 }

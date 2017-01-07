@@ -8,8 +8,10 @@ extern crate futures;
 extern crate algobot_util;
 extern crate libc;
 extern crate test;
+extern crate redis;
 
 use std::collections::HashMap;
+use std::collections::hash_map::{Entry, VacantEntry, OccupiedEntry};
 use std::ffi::CString;
 use std::ptr::null;
 use std::thread;
@@ -17,15 +19,20 @@ use std::mem::{self, transmute};
 use std::time::Duration;
 use std::slice;
 use std::str;
+use std::sync::Mutex;
 
-use libc::{c_char, c_void, uint64_t, c_double, memchr};
+use libc::{c_char, c_void, uint64_t, c_double, c_int, memchr};
 use uuid::Uuid;
+use futures::Future;
 use futures::Oneshot;
 use futures::sync::oneshot;
 use futures::stream::Stream;
 use futures::sync::oneshot::Receiver;
 use futures::sync::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
 
+use algobot_util::transport::commands::{LogLevel, CLogLevel};
+use algobot_util::transport::command_server::CommandServer;
+use algobot_util::transport::redis::*;
 use algobot_util::trading::broker::*;
 use algobot_util::trading::tick::*;
 use algobot_util::conf::CONF;
@@ -42,7 +49,14 @@ use algobot_util::conf::CONF;
 #[link(name="ForexConnect")]
 #[link(name="sample_tools")]
 extern {
-    fn fxcm_login(username: *const c_char, password: *const c_char, url: *const c_char, live: bool) -> *mut c_void;
+    fn fxcm_login(
+        username: *const c_char,
+        password: *const c_char,
+        url: *const c_char,
+        live: bool,
+        log_cb: Option<extern fn (env_ptr: *mut c_void, msg: *mut c_char, severity: CLogLevel)>,
+        log_cb_env: *mut c_void
+    ) -> *mut c_void;
     fn test_login(username: *const c_char, password: *const c_char, url: *const c_char, live: bool) -> bool;
     fn init_history_download(
         connection: *mut c_void,
@@ -54,11 +68,19 @@ extern {
     );
 
     // broker server commands
-    fn init_server_environment(cb: Option<extern fn (tx_ptr: *mut c_void, message: *mut ServerMessage)>, tx_ptr: *mut c_void) -> *mut c_void;
+    fn init_server_environment(
+        cb: Option<extern fn (tx_ptr: *mut c_void, message: *mut ServerMessage)>,
+        tx_ptr: *mut c_void,
+        log_cb: Option<extern fn (env_ptr: *mut c_void, msg: *mut c_char, severity: CLogLevel)>,
+        log_cb_env: *mut c_void
+    ) -> *mut c_void;
     fn start_server(session: *mut c_void, env: *mut c_void);
-    fn exec_command(command: ServerCommand, args: *mut c_void, server_env: *mut c_void);
     fn push_client_message(message: ClientMessage, env: *mut c_void);
+    fn get_offer_row(connection: *mut c_void, instrument: *const c_char) -> *mut c_void;
+    fn getDigits(row: *mut c_void) -> c_int;
 }
+
+const NULL: *mut c_void = 0 as *mut c_void;
 
 /// Contains all possible commands that can be received by the broker server.
 #[repr(C)]
@@ -69,11 +91,13 @@ enum ServerCommand {
     LIST_ACCOUNTS,
     DISCONNECT,
     PING,
+    INIT_TICK_SUB,
+    GET_OFFER_ROW,
 }
 
 /// Contains all possible responses that can be received by the broker server.
 #[repr(C)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum ServerResponse {
     POSITION_OPENED,
     POSITION_CLOSED,
@@ -82,6 +106,8 @@ enum ServerResponse {
     SESSION_TERMINATED,
     PONG,
     ERROR,
+    TICK_SUB_SUCCESSFUL,
+    OFFER_ROW,
 }
 
 /// A packet of information asynchronously received from the broker server.
@@ -104,6 +130,7 @@ pub struct FXCMNative {
     settings_hash: HashMap<String, String>,
     server_environment: *mut c_void,
     raw_rx: Option<UnboundedReceiver<BrokerResult>>,
+    tickstream_obj: Mutex<Tickstream>,
 }
 
 // TODO: Move to Util
@@ -119,18 +146,44 @@ struct CTick {
 #[derive(Debug)]
 #[repr(C)]
 struct CSymbolTick {
-    symbol: const* c_char,
+    symbol: *const c_char,
     timestamp: uint64_t,
     bid: c_double,
     ask: c_double,
 }
 
+impl CSymbolTick {
+    /// Converts a CSymbolTick into a Tick given the amount of decimal places precision.
+    pub fn to_tick(&self, decimals: usize) -> Tick {
+        let multiplier = 10usize.pow(decimals as u32) as f64;
+        let bid_pips = self.bid * multiplier;
+        let ask_pips = self.ask * multiplier;
+
+        Tick {
+            timestamp: self.timestamp as usize,
+            bid: bid_pips as usize,
+            ask: ask_pips as usize,
+        }
+    }
+}
+
 /// Contains data necessary to initialize a tickstream
 #[repr(C)]
 struct TickstreamDef {
-    tx_ptr: *mut c_void,
-    symbol: *mut c_char,
+    env_ptr: *mut c_void,
     cb: Option<extern fn (tx_ptr: *mut c_void, cst: CSymbolTick)>,
+}
+
+/// Holds the currently subscribed symbols as well as a channel to send them through
+struct Tickstream {
+    subbed_pairs: HashMap<String, (UnboundedSender<Tick>, usize)>,
+    cs: CommandServer,
+}
+
+/// Holds the state for the `handle_message` function
+struct HandlerState {
+    sender: UnboundedSender<BrokerResult>,
+    cs: CommandServer,
 }
 
 // something to hold our environment so we can convince Rust to send it between threads
@@ -156,30 +209,86 @@ pub extern fn tick_downloader_cb(timestamp: uint64_t, bid: uint64_t, ask: uint64
 
 /// Processes received messages from the broker server and converts them into BrokerResults that can be fed to the
 /// stream returned by `get_stream`.
-extern fn handle_message(tx_ptr: *mut c_void, message: *mut ServerMessage) {
+extern fn handle_message(env_ptr: *mut c_void, message: *mut ServerMessage) {
     unsafe {
-        let sender: &mut UnboundedSender<BrokerResult> = transmute(tx_ptr);
-        let res: BrokerResult = match (*message).response {
+        let state: &mut HandlerState = transmute(env_ptr);
+        let mut sender = &mut state.sender;
+        let res: Option<BrokerResult> = match (*message).response {
             ServerResponse::POSITION_OPENED => {
                 unimplemented!();
             },
             ServerResponse::PONG => {
                 let micros: &u64 = transmute((*message).payload);
                 let msg = BrokerMessage::Pong{time_received: *micros};
-                Ok(msg)
+                Some(Ok(msg))
             },
             ServerResponse::ERROR => {
                 let msg_ptr: *mut c_char = (*message).payload as *mut c_char;
                 let err_msg: CString = ptr_to_cstring(msg_ptr);
-                Err(BrokerError::Message{message: err_msg.into_string()
-                    .expect("Unable to convert CString ito String")})
+                println!("DEBUG: {}", err_msg.to_str().unwrap());
+                Some(Err(BrokerError::Message{message: err_msg.into_string()
+                    .expect("Unable to convert CString ito String")}))
             },
-            _ => unimplemented!(),
+            ServerResponse::OFFER_ROW => {
+                let decimals: usize = getDigits((*message).payload) as usize;
+                let client = get_client(CONF.redis_host);
+                // send the decimal value down the magic pipe where we're waiting for it on the other end
+                redis::cmd("PUBLISH")
+                    .arg("redis_magic_pipe")
+                    .arg(&decimals.to_string())
+                    .execute(&client);
+                None
+            },
+            ServerResponse::TICK_SUB_SUCCESSFUL => {
+                state.cs.debug(None, "Broker server reports successful tick sub");
+                None // TODO: eventually send message once we have IDs for the messages
+            },
+            _ => {
+                let msg = format!("Received unhandlable result type from broker server: {:?}", (*message).response);
+                println!("{}", msg);
+                state.cs.error(None, &msg);
+                unimplemented!()
+            },
         };
 
         libc::free((*message).payload);
 
-        let _ = sender.send(res);
+        if res.is_some() {
+            let _ = sender.send(res.unwrap());
+        }
+    }
+}
+
+extern fn log_cb(env_ptr: *mut c_void, msg: *mut c_char, severity: CLogLevel) {
+    let mut cs: &mut CommandServer = unsafe { transmute(env_ptr) };
+    let msg = unsafe { ptr_to_cstring(msg) };
+    let loglevel = severity.convert();
+
+    match msg.to_str() {
+        Ok(msg_str) => {
+            cs.log(None, msg_str, loglevel);
+        },
+        Err(err) => cs.log(None, &format!("Error when converting CString into &str: {}", err), LogLevel::Error),
+    }
+}
+
+extern fn tick_cb(env_ptr: *mut c_void, cst: CSymbolTick) {
+    let ts_amtx: &mut Mutex<Tickstream> = unsafe { transmute(env_ptr) };
+    let mut ts = ts_amtx.lock().unwrap();
+
+    let symbol_cstring = unsafe { ptr_to_cstring(cst.symbol as *mut i8) };
+    match symbol_cstring.to_str() {
+        Ok(symbol_str) => {
+            match ts.subbed_pairs.entry(String::from(symbol_str)) {
+                Entry::Occupied(mut occupied_entry) => {
+                    let mut entry = occupied_entry.get_mut();
+                    // convert the CSymbolTick to a Tick using the stored decimal precision
+                    entry.0.send(cst.to_tick(entry.1)).unwrap();
+                },
+                _ => (),
+            }
+        },
+        Err(_) => ts.cs.error(None, "Unable to convert CString to &str in tick_cb"),
     }
 }
 
@@ -197,22 +306,36 @@ impl Broker for FXCMNative {
         let (ext_tx, ext_rx) = oneshot::channel::<Result<Self, BrokerError>>();
         thread::spawn(move || {
             // channel with which to receive messages from the server
-            let (mut tx, rx) = unbounded::<BrokerResult>();
-            let tx_ptr = &mut tx as *const _ as *mut c_void;
+            let (tx, rx) = unbounded::<BrokerResult>();
+            let instance_id = String::from("FXCM Native Broker");
+            let cs = CommandServer::new(Uuid::new_v4(), &instance_id);
+            let state = Box::new(HandlerState {
+                sender: tx,
+                cs: cs.clone(),
+            });
+            let handler_env_ptr = Box::into_raw(state) as *const _ as *mut c_void;
 
-            let server_environment: *mut c_void = unsafe { init_server_environment(Some(handle_message), tx_ptr) };
+            let boxed_cs = Box::new(cs.clone());
+            let env_ptr = Box::into_raw(boxed_cs) as *const _ as *mut c_void;
+            let env_ptr_ship = Spaceship(env_ptr.clone());
+
+            let server_environment: *mut c_void = unsafe { init_server_environment(Some(handle_message), handler_env_ptr, Some(log_cb), env_ptr) };
             let ship = Spaceship(server_environment.clone());
 
             thread::spawn(move || {
-                let session: *mut c_void = login();
-                // blocks on C++ event loop
-                unsafe { start_server(session, ship.0) };
+                match login(env_ptr_ship.0) {
+                    Ok(session) => unsafe { start_server(session, ship.0) }, // blocks on C++ event loop
+                    Err(msg) => println!("{}", msg),
+                }
             });
+
+            let obj = Mutex::new(Tickstream{subbed_pairs: HashMap::new(), cs: cs});
 
             let inst = FXCMNative {
                 settings_hash: settings,
                 server_environment: server_environment,
                 raw_rx: Some(rx),
+                tickstream_obj: obj,
             };
 
             ext_tx.complete(Ok(inst));
@@ -242,16 +365,86 @@ impl Broker for FXCMNative {
     }
 
     fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()> + Send>, BrokerError> {
-        unimplemented!();
+        let (tx, rx) = unbounded::<Tick>();
+        let mut cs: CommandServer;
+
+        // create the Redis channel through which to receive the decimals
+        let inner_rx = sub_channel(CONF.redis_host, "redis_magic_pipe");
+
+        {
+            let tickstream = self.tickstream_obj.lock().unwrap();
+            cs = tickstream.cs.clone();
+        }
+
+        let msg_clone = symbol.clone();
+
+        let symbol_cstr_res = CString::new(symbol.clone());
+        if symbol_cstr_res.is_err() {
+            let err = "Unable to convert symbol into CString!";
+            cs.error(None, err);
+            return Err(BrokerError::Message{message: String::from(err)})
+        }
+        let symbol_cstr = symbol_cstr_res.unwrap();
+
+        let msg = ClientMessage {
+            command: ServerCommand::GET_OFFER_ROW,
+            payload: symbol_cstr.as_ptr() as *mut c_void,
+        };
+
+        // send the request to get the precision for that symbol
+        unsafe { push_client_message(msg, self.server_environment) };
+
+        // wait for the callback handler to send the message over redis
+        let mut decimals: usize = 0;
+        for msg in inner_rx.wait() {
+            match msg.unwrap().parse::<usize>() {
+                Ok(d) => {
+                    decimals = d;
+                    break;
+                }
+                Err(err) => {
+                    let err_string = format!("Unable to convert the result from Redis into an int: {:?}", err);
+                    println!("{}", err_string);
+
+                    cs.critical(None, &err_string);
+                    return Err(BrokerError::Message{message: err_string})
+                }
+            }
+        }
+        cs.debug(None, &format!("Received decimal precision for {}: {}", symbol, decimals));
+
+        {
+            let mut tickstream = self.tickstream_obj.lock().unwrap();
+            tickstream.subbed_pairs.insert(symbol, (tx, decimals));
+        }
+
+        let def = TickstreamDef {
+            env_ptr: &self.tickstream_obj as *const _ as *mut c_void,
+            cb: Some(tick_cb),
+        };
+
+        let msg = ClientMessage {
+            command: ServerCommand::INIT_TICK_SUB,
+            payload: &def as *const _ as *mut _,
+        };
+
+        unsafe { push_client_message(msg, self.server_environment) };
+
+        Ok(Box::new(rx))
     }
 }
 
-fn login() -> *mut c_void {
+fn login(log_env: *mut c_void) -> Result<*mut c_void, String> {
     let username  = CString::new(CONF.fxcm_username).unwrap();
     let password  = CString::new(CONF.fxcm_password).unwrap();
     let url       = CString::new(CONF.fxcm_url).unwrap();
 
-    unsafe { fxcm_login(username.as_ptr(), password.as_ptr(), url.as_ptr(), false) }
+    let res = unsafe { fxcm_login(username.as_ptr(), password.as_ptr(), url.as_ptr(), false, Some(log_cb), log_env) };
+    if res.is_null() {
+        return Err(String::from("The external login function returned NULL; the FXCM servers are likely down."))
+    } else {
+        return Ok(res)
+    }
 }
 
 /// Tests the ability to log in to FXCM via the C++ code in the library.
@@ -279,7 +472,10 @@ fn broker_server() {
     let (tx, rx) = unbounded::<BrokerResult>();
     let tx_ptr = &tx as *const _ as *mut c_void;
 
-    let env: *mut c_void = unsafe { init_server_environment(Some(handle_message), tx_ptr) };
+    let boxed_cs = Box::new(CommandServer::new(Uuid::new_v4(), "FXCM Native Broker"));
+    let env_ptr = Box::into_raw(boxed_cs) as *const _ as *mut c_void;
+
+    let env: *mut c_void = unsafe { init_server_environment(Some(handle_message), tx_ptr, Some(log_cb), env_ptr) };
     let ship  = Spaceship(env);
     let ship2 = ship.clone();
 
@@ -287,12 +483,15 @@ fn broker_server() {
         // TODO: wait until the connection is ready before starting to process messages
         // let session = login();
         // block on the C++ event loop code and start processing messages
-        unsafe { start_server(0 as *mut c_void, ship.0) };
+        match login(NULL) {
+            Ok(conn) => unsafe { start_server(conn, ship.0) },
+            Err(msg) => panic!("{}", msg),
+        }
     });
 
     let message = ClientMessage {
         command: ServerCommand::PING,
-        payload: 0 as *mut c_void,
+        payload: NULL,
     };
 
     thread::spawn(move || {
@@ -302,11 +501,20 @@ fn broker_server() {
         }
         unsafe { push_client_message(ClientMessage {
             command: transmute(100u32), // invalid enum variant to trigger an error on the C side
-            payload: 0 as *mut c_void,
+            payload: NULL,
         }, ship2.0)}
     });
 
     for (i, res) in rx.wait().take(11).enumerate() {}
+}
+
+#[test]
+fn tickstream_subbing() {
+    let mut broker = FXCMNative::init(HashMap::new()).wait().unwrap().unwrap();
+    let rx = broker.sub_ticks(String::from("EUR/USD")).unwrap();
+    for msg in rx.wait() {
+        println!("{:?}", msg);
+    }
 }
 
 #[test]

@@ -7,9 +7,9 @@ authors = ["Casey Primozic <me@ameo.link>"]
 redis = "0.5.3"
 futures = "0.1.6"
 postgres = "0.13"
-serde = "0.8.13"
-serde_json = "0.8"
-serde_derive = "0.8"
+serde = "0.8.21"
+serde_json = "0.8.4"
+serde_derive = "0.8.21"
 uuid = { version = "0.3.1", features = ["serde", "v4",] }
 indoc = "^0.1"
 

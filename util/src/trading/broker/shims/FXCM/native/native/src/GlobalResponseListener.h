@@ -1,6 +1,6 @@
 #pragma once
 
-class GlobalResponseListener : public IO2GTableListener {
+class GlobalResponseListener : public IO2GResponseListener {
 public:
     GlobalResponseListener();
     virtual long addRef();
@@ -24,5 +24,5 @@ private:
 
 protected:
     /** Destructor. */
-    virtual ~TableListener();
+    virtual ~GlobalResponseListener();
 };

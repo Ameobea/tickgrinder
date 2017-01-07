@@ -116,6 +116,30 @@ pub enum LogLevel {
     Critical,
 }
 
+/// C-format LogLevel enum for use in FFI
+#[repr(C)]
+#[allow(dead_code)]
+pub enum CLogLevel {
+    DEBUG,
+    NOTICE,
+    WARNING,
+    ERR,
+    CRITICAL,
+}
+
+impl CLogLevel {
+    #[allow(dead_code)]
+    pub fn convert(&self) -> LogLevel {
+        match *self {
+            CLogLevel::DEBUG => LogLevel::Debug,
+            CLogLevel::NOTICE => LogLevel::Notice,
+            CLogLevel::WARNING => LogLevel::Warning,
+            CLogLevel::ERR => LogLevel::Error,
+            CLogLevel::CRITICAL => LogLevel::Critical,
+        }
+    }
+}
+
 /// Represents a command bound to a unique identifier that can be
 /// used to link it with a Response
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]

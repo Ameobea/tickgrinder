@@ -1,1 +1,1 @@
-LD_LIBRARY_PATH=../../dist/lib:../../util/target/release/deps cargo build && LD_LIBRARY_PATH=../../dist/lib ddd target/debug/fxcm_native
+LD_LIBRARY_PATH=../../dist/lib:../../util/target/release/deps cargo build && LD_LIBRARY_PATH=~/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/:../../dist/lib ddd $(find | grep debug/fxcm_native-)

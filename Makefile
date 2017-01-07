@@ -132,15 +132,6 @@ bench:
 	# copy libstd to the dist/lib directory
 	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
-	# build all strategies and copy into dist/lib
-	cd private && for dir in ./strategies/*/; \
-	do \
-		cd $$dir && cargo build --release && \
-		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../../dist/lib && \
-		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../../util/target/release/deps && \
-		LD_LIBRARY_PATH="../../../dist/lib" cargo bench; \
-	done
-
 	cd optimizer && LD_LIBRARY_PATH="../dist/lib" cargo bench
 	cd logger && LD_LIBRARY_PATH="../dist/lib" cargo bench
 	cd spawner && LD_LIBRARY_PATH="../dist/lib" cargo bench
@@ -156,12 +147,6 @@ update:
 	cd logger && cargo update
 	cd spawner && cargo update
 
-	# Build each strategy
-	cd private && for dir in ./strategies/*/; \
-	do \
-		cd $$dir && cargo update; \
-	done
-
 	cd tick_parser && cargo update
 	cd util && cargo update
 	cd backtester && cargo update
@@ -175,12 +160,6 @@ cdoc:
 	cd optimizer && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
 	cd logger && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
 	cd spawner && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
-
-	# Build each strategy
-	cd private && for dir in ./strategies/*/; \
-	do \
-		cd $$dir && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports; \
-	done
 
 	cd tick_parser && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
 	cd util && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports

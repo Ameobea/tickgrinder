@@ -54,7 +54,14 @@ use util::transfer_data;
 #[link(name="ForexConnect")]
 #[link(name="sample_tools")]
 extern {
-    fn fxcm_login(username: *const c_char, password: *const c_char, url: *const c_char, live: bool) -> *mut c_void;
+    fn fxcm_login(
+        username: *const c_char,
+        password: *const c_char,
+        url: *const c_char,
+        live: bool,
+        log_cb: Option<extern fn (env_ptr: *mut c_void, msg: *mut c_char, severity: CLogLevel)>,
+        log_cb_env: *mut c_void
+    ) -> *mut c_void;
     fn init_history_download(
         connection: *mut c_void,
         symbol: *const c_char,
@@ -67,6 +74,8 @@ extern {
     fn get_offer_row(connection: *mut c_void, instrument: *const c_char) -> *mut c_void;
     fn getDigits(row: *mut c_void) -> c_int;
 }
+
+const NULL: *mut c_void = 0 as *mut c_void;
 
 // TODO: Move to Util
 #[derive(Debug)]
@@ -196,7 +205,10 @@ impl DataDownloader {
         let session_ptr: *mut c_void;
         let digit_count: usize;
         unsafe{
-            session_ptr = fxcm_login(username.as_ptr(), password.as_ptr(), url.as_ptr(), false);
+            session_ptr = fxcm_login(username.as_ptr(), password.as_ptr(), url.as_ptr(), false, None, NULL);
+            if session_ptr.is_null() {
+                return Err(String::from("External login function returned nullptr; FXCM servers are likely down."))
+            }
             let offer_row = get_offer_row(session_ptr, symbol.as_ptr());
             digit_count = getDigits(offer_row) as usize;
         }
@@ -471,7 +483,8 @@ fn history_downloader_functionality() {
     // start data download in another thread as to not block
     thread::spawn(move ||{
         let downloader = DataDownloader::new(Uuid::new_v4());
-        let _ = DataDownloader::init_download::<TxCallback>(symbol, dst, start_time, end_time, downloader.running_downloads.clone(), downloader.cs.clone());
+        let res = DataDownloader::init_download::<TxCallback>(symbol, dst, start_time, end_time, downloader.running_downloads.clone(), downloader.cs.clone());
+        assert!(res.is_ok());
     });
 
     let rx = sub_channel(CONF.redis_host, channel_str);

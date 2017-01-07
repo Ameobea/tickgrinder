@@ -22,8 +22,10 @@ use std::time::Duration;
 use std::env;
 
 use uuid::Uuid;
+use futures::Future;
 use futures::stream::Stream;
 
+use algobot_util::trading::broker::Broker;
 use algobot_util::transport::redis::*;
 use algobot_util::transport::commands::*;
 use algobot_util::transport::command_server::CommandServer;
@@ -49,7 +51,7 @@ impl Optimizer {
     pub fn init(mut self) {
         // initialize the strategy
         let query_server = QueryServer::new(CONF.conn_senders);
-        let mut broker = FXCMNative::new(HashMap::new());
+        let mut broker = FXCMNative::init(HashMap::new()).wait();
         let cs = self.cs.clone();
         // thread::spawn(move || {
         //     let mut strat = strat::new(cs, query_server, &mut broker);

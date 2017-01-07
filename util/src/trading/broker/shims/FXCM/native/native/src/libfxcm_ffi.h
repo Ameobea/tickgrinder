@@ -1,9 +1,21 @@
-#include "stdafx.h"
 #include <mutex>
 #include <condition_variable>
 
+#include "stdafx.h"
+#include <boost/lockfree/spsc_queue.hpp>
+
+enum CLogLevel {
+    DEBUG,
+    NOTICE,
+    WARNING,
+    ERR,
+    CRITICAL,
+};
+
+typedef void (*LogCallback)(void* env_ptr, char* message, CLogLevel severity);
+
 // really returns a IO2GSession*
-extern "C" void* fxcm_login(char *username, char *password, char *url, bool live);
+extern "C" void* fxcm_login(char *username, char *password, char *url, bool live, LogCallback log_cb, void* log_cb_env);
 void print_accounts(IO2GSession *session);
 extern "C" bool test_login(char *username, char *password, char *url, bool live);
 
@@ -41,7 +53,7 @@ enum ServerCommand {
     DISCONNECT,
     PING,
     INIT_TICK_SUB,
-    SUB_SYMBOL,
+    GET_OFFER_ROW,
 };
 
 /// Contains all possible responses that can be sent by the broker server.
@@ -54,6 +66,7 @@ enum ServerResponse {
     PONG,
     ERROR,
     TICK_SUB_SUCCESSFUL,
+    OFFER_ROW,
 };
 
 struct ServerMessage {
@@ -68,14 +81,18 @@ struct ClientMessage {
 
 struct CSymbolTick {
     const char* symbol;
-    timestamp: uint64_t;
-    bid: double;
-    ask: double;
-}
+    uint64_t timestamp;
+    double bid;
+    double ask;
+};
 
 typedef void (*ResponseCallback)(void* tx_ptr, ServerMessage* res);
-typedef void (*TickCallback)(void* tx_ptr, CSymbolTick cst);
+typedef void (*TickCallback)(void* env_ptr, CSymbolTick cst);
 typedef boost::lockfree::spsc_queue<ClientMessage, boost::lockfree::capacity<1024> > MessageQueue;
+
+#include "GlobalTableListener.h"
+#include "GlobalResponseListener.h"
+#include "SessionStatusListener.h"
 
 /// Contains pointers to a bunch of heap-allocated interal variables that are used by the server
 /// to maintain state, provide synchronization, and store messages.  The whole thing should be
@@ -86,25 +103,30 @@ struct Environment {
     MessageQueue* q;
     std::condition_variable* cond_var;
     std::mutex* m;
+    TickCallback tick_cb;
+    void* tick_cb_env;
+    IO2GTableManager* tableManager;
+    LogCallback log_cb;
+    void* log_cb_env;
+    GlobalTableListener* g_table_listener;
+    GlobalResponseListener* g_response_listener;
 };
 
 /// Contains data necessary to initialize a tickstream
 struct TickstreamDef {
-    void* tx_ptr;
-    const char* symbol;
+    void* env_ptr;
     TickCallback cb;
 };
 
 /// returns a server environment that is sent along with BrokerCommands to access the server
-extern "C" void* init_server_environment(void (*cb)(void* tx_ptr, ServerMessage* res), void* tx_ptr);
+extern "C" void* init_server_environment(void (*cb)(void* tx_ptr, ServerMessage* res), void* tx_ptr, LogCallback log_cb, void* log_cb_env);
 /// starts the server event loop, blocking and waiting for messages from the client.
 extern "C" void start_server(void* void_session, void* void_env);
-/// takes a reference to the server environment, a command, and the command's arguments and executes it
-extern "C" void exec_command(ServerCommand command, void* args, void* env);
 /// sends a message to the server to be processed
 extern "C" void push_client_message(ClientMessage msg, void* void_env);
 
 // internal use only
-void init_tick_stream(const char* init_symbol, void* tx_ptr, TickCallback cb, IO2GSession* session);
-void add_symbol(const char* symbol);
-uint64_t date_to_unix_ms(DATE date)
+void init_tick_stream(void* tx_ptr, TickCallback cb, IO2GSession* session, Environment* env);
+uint64_t date_to_unix_ms(DATE date);
+void rustlog(Environment* env, char* msg, CLogLevel severity);
+void* get_offer_row_log(IO2GSession* session, const char *instrument, Environment* env);
