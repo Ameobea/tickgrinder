@@ -13,7 +13,7 @@ extern crate redis;
 use std::collections::HashMap;
 use std::collections::hash_map::{Entry, VacantEntry, OccupiedEntry};
 use std::ffi::CString;
-use std::ptr::null;
+use std::ptr::{null, drop_in_place};
 use std::thread;
 use std::mem::{self, transmute};
 use std::time::Duration;
@@ -176,8 +176,15 @@ struct TickstreamDef {
 
 /// Holds the currently subscribed symbols as well as a channel to send them through
 struct Tickstream {
-    subbed_pairs: HashMap<String, (UnboundedSender<Tick>, usize)>,
+    subbed_pairs: Vec<SubbedPair>,
     cs: CommandServer,
+}
+
+struct SubbedPair {
+    symbol: *const c_char,
+    sender: UnboundedSender<Tick>,
+    decimals: usize,
+    length: usize,
 }
 
 /// Holds the state for the `handle_message` function
@@ -194,6 +201,11 @@ unsafe impl Send for Spaceship{}
 unsafe impl Send for FXCMNative {}
 unsafe impl Send for ServerMessage {}
 unsafe impl Send for ClientMessage {}
+
+/// Deallocates the memory left behind from `into_raw()`ing a box.
+fn free(ptr: *mut c_void) {
+    unsafe { drop_in_place(ptr) };
+}
 
 /// Called for every historical tick downloaded by the `init_history_download` function.  This function is called
 /// asynchronously from within the C++ code of the native FXCM broker library.
@@ -251,7 +263,7 @@ extern fn handle_message(env_ptr: *mut c_void, message: *mut ServerMessage) {
             },
         };
 
-        libc::free((*message).payload);
+        // libc::free((*message).payload);
 
         if res.is_some() {
             let _ = sender.send(res.unwrap());
@@ -276,19 +288,12 @@ extern fn tick_cb(env_ptr: *mut c_void, cst: CSymbolTick) {
     let ts_amtx: &mut Mutex<Tickstream> = unsafe { transmute(env_ptr) };
     let mut ts = ts_amtx.lock().unwrap();
 
-    let symbol_cstring = unsafe { ptr_to_cstring(cst.symbol as *mut i8) };
-    match symbol_cstring.to_str() {
-        Ok(symbol_str) => {
-            match ts.subbed_pairs.entry(String::from(symbol_str)) {
-                Entry::Occupied(mut occupied_entry) => {
-                    let mut entry = occupied_entry.get_mut();
-                    // convert the CSymbolTick to a Tick using the stored decimal precision
-                    entry.0.send(cst.to_tick(entry.1)).unwrap();
-                },
-                _ => (),
-            }
-        },
-        Err(_) => ts.cs.error(None, "Unable to convert CString to &str in tick_cb"),
+    for &mut SubbedPair{symbol, ref mut sender, decimals, length} in ts.subbed_pairs.iter_mut() {
+        if unsafe { libc::strcmp(symbol, cst.symbol) } == 0 {
+            // convert the CSymbolTick to a Tick using the stored decimal precision
+            sender.send(cst.to_tick(decimals)).unwrap();
+            return
+        }
     }
 }
 
@@ -329,7 +334,7 @@ impl Broker for FXCMNative {
                 }
             });
 
-            let obj = Mutex::new(Tickstream{subbed_pairs: HashMap::new(), cs: cs});
+            let obj = Mutex::new(Tickstream{subbed_pairs: Vec::new(), cs: cs});
 
             let inst = FXCMNative {
                 settings_hash: settings,
@@ -413,19 +418,28 @@ impl Broker for FXCMNative {
         }
         cs.debug(None, &format!("Received decimal precision for {}: {}", symbol, decimals));
 
+        let cstring_symbol = CString::new(symbol.as_str()).unwrap();
+        let subbed_pair = SubbedPair {
+            // leave the string allocated on the heap and don't deallocate it
+            symbol: cstring_symbol.into_raw() as *const c_char,
+            sender: tx,
+            decimals: decimals,
+            length: symbol.len() + 1, // add one byte for null terminator added by CString
+        };
+
         {
             let mut tickstream = self.tickstream_obj.lock().unwrap();
-            tickstream.subbed_pairs.insert(symbol, (tx, decimals));
+            tickstream.subbed_pairs.push(subbed_pair);
         }
 
-        let def = TickstreamDef {
+        let def = Box::new(TickstreamDef {
             env_ptr: &self.tickstream_obj as *const _ as *mut c_void,
             cb: Some(tick_cb),
-        };
+        });
 
         let msg = ClientMessage {
             command: ServerCommand::INIT_TICK_SUB,
-            payload: &def as *const _ as *mut _,
+            payload: Box::into_raw(def) as *mut c_void,
         };
 
         unsafe { push_client_message(msg, self.server_environment) };

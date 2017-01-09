@@ -1,2 +1,4 @@
 dist
 core
+vgcore.*
+*.dot

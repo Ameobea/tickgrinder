@@ -6,3 +6,7 @@ authors = ["Casey Primozic <me@ameo.link>"]
 [lib]
 name = "fxcm"
 crate-type = ["dylib"]
+
+[profile.release]
+opt-level = 3
+debug = true

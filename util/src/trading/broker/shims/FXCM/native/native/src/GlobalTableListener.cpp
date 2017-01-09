@@ -42,13 +42,12 @@ void GlobalTableListener::onChanged(const char* rowID, IO2GRow* row) {
                 offerRow->isBidValid() && offerRow->isAskValid() &&
                 offerRow->isTimeValid() && offerRow->isInstrumentValid()
             ){
-                CSymbolTick cst;
+                CSymbolTick cst = {0};
                 cst.symbol = offerRow->getInstrument();
                 cst.timestamp = current_timestamp_micros();
                 cst.bid = offerRow->getBid();
                 cst.ask = offerRow->getAsk();
 
-                // std::cout << "Received tick with price: " << offerRow->getBid() << std::endl;
                 tick_cb(tick_cb_env, cst);
             } else {
                 char msg[] = "Received invalid tick from the offers table";
@@ -113,7 +112,7 @@ void GlobalTableListener::subscribeNewOffers(IO2GTableManager* manager) {
     O2G2Ptr<IO2GOffersTable> offersTable = (IO2GOffersTable*)manager->getTable(Offers);
 
     offersTable->subscribeUpdate(Update, this);
-    offersTable->subscribeStatus(this);
+    // offersTable->subscribeStatus(this);
     char msg[] = "Global Table Listener has subscribed to new offers.";
     log_cb(log_cb_env, msg, DEBUG);
 }
@@ -122,5 +121,5 @@ void GlobalTableListener::unsubscribeNewOffers(IO2GTableManager* manager) {
     O2G2Ptr<IO2GOffersTable> offersTable = (IO2GOffersTable*)manager->getTable(Offers);
 
     offersTable->unsubscribeUpdate(Update, this);
-    offersTable->unsubscribeStatus(this);
+    // offersTable->unsubscribeStatus(this);
 }
