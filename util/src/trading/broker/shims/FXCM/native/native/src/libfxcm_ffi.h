@@ -130,3 +130,4 @@ void init_tick_stream(void* tx_ptr, TickCallback cb, IO2GSession* session, Envir
 uint64_t date_to_unix_ms(DATE date);
 void rustlog(Environment* env, char* msg, CLogLevel severity);
 void* get_offer_row_log(IO2GSession* session, const char *instrument, Environment* env);
+long current_timestamp_micros();

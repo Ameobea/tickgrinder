@@ -37,13 +37,8 @@ void push_client_message(ClientMessage msg, void* void_env) {
 void process_client_message(ClientMessage* message, ServerMessage* response, IO2GSession* session, Environment* env) {
     switch(message->command) {
         case PING: {
-            // get current timestamp in microseconds
-            ptime time_t_epoch(date(1970,1,1));
-            ptime now = microsec_clock::universal_time();
-            time_duration diff = now - time_t_epoch;
-            // current timestamp in nanoseconds
             long* heap_micros = (long*)malloc(sizeof(long));
-            long stack_micros = diff.total_microseconds();
+            long stack_micros = current_timestamp_micros();
             *heap_micros = stack_micros;
             *response = ServerMessage({PONG, (void*)heap_micros});
             break;
@@ -85,6 +80,14 @@ void process_client_message(ClientMessage* message, ServerMessage* response, IO2
     }
 }
 
+/// Returns the current timestamp in microseconds.
+long current_timestamp_micros() {
+    ptime time_t_epoch(date(1970,1,1));
+    ptime now = microsec_clock::universal_time();
+    time_duration diff = now - time_t_epoch;
+    return diff.total_microseconds();
+}
+
 /// Create the necessary broker connections and set up the environment for getting price updates
 void init_tick_stream(void* cb_env, TickCallback cb, IO2GSession* session, Environment* env) {
     IO2GLoginRules* loginRules = session->getLoginRules();
@@ -96,7 +99,7 @@ void init_tick_stream(void* cb_env, TickCallback cb, IO2GSession* session, Envir
         IO2GResponse* response = loginRules->getTableRefreshResponse(Offers);
     } else {
         IO2GRequestFactory* factory = session->getRequestFactory();
-        IO2GRequest * refreshOffers = factory->createRefreshTableRequest(Offers);
+        IO2GRequest* refreshOffers = factory->createRefreshTableRequest(Offers);
         session->sendRequest(refreshOffers);
     }
 

@@ -24,24 +24,31 @@ long GlobalTableListener::release() {
     return mRefCount;
 }
 
-void GlobalTableListener::onAdded(const char *rowID, IO2GRow *row) {}
+void GlobalTableListener::onAdded(const char* rowID, IO2GRow* row) {
+    char msg[] = "New row was added to the Offers table!";
+    log_cb(log_cb_env, msg, WARNING);
+}
 
 /// This is where the action happens.  This is called every time a row is changed in one of the
 /// tables that this listener is watching.  We determine the type of the update with `getTableType()`
 /// and process it accordingly.
-void GlobalTableListener::onChanged(const char *rowID, IO2GRow *row) {
+void GlobalTableListener::onChanged(const char* rowID, IO2GRow* row) {
+    // char msg[] = "New update received by the GTL of type: ";
+    // std::cout << msg << row->getTableType() << std::endl;
     switch(row->getTableType()) {
-        Offers: {
+        case Offers: {
             IO2GOfferRow* offerRow = (IO2GOfferRow*)row;
-            if(offerRow->isBidValid() && offerRow->isAskValid() && offerRow->isTimeValid() &&
-                    offerRow->isInstrumentValid()){
-                CSymbolTick cst = {
-                    offerRow->getInstrument(),
-                    date_to_unix_ms(offerRow->getTime()),
-                    offerRow->getBid(),
-                    offerRow->getAsk(),
-                };
+            if(
+                offerRow->isBidValid() && offerRow->isAskValid() &&
+                offerRow->isTimeValid() && offerRow->isInstrumentValid()
+            ){
+                CSymbolTick cst;
+                cst.symbol = offerRow->getInstrument();
+                cst.timestamp = current_timestamp_micros();
+                cst.bid = offerRow->getBid();
+                cst.ask = offerRow->getAsk();
 
+                // std::cout << "Received tick with price: " << offerRow->getBid() << std::endl;
                 tick_cb(tick_cb_env, cst);
             } else {
                 char msg[] = "Received invalid tick from the offers table";
@@ -49,12 +56,12 @@ void GlobalTableListener::onChanged(const char *rowID, IO2GRow *row) {
             }
             break;
         }
-        Orders: {
+        case Orders: {
             IO2GOrderTableRow* orderRow = (IO2GOrderTableRow*)row;
             // TODO
             break;
         }
-        Messages: {
+        case Messages: {
             IO2GMessageTableRow* messageRow = (IO2GMessageTableRow*)row;
             // TODO
             break;
@@ -62,14 +69,36 @@ void GlobalTableListener::onChanged(const char *rowID, IO2GRow *row) {
     }
 }
 
-void GlobalTableListener::onDeleted(const char *rowID, IO2GRow *row) {}
+void GlobalTableListener::onDeleted(const char* rowID, IO2GRow* row) {
+    char msg[] = "Row was deleted from the Offers table!";
+    log_cb(log_cb_env, msg, WARNING);
+}
 
 void GlobalTableListener::onStatusChanged(O2GTableStatus status) {
-    // TODO
+    char* msg = (char*)malloc(sizeof(char)*52);
+    switch(status) {
+        case Failed: {
+            strcpy(msg, "Global Table Listener status changed to: Failed");
+            break;
+        }
+        case Initial: {
+            strcpy(msg, "Global Table Listener status changed to: Initial");
+            break;
+        }
+        case Refreshed: {
+            strcpy(msg, "Global Table Listener status changed to: Refreshed");
+            break;
+        }
+        case Refreshing: {
+            strcpy(msg, "Global Table Listener status changed to: Refreshing");
+            break;
+        }
+    }
+    log_cb(log_cb_env, msg, DEBUG);
 }
 
 void GlobalTableListener::subscribeTradingEvents(IO2GTableManager* manager) {
-    O2G2Ptr<IO2GOrdersTable> ordersTable = (IO2GOrdersTable *)manager->getTable(Orders);
+    O2G2Ptr<IO2GOrdersTable> ordersTable = (IO2GOrdersTable*)manager->getTable(Orders);
 
     ordersTable->subscribeUpdate(Insert, this);
 }
@@ -84,10 +113,14 @@ void GlobalTableListener::subscribeNewOffers(IO2GTableManager* manager) {
     O2G2Ptr<IO2GOffersTable> offersTable = (IO2GOffersTable*)manager->getTable(Offers);
 
     offersTable->subscribeUpdate(Update, this);
+    offersTable->subscribeStatus(this);
+    char msg[] = "Global Table Listener has subscribed to new offers.";
+    log_cb(log_cb_env, msg, DEBUG);
 }
 
 void GlobalTableListener::unsubscribeNewOffers(IO2GTableManager* manager) {
     O2G2Ptr<IO2GOffersTable> offersTable = (IO2GOffersTable*)manager->getTable(Offers);
 
     offersTable->unsubscribeUpdate(Update, this);
+    offersTable->unsubscribeStatus(this);
 }

@@ -10,8 +10,8 @@
 
 /// Attempts to create a connection to the FXCM servers with the supplied credentials; returns a
 /// nullptr if unsuccessful.
-void* fxcm_login(char *username, char *password, char *url, bool live, LogCallback log_cb, void* log_cb_env){
-    IO2GSession *session = CO2GTransport::createSession();
+void* fxcm_login(char* username, char* password, char* url, bool live, LogCallback log_cb, void* log_cb_env){
+    IO2GSession* session = CO2GTransport::createSession();
     session->useTableManager(Yes, NULL);
     SessionStatusListener *sessionListener = new SessionStatusListener(
         session, log_cb, log_cb_env
@@ -32,8 +32,8 @@ void* fxcm_login(char *username, char *password, char *url, bool live, LogCallba
 
 /// Connects to the broker and attempts to list the account balance.  Returns true if successful and false
 /// if unsuccessful.
-bool test_login(char *username, char *password, char *url, bool live){
-    IO2GSession * session = (IO2GSession*)fxcm_login(username, password, url, live, NULL, NULL);
+bool test_login(char* username, char* password, char* url, bool live){
+    IO2GSession* session = (IO2GSession*)fxcm_login(username, password, url, live, NULL, NULL);
     if(session != NULL){
         print_accounts(session);
         session->logout();
@@ -45,7 +45,7 @@ bool test_login(char *username, char *password, char *url, bool live){
 
 /// Taken from FXCM examples in official repository
 /// https://github.com/FXCMAPI/ForexConnectAPI-Linux-x86_64/blob/master/samples/cpp/NonTableManagerSamples/Login/source/main.cpp
-void print_accounts(IO2GSession *session){
+void print_accounts(IO2GSession* session){
     O2G2Ptr<IO2GResponseReaderFactory> readerFactory = session->getResponseReaderFactory();
     if (!readerFactory) {
         std::cout << "Cannot create response reader factory" << std::endl;
@@ -63,7 +63,7 @@ void print_accounts(IO2GSession *session){
     }
 };
 
-void sendPrices(IO2GSession *session, IO2GResponse *response, void (*tickcallback)(void*, uint64_t, double, double), void* user_data) {
+void sendPrices(IO2GSession* session, IO2GResponse* response, void (*tickcallback)(void*, uint64_t, double, double), void* user_data) {
     O2G2Ptr<IO2GResponseReaderFactory> factory = session->getResponseReaderFactory();
     if (factory) {
         O2G2Ptr<IO2GMarketDataSnapshotResponseReader> reader = factory->createMarketDataSnapshotReader(response);
@@ -86,8 +86,10 @@ void sendPrices(IO2GSession *session, IO2GResponse *response, void (*tickcallbac
 
 /// converts the given OLE Automation date (double) into milliseconds since the epoch (unix timestamp)
 uint64_t date_to_unix_ms(DATE date) {
-    tm tmBuf = tm({0});
-    _SYSTEMTIME* wt = new _SYSTEMTIME();
+    struct tm tmBuf_inner;
+    tm* tmBuf = &tmBuf_inner;
+    SYSTEMTIME wt_inner;
+    SYSTEMTIME* wt = &wt_inner;
     WORD ms;
     time_t tt;
 
@@ -104,9 +106,9 @@ uint64_t date_to_unix_ms(DATE date) {
     // ms is simply dropped, not rounded.
     ms = wt->wMilliseconds;
     // WindowsTimeToCTime(const SYSTEMTIME *st, struct tm *t)
-    CO2GDateUtils::WindowsTimeToCTime(wt, &tmBuf);
+    CO2GDateUtils::WindowsTimeToCTime(wt, tmBuf);
     // convert to unix timestamp precise to the second
-    tt = mktime(&tmBuf);
+    tt = mktime(tmBuf);
     int unix_time_s = (int)tt;
     // convert to ms and add ms lost from before
     return (1000*(uint64_t)unix_time_s)+ms;
@@ -174,7 +176,7 @@ bool init_history_download(
     }
 }
 
-IO2GOfferRow* _getOffer(IO2GSession *session, const char *sInstrument, Environment* env) {
+IO2GOfferRow* _getOffer(IO2GSession* session, const char* sInstrument, Environment* env) {
     if (!session || !sInstrument){
         rustlog(env, "Session or Instrument wasn't provided!", CRITICAL);
         return NULL;
@@ -223,13 +225,13 @@ IO2GOfferRow* _getOffer(IO2GSession *session, const char *sInstrument, Environme
 
 /// Returns a void pointer to an OfferRow which can be used along with the other functions to
 /// get information about current offers.
-void* get_offer_row(void* void_session, const char *instrument){
+void* get_offer_row(void* void_session, const char* instrument){
     IO2GSession* session = (IO2GSession*)void_session;
     IO2GOfferRow* row = _getOffer(session, instrument, NULL);
     return row;
 }
 
-void* get_offer_row_log(IO2GSession* session, const char *instrument, Environment* env){
+void* get_offer_row_log(IO2GSession* session, const char* instrument, Environment* env){
     IO2GOfferRow* row = _getOffer(session, instrument, env);
 
     return row;
