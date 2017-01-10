@@ -1,6 +1,6 @@
 //! Code shared by all modules of the platform
 
-#![feature(custom_derive, plugin, conservative_impl_trait, test, proc_macro)]
+#![feature(custom_derive, plugin, conservative_impl_trait, test)]
 
 extern crate redis;
 extern crate futures;

@@ -2,7 +2,7 @@
 //!
 //! See README.txt for more information
 
-#![feature(custom_derive, plugin, proc_macro, libc, conservative_impl_trait, fn_traits, unboxed_closures)]
+#![feature(custom_derive, plugin, libc, conservative_impl_trait, fn_traits, unboxed_closures)]
 
 extern crate libc;
 extern crate algobot_util;

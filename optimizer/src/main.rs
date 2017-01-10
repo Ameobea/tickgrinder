@@ -1,7 +1,7 @@
 //! Algobot 4 Optimizer
 //! Created by Casey Primozic 2016-2016
 
-#![feature(custom_derive, plugin, proc_macro, conservative_impl_trait, custom_derive, plugin, test, slice_patterns)]
+#![feature(custom_derive, plugin, conservative_impl_trait, custom_derive, plugin, test, slice_patterns)]
 
 extern crate test;
 extern crate uuid;

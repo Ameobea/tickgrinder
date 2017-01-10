@@ -3,7 +3,7 @@
 //! Plays back market data and executes strategies, providing a simulated broker and
 //! account as well as statistics and data about the results of the strategy.
 
-#![feature(conservative_impl_trait, associated_consts, custom_derive, proc_macro, test, slice_patterns)]
+#![feature(conservative_impl_trait, associated_consts, custom_derive, test, slice_patterns)]
 #![allow(unused_variables, dead_code,)]
 
 extern crate algobot_util;

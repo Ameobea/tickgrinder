@@ -3,7 +3,7 @@
 //! Responsible for spawning, destroying, and managing all instances of the bot4
 //! platform's modules and reporting on their status.
 
-#![feature(plugin, test, conservative_impl_trait, custom_derive, proc_macro)]
+#![feature(plugin, test, conservative_impl_trait, custom_derive)]
 
 extern crate uuid;
 extern crate redis;

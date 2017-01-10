@@ -27,10 +27,11 @@ pub struct SimBroker {
     timestamp: Arc<AtomicUsize>, // timestamp of last price update received by broker
     push_stream_handle: mpsc::SyncSender<BrokerResult>,
     push_stream_recv: Option<UnboundedReceiver<BrokerResult>>,
+    pub cs: CommandServer,
 }
 
 impl SimBroker {
-    pub fn new(settings: SimBrokerSettings) -> SimBroker {
+    pub fn new(settings: SimBrokerSettings, cs: CommandServer) -> SimBroker {
         let mut accounts = HashMap::new();
         let account = Account {
             uuid: Uuid::new_v4(),
@@ -48,6 +49,7 @@ impl SimBroker {
             timestamp: Arc::new(AtomicUsize::new(0)),
             push_stream_handle: mpsc_s,
             push_stream_recv: Some(f_r),
+            cs: cs,
         }
     }
 }
@@ -79,9 +81,9 @@ impl Broker for SimBroker {
         {
             let _accounts = self.accounts.lock().unwrap();
             accounts = _accounts.clone();
-
         }
         complete.complete(Ok(accounts));
+
         oneshot
     }
 
@@ -160,7 +162,6 @@ impl SimBroker {
     }
 
     /// Initializes the push stream by creating internal messengers
-    #[allow(unreachable_code)] // necessary because bug
     fn init_stream() -> (mpsc::SyncSender<Result<BrokerMessage, BrokerError>>, UnboundedReceiver<BrokerResult>) {
         let (mpsc_s, mpsc_r) = mpsc::sync_channel::<Result<BrokerMessage, BrokerError>>(5);
         let (mut f_s, f_r) = unbounded::<BrokerResult>();
@@ -363,6 +364,12 @@ impl SimBroker {
     pub fn get_timestamp(&self) -> u64 {
         self.timestamp.load(Ordering::Relaxed) as u64
     }
+}
+
+/// Deducts the funds necessary to open the position from the account and opens the position.
+/// Assumes that the supplied entry price is sane.
+fn open_position(acct: &Ledger, entry_price: usize, symbol: &str, long: bool, size: ) -> Result<Position, BrokerError> {
+
 }
 
 /// Called during broker initialization.  Takes a stream of live ticks from the backtester
