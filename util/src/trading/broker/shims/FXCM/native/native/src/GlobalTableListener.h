@@ -14,6 +14,9 @@ public:
     void onChanged(const char*, IO2GRow*);
     void onDeleted(const char*, IO2GRow*);
 
+    void setTickCallback(TickCallback _tcb, void* _tcbe);
+    void setResponseCallback(ResponseCallback rcb, void* rcbe);
+
     void subscribeTradingEvents(IO2GTableManager *manager);
     void unsubscribeTradingEvents(IO2GTableManager *manager);
     void subscribeNewOffers(IO2GTableManager *manager);
@@ -21,8 +24,16 @@ public:
 
 private:
     long mRefCount;
+
+    // tick callback
     TickCallback tick_cb;
     void* tick_cb_env;
+
+    // log callback
     LogCallback log_cb;
     void* log_cb_env;
+
+    // response callback
+    ResponseCallback res_cb;
+    void* res_cb_env;
 };

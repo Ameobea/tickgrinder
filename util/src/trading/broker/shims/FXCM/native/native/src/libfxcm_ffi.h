@@ -54,19 +54,23 @@ enum ServerCommand {
     PING,
     INIT_TICK_SUB,
     GET_OFFER_ROW,
+    DELETE_ORDER,
+    MODIFY_ORDER,
 };
 
 /// Contains all possible responses that can be sent by the broker server.
 enum ServerResponse {
     POSITION_OPENED,
     POSITION_CLOSED,
-    ORDER_PLACED,
-    ORDER_REMOVED,
+    TRADE_EXECUTED,
+    TRADE_CLOSED,
     SESSION_TERMINATED,
     PONG,
     ERROR,
     TICK_SUB_SUCCESSFUL,
     OFFER_ROW,
+    ORDER_MODIFIED,
+    ORDER_REQUEST_SENT,
 };
 
 struct ServerMessage {
@@ -84,6 +88,14 @@ struct CSymbolTick {
     uint64_t timestamp;
     double bid;
     double ask;
+};
+
+/// A request to open or close a position at market price
+struct MarketRequest {
+    const char* symbol;
+    int quantity;
+    bool isLong;
+    const char* uuid;
 };
 
 typedef void (*ResponseCallback)(void* tx_ptr, ServerMessage* res);
@@ -131,3 +143,5 @@ uint64_t date_to_unix_ms(DATE date);
 void rustlog(Environment* env, char* msg, CLogLevel severity);
 void* get_offer_row_log(IO2GSession* session, const char *instrument, Environment* env);
 long current_timestamp_micros();
+void open_market(IO2GSession* session, const char* symbol, int quantity, bool is_long, const char* uuid);
+void close_market(IO2GSession* session, const char* position_uuid, int quantity, bool was_long);

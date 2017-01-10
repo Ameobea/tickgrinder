@@ -85,12 +85,38 @@ impl Broker for SimBroker {
         oneshot
     }
 
+    #[allow(unreachable_code)]
     fn execute(&mut self, action: BrokerAction) -> PendingResult {
         let (complete, oneshot) = oneshot::<BrokerResult>();
 
         // TODO
         let reply: BrokerResult = match action {
             _ => Err(BrokerError::Unimplemented{message: "SimBroker doesn't support that action.".to_string()})
+        };
+
+        let reply: BrokerResult = match action {
+            BrokerAction::Ping => {
+                unimplemented!(); // TODO
+            },
+            BrokerAction::TradingAction{action} => {
+                match action {
+                    TradingAction::MarketOrder{account, symbol, long, size, stop, take_profit, max_range} => {
+                        unimplemented!(); // TODO
+                    },
+                    TradingAction::MarketClose{uuid, size} => {
+                        unimplemented!(); // TODO
+                    }
+                    TradingAction::LimitOrder{account, symbol, long, size, stop, take_profit, entry_price} => {
+                        unimplemented!(); // TODO
+                    },
+                    TradingAction::LimitClose{uuid, size, exit_price} => {
+                        unimplemented!(); // TODO
+                    },
+                    TradingAction::ModifyPosition{uuid, stop, take_profit, entry_price} => {
+                        unimplemented!(); // TODO
+                    }
+                }
+            },
         };
 
         oneshot

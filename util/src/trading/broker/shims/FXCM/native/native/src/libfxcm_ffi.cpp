@@ -155,7 +155,7 @@ bool init_history_download(
                 if (readerFactory) {
                     O2G2Ptr<IO2GMarketDataSnapshotResponseReader> reader = readerFactory->createMarketDataSnapshotReader(response);
                     if (reader->size() > 0) {
-                            dateTo = reader->getDate(0); // earliest datetime of returned data
+                        dateTo = reader->getDate(0); // earliest datetime of returned data
                     } else {
                         std::cout << "0 rows received" << std::endl;
                         break;

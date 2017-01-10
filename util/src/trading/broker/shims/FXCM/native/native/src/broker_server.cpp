@@ -34,13 +34,17 @@ void push_client_message(ClientMessage msg, void* void_env) {
 }
 
 /// Processes a message from the client and returns a message to be sent back or NULL.
-void process_client_message(ClientMessage* message, ServerMessage* response, IO2GSession* session, Environment* env) {
+bool process_client_message(ClientMessage* message, ServerMessage* response, IO2GSession* session, Environment* env) {
+    // this is set to true if the payload is heap-allocated and needs to be freed after being sent to the client.
+    bool needsFree = false;
     switch(message->command) {
-        case PING: {
-            long* heap_micros = (long*)malloc(sizeof(long));
-            long stack_micros = current_timestamp_micros();
-            *heap_micros = stack_micros;
-            *response = ServerMessage({PONG, (void*)heap_micros});
+        case MARKET_OPEN: {
+            MarketRequest* req = (MarketRequest*)message->payload;
+            open_market(session, req->symbol, req->quantity, req->isLong, req->uuid);
+            break;
+        }
+        case MARKET_CLOSE: {
+            // TODO
             break;
         }
         case INIT_TICK_SUB: {
@@ -59,6 +63,7 @@ void process_client_message(ClientMessage* message, ServerMessage* response, IO2
                 char* errmsg = (char*)malloc(47*sizeof(char));
                 strcpy(errmsg, "The symbol supplied to GET_OFFER_ROW was NULL!");
                 *response = ServerMessage({ERROR, errmsg});
+                needsFree = true;
                 break;
             }
             void* row = get_offer_row_log(session, symbol, env);
@@ -66,18 +71,31 @@ void process_client_message(ClientMessage* message, ServerMessage* response, IO2
                 char* errmsg = (char*)malloc(44*sizeof(char));
                 strcpy(errmsg, "The result from `get_offer_row()` was NULL!");
                 *response = ServerMessage({ERROR, errmsg});
+                needsFree = true;
                 break;
             }
             *response = ServerMessage({OFFER_ROW, row});
+            break;
+        }
+        case PING: {
+            long* heap_micros = (long*)malloc(sizeof(long));
+            long stack_micros = current_timestamp_micros();
+            // TODO: Update to actually ping the broker
+            *heap_micros = stack_micros;
+            *response = ServerMessage({PONG, (void*)heap_micros});
+            needsFree = true;
             break;
         }
         default: {
             char* errormsg = (char*)malloc(64*sizeof(char));
             strcpy(errormsg, "The broker server doesn't have a response for that command type");
             *response = ServerMessage({ERROR, (void*)errormsg});
+            needsFree = true;
             break;
         }
     }
+
+    return needsFree;
 }
 
 /// Returns the current timestamp in microseconds.
@@ -156,10 +174,13 @@ void start_server(void* void_session, void* void_env) {
         std::unique_lock<std::mutex> lock(*env->m);
         env->cond_var->wait(lock, [env, &message](){ return env->q->pop(message); });
 
-        process_client_message(&message, &response, session, env);
+        bool needsFree = process_client_message(&message, &response, session, env);
         // send the response asynchronously back to the client if there is one to send.
         if(&response != NULL)
             env->cb(env->tx_ptr, &response);
+
+        if(needsFree)
+            free(response.payload);
 
         lock.unlock();
     }

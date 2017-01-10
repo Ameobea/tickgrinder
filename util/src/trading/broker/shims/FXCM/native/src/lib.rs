@@ -1,7 +1,7 @@
-//! Broker shim for FXCM.
+//! Broker shim for FXCM.  Integrates directly with the C++ native FXCM API to map complete broker
+//! functionality through into Rust.
 
 #![feature(libc, test)]
-#![allow(dead_code, unused_imports, unused_variables)]
 
 extern crate uuid;
 extern crate futures;
@@ -11,32 +11,34 @@ extern crate test;
 extern crate redis;
 
 use std::collections::HashMap;
-use std::collections::hash_map::{Entry, VacantEntry, OccupiedEntry};
 use std::ffi::CString;
-use std::ptr::{null, drop_in_place};
+use std::ptr::drop_in_place;
 use std::thread;
 use std::mem::{self, transmute};
-use std::time::Duration;
 use std::slice;
 use std::str;
 use std::sync::Mutex;
 
-use libc::{c_char, c_void, uint64_t, c_double, c_int, memchr};
+use libc::{c_char, c_void, c_int, memchr};
 use uuid::Uuid;
-use futures::Future;
-use futures::Oneshot;
 use futures::sync::oneshot;
 use futures::stream::Stream;
 use futures::sync::oneshot::Receiver;
-use futures::sync::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
+use futures::sync::mpsc::{unbounded, UnboundedReceiver};
 
 use algobot_util::transport::commands::{LogLevel, CLogLevel};
 use algobot_util::transport::command_server::CommandServer;
 use algobot_util::transport::redis::*;
 use algobot_util::trading::broker::*;
 use algobot_util::trading::tick::*;
+use algobot_util::trading::trading_condition::TradingAction;
 use algobot_util::conf::CONF;
 
+mod helper_objects;
+use helper_objects::*;
+
+// Link with all the FXCM native libraries, the C++ standard library, and the
+// FXCM FFI library to expose complete functionality of external code
 #[link(name="fxtp")]
 #[link(name="gsexpat")]
 #[link(name="gstool3")]
@@ -57,15 +59,8 @@ extern {
         log_cb: Option<extern fn (env_ptr: *mut c_void, msg: *mut c_char, severity: CLogLevel)>,
         log_cb_env: *mut c_void
     ) -> *mut c_void;
+    #[allow(dead_code)]
     fn test_login(username: *const c_char, password: *const c_char, url: *const c_char, live: bool) -> bool;
-    fn init_history_download(
-        connection: *mut c_void,
-        symbol: *const c_char,
-        start_time: *const c_char,
-        end_time: *const c_char,
-        tick_callback: extern fn (*mut c_void, uint64_t, c_double, c_double),
-        user_data: *mut c_void
-    );
 
     // broker server commands
     fn init_server_environment(
@@ -76,147 +71,13 @@ extern {
     ) -> *mut c_void;
     fn start_server(session: *mut c_void, env: *mut c_void);
     fn push_client_message(message: ClientMessage, env: *mut c_void);
-    fn get_offer_row(connection: *mut c_void, instrument: *const c_char) -> *mut c_void;
     fn getDigits(row: *mut c_void) -> c_int;
 }
 
-const NULL: *mut c_void = 0 as *mut c_void;
-
-/// Contains all possible commands that can be received by the broker server.
-#[repr(C)]
-#[derive(Clone)]
-enum ServerCommand {
-    MARKET_OPEN,
-    MARKET_CLOSE,
-    LIST_ACCOUNTS,
-    DISCONNECT,
-    PING,
-    INIT_TICK_SUB,
-    GET_OFFER_ROW,
-}
-
-/// Contains all possible responses that can be received by the broker server.
-#[repr(C)]
-#[derive(Clone, Debug)]
-enum ServerResponse {
-    POSITION_OPENED,
-    POSITION_CLOSED,
-    ORDER_PLACED,
-    ORDER_REMOVED,
-    SESSION_TERMINATED,
-    PONG,
-    ERROR,
-    TICK_SUB_SUCCESSFUL,
-    OFFER_ROW,
-}
-
-/// A packet of information asynchronously received from the broker server.
-#[repr(C)]
-#[derive(Clone)]
-pub struct ServerMessage {
-    response: ServerResponse,
-    payload: *mut c_void,
-}
-
-/// A packet of information that can be sent to the broker server.
-#[repr(C)]
-#[derive(Clone)]
-pub struct ClientMessage {
-    command: ServerCommand,
-    payload: *mut c_void,
-}
-
-pub struct FXCMNative {
-    settings_hash: HashMap<String, String>,
-    server_environment: *mut c_void,
-    raw_rx: Option<UnboundedReceiver<BrokerResult>>,
-    tickstream_obj: Mutex<Tickstream>,
-}
-
-// TODO: Move to Util
-#[derive(Debug)]
-#[repr(C)]
-struct CTick {
-    timestamp: uint64_t,
-    bid: c_double,
-    ask: c_double,
-}
-
-// TODO: Move to Util
-#[derive(Debug)]
-#[repr(C)]
-struct CSymbolTick {
-    symbol: *const c_char,
-    timestamp: uint64_t,
-    bid: c_double,
-    ask: c_double,
-}
-
-impl CSymbolTick {
-    /// Converts a CSymbolTick into a Tick given the amount of decimal places precision.
-    pub fn to_tick(&self, decimals: usize) -> Tick {
-        let multiplier = 10usize.pow(decimals as u32) as f64;
-        let bid_pips = self.bid * multiplier;
-        let ask_pips = self.ask * multiplier;
-
-        Tick {
-            timestamp: self.timestamp as usize,
-            bid: bid_pips as usize,
-            ask: ask_pips as usize,
-        }
-    }
-}
-
-/// Contains data necessary to initialize a tickstream
-#[repr(C)]
-struct TickstreamDef {
-    env_ptr: *mut c_void,
-    cb: Option<extern fn (tx_ptr: *mut c_void, cst: CSymbolTick)>,
-}
-
-/// Holds the currently subscribed symbols as well as a channel to send them through
-struct Tickstream {
-    subbed_pairs: Vec<SubbedPair>,
-    cs: CommandServer,
-}
-
-struct SubbedPair {
-    symbol: *const c_char,
-    sender: UnboundedSender<Tick>,
-    decimals: usize,
-    length: usize,
-}
-
-/// Holds the state for the `handle_message` function
-struct HandlerState {
-    sender: UnboundedSender<BrokerResult>,
-    cs: CommandServer,
-}
-
-// something to hold our environment so we can convince Rust to send it between threads
-#[derive(Clone)]
-struct Spaceship(*mut c_void);
-
-unsafe impl Send for Spaceship{}
-unsafe impl Send for FXCMNative {}
-unsafe impl Send for ServerMessage {}
-unsafe impl Send for ClientMessage {}
-
 /// Deallocates the memory left behind from `into_raw()`ing a box.
+#[allow(dead_code)]
 fn free(ptr: *mut c_void) {
     unsafe { drop_in_place(ptr) };
-}
-
-/// Called for every historical tick downloaded by the `init_history_download` function.  This function is called
-/// asynchronously from within the C++ code of the native FXCM broker library.
-#[no_mangle]
-pub extern fn tick_downloader_cb(timestamp: uint64_t, bid: uint64_t, ask: uint64_t){
-    let t = Tick {
-        timestamp: timestamp as usize,
-        bid: bid as usize,
-        ask: ask as usize
-    };
-    println!("{:?}", t);
 }
 
 /// Processes received messages from the broker server and converts them into BrokerResults that can be fed to the
@@ -288,7 +149,7 @@ extern fn tick_cb(env_ptr: *mut c_void, cst: CSymbolTick) {
     let ts_amtx: &mut Mutex<Tickstream> = unsafe { transmute(env_ptr) };
     let mut ts = ts_amtx.lock().unwrap();
 
-    for &mut SubbedPair{symbol, ref mut sender, decimals, length} in ts.subbed_pairs.iter_mut() {
+    for &mut SubbedPair{symbol, ref mut sender, decimals} in ts.subbed_pairs.iter_mut() {
         if unsafe { libc::strcmp(symbol, cst.symbol) } == 0 {
             // convert the CSymbolTick to a Tick using the stored decimal precision
             sender.send(cst.to_tick(decimals)).unwrap();
@@ -350,6 +211,13 @@ impl Broker for FXCMNative {
     }
 
     fn list_accounts(&mut self) -> Receiver<Result<HashMap<Uuid, Account>, BrokerError>> {
+        let msg = ClientMessage {
+            command: ServerCommand::LIST_ACCOUNTS,
+            payload: NULL,
+        };
+
+        unsafe { push_client_message(msg, self.server_environment) };
+
         unimplemented!();
     }
 
@@ -357,8 +225,32 @@ impl Broker for FXCMNative {
         unimplemented!();
     }
 
+    #[allow(unused_variables)]
     fn execute(&mut self, action: BrokerAction) -> PendingResult {
-        unimplemented!();
+        match action {
+            BrokerAction::Ping => {
+                unimplemented!(); // TODO
+            },
+            BrokerAction::TradingAction{action} => {
+                match action {
+                    TradingAction::MarketOrder{account, symbol, long, size, stop, take_profit, max_range} => {
+                        unimplemented!(); // TODO
+                    },
+                    TradingAction::MarketClose{uuid, size} => {
+                        unimplemented!(); // TODO
+                    }
+                    TradingAction::LimitOrder{account, symbol, long, size, stop, take_profit, entry_price} => {
+                        unimplemented!(); // TODO
+                    },
+                    TradingAction::LimitClose{uuid, size, exit_price} => {
+                        unimplemented!(); // TODO
+                    },
+                    TradingAction::ModifyPosition{uuid, stop, take_profit, entry_price} => {
+                        unimplemented!(); // TODO
+                    }
+                }
+            },
+        }
     }
 
     fn get_stream(&mut self) -> Result<UnboundedReceiver<BrokerResult>, BrokerError> {
@@ -380,8 +272,6 @@ impl Broker for FXCMNative {
             let tickstream = self.tickstream_obj.lock().unwrap();
             cs = tickstream.cs.clone();
         }
-
-        let msg_clone = symbol.clone();
 
         let symbol_cstr_res = CString::new(symbol.clone());
         if symbol_cstr_res.is_err() {
@@ -424,7 +314,6 @@ impl Broker for FXCMNative {
             symbol: cstring_symbol.into_raw() as *const c_char,
             sender: tx,
             decimals: decimals,
-            length: symbol.len() + 1, // add one byte for null terminator added by CString
         };
 
         {
@@ -482,6 +371,7 @@ fn login_test() {
 
 #[test]
 fn broker_server() {
+    use std::time::Duration;
     // channel with which to receive responses from the server
     let (tx, rx) = unbounded::<BrokerResult>();
     let tx_ptr = &tx as *const _ as *mut c_void;
@@ -509,7 +399,7 @@ fn broker_server() {
     };
 
     thread::spawn(move || {
-        for i in 0..10 {
+        for _ in 0..10 {
             unsafe { push_client_message(message.clone(), ship2.0) };
             thread::sleep(Duration::from_millis(1));
         }
@@ -519,11 +409,14 @@ fn broker_server() {
         }, ship2.0)}
     });
 
-    for (i, res) in rx.wait().take(11).enumerate() {}
+    for (_, _) in rx.wait().take(11).enumerate() {
+        // TODO
+    }
 }
 
 #[test]
 fn tickstream_subbing() {
+    use futures::Future;
     let mut broker = FXCMNative::init(HashMap::new()).wait().unwrap().unwrap();
     let rx = broker.sub_ticks(String::from("EUR/USD")).unwrap();
     for msg in rx.wait() {
