@@ -280,7 +280,13 @@ impl SettingsPage {
     }
 }
 
-pub const POSTGRES_IDS: &'static [&'static str] = &["postgres_host", "postgres_user", "postgres_password", "postgres_port", "postgres_db"];
+pub const POSTGRES_IDS: &'static [&'static str] = &[
+    "postgres_host",
+    "postgres_user",
+    "postgres_password",
+    "postgres_port",
+    "postgres_db"
+];
 
 pub const POSTGRES_SETTINGS: SettingsPage = SettingsPage {
     name: "Postgres",
@@ -331,7 +337,7 @@ pub const REDIS_SETTINGS: SettingsPage = SettingsPage {
         SettingRow {
             id: "redis_host",
             name: "Host",
-            default: Some("localhost"),
+            default: Some("redis://localhost:6379/"),
             setting_type: SettingType::String,
             comment: None,
         },
@@ -393,7 +399,7 @@ pub const GENERAL_SETTINGS: SettingsPage = SettingsPage {
             name: "Control Channel",
             default: Some("control"),
             setting_type: SettingType::String,
-            comment: Some("Changing this will currently break the platform; it's just here for backwards compability."),
+            comment: Some("Changing this will currently break the platform; it's just here for backwards compatibility."),
         },
         SettingRow {
             id: "redis_log_channel",
@@ -446,10 +452,13 @@ pub const COMMANDSERVER_QUERYSERVER_SETTINGS: SettingsPage = SettingsPage {
     rows: &[
         SettingRow {
             id: "cs_timeout",
-            name: "CommandServer Response Timeout in ms",
+            name: "CommandServer Timeout",
             default: Some("399"),
             setting_type: SettingType::Usize,
-            comment: None,
+            comment: Some(indoc!(
+                "The timeout of commands sent in ms.  If a response isn't recieved within the timeout window, \
+                the command is re-sent."
+            )),
         },
         SettingRow {
             id: "conn_senders",

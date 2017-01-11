@@ -8,17 +8,18 @@
 
 extern crate cursive;
 extern crate serde_json;
+extern crate termion;
 
 use std::process::{Command, Stdio};
 use std::path::Path;
 use std::rc::Rc;
-use std::panic::{set_hook, take_hook};
 
 use cursive::Cursive;
 #[allow(unused_imports)]
 use cursive::views::{Dialog, TextView, EditView, ListView, BoxView, LinearLayout, SelectView, Panel};
 use cursive::view::SizeConstraint;
 use cursive::direction::Orientation;
+use cursive::align::VAlign;
 use cursive::traits::*;
 
 mod theme;
@@ -30,35 +31,35 @@ const MIN15: SizeConstraint = SizeConstraint::AtLeast(10);
 const FREE: SizeConstraint = SizeConstraint::Free;
 
 fn main() {
-    // Register panic hook to reset terminal settings on panic so we can see the error
-    let old_hook = take_hook();
-    set_hook(Box::new(move |p| {
-        clear_console();
-        old_hook(p);
-    }));
-
     // Check if this is the first run of the configurator
     let path = Path::new("settings.json");
-    if !path.exists() {
-        first_time();
+    let mut s = Cursive::new();
 
-        // clear console + reset colored background before exiting
-        clear_console();
+    if !path.exists() {
+        first_time(&mut s);
     } else {
-        // if we're already configured, just read in the old settings and re-generate Rust config files.
         let settings = Settings::read_json("settings.json");
-        write_settings(&mut Cursive::new(), settings);
-        clear_console();
-        println!("{}", &format!("{}[35mSettings files have been regenerated.", 27 as char));
-        println!("{}", &format!("However, the platform must be rebuilt (`make`) in order for any changes to be reflected.{}[0m\n", 27 as char));
-        println!("Edit `settings.json` in the `configurator` directory and run `make config` again to change settings.");
-        println!("Delete `settings.json` and re-run configurator to start from scratch.");
+        show_directory(&mut s, settings.clone(), true);
     }
+
+    // clear_console();
 }
 
-/// Clears all custom colors and formatting, restoring the terminal to defaults and clearing it.
-fn clear_console() {
-    print!("{}[0m{}[2J", 27 as char, 27 as char);
+/// Called after exiting the directory.
+fn directory_exit(s: &mut Cursive, settings: Settings) {
+    write_settings(settings);
+    let content = indoc!(
+        "Settings files have been regenerated.  However, the platform must be rebuilt (`make`) \
+        in order for any changes to be reflected.
+
+        Edit `settings.json` in the `configurator` directory and run `make config` again to change settings.
+        Delete `settings.json` and re-run configurator to start from scratch."
+    );
+    s.add_layer(Dialog::text(content)
+        .button("Ok", move |s| {
+            s.quit();
+        })
+    );
 }
 
 /// Returns the content of the EditView with the given ID.
@@ -70,8 +71,7 @@ fn get_by_id(id: &str, s: &mut Cursive) -> Option<Rc<String>> {
 }
 
 /// Displays welcome and walks the user through first time configuration of the platform.
-fn first_time() {
-    let mut siv = Cursive::new();
+fn first_time(siv: &mut Cursive) {
     siv.set_theme(THEME);
 
     // Main Key:Value settings for the application
@@ -283,7 +283,7 @@ fn set_data_dir(s: &mut Cursive, settings: Settings) {
         match check_data_dir(&*(dir.clone()).unwrap()) {
             Ok(()) => {
                 settings.set("data_dir", &*dir.unwrap());
-                show_directory(s, settings.clone())
+                initial_config_done(s, settings.clone());
             },
             Err(err) => {
                 error_popup(s, err)
@@ -295,74 +295,156 @@ fn set_data_dir(s: &mut Cursive, settings: Settings) {
 
 /// Draws the global configuration directory which contains all possible settings and their current values.  Users can
 /// page through the various configuration settings and modify them as they desire.
-/// -------
-/// This is currently broken; probably an internal Cursive bug.  Will work on implementing this later.  For now, it just
-/// calls `write_settings` and calls it a day.
-fn show_directory(s: &mut Cursive, settings: Settings) {
-    write_settings(s, settings);
-    // let settings_ = settings.clone();
-    // s.pop_layer();
-    // let mut sv: SelectView<SettingsPage> = SelectView::new()
-    //     .popup()
-    //     .on_submit(move |s, new_page| {
-    //         let last_page_name = settings_.get(String::from("last-page"))
-    //             .expect("`last-page` wasn't in settings.");
-    //         let last_page = PAGE_MAPPINGS.get(last_page_name.as_str()).expect("Last page name wasn't in mapping");
-    //         let changed = check_changes(s, *last_page, settings_.clone());
-    //         if changed {
-    //             // s.add_layer(get_save_dialog(last_page, *new_page, settings_.clone()));
-    //         } else {
-    //             switch_categories(s, new_page, settings_.clone());
-    //         }
-    //     });
-    // sv.add_item("postgres", POSTGRES_SETTINGS);
-    // settings.set("last-page", "postgres");
-    // for (k, v) in PAGE_MAPPINGS.iter() {
-    //     if *k != "postgres" {
-    //         sv.add_item(*k, *v);
-    //     }
-    // }
-    // let directory = Dialog::around(LinearLayout::new(Orientation::Vertical)
-    //     .child(sv.v_align(VAlign::Center).fixed_size((20, 10)).with_id("directory-category"))
-    //     .child(ListView::new().with_id("directory-lv").fixed_width(30))
-    // ).button("Exit", |s| s.quit() );
-    // s.add_layer(directory);
-    // // s.add_layer(Dialog::around(sv.fixed_size))
-    // switch_categories(s, &POSTGRES_SETTINGS, settings);
+fn show_directory(s: &mut Cursive, settings: Settings, needs_start: bool) {
+    let settings_ = settings.clone();
+    let mut sv: SelectView<&'static SettingsPage> = SelectView::new()
+        // .popup()
+        .on_submit(move |s, new_page| {
+            let new_page: &&'static SettingsPage = new_page;
+            let last_page_ix: usize = settings_.get(String::from("last-page"))
+                .expect("`last-page` wasn't in settings.")
+                .parse()
+                .expect("Unable to parse last-page value into usize!");
+            let last_page = PAGE_LIST[last_page_ix];
+            let changed = check_changes(s, last_page, settings_.clone());
+            if changed {
+                let ix = get_page_index(new_page.name)
+                    .expect("Unable to find the index of the new page!");
+                s.add_layer(get_save_dialog(last_page_ix, ix, settings_.clone(), false));
+            } else {
+                switch_categories(s, new_page, settings_.clone());
+            }
+        });
+    for page in PAGE_LIST {
+        sv.add_item(page.name, *page);
+    }
+    settings.set("last-page", "0");
+
+    let settings_ = settings.clone();
+    let mut lv = ListView::new().on_select(move |s, label| {
+        // get the currently selected page and the currently selected row of that page
+        let ix: usize = settings_.get(String::from("last-page"))
+            .expect("Unable to get last-page")
+            .parse()
+            .expect("Unable to parse last-page value into usize!");
+        let page = PAGE_LIST[ix];
+        let row = get_row_by_name(page, label);
+        // If that row has a comment, display that comment
+        set_directory_comment(row.comment, s);
+    });
+    populate_list_view(PAGE_LIST[0], &mut lv, settings.clone());
+
+    let width = s.screen_size().x;
+    let settings__ = settings.clone();
+
+    let directory = Dialog::around(LinearLayout::new(Orientation::Vertical)
+        .child(sv.v_align(VAlign::Top).with_id("directory-category"))
+        .child(TextView::new("")
+            .v_align(VAlign::Center)
+            .with_id("directory-comment")
+            .fixed_height(4)
+        )
+        .child(lv.with_id("directory-lv"))
+        .fixed_width(width)
+    ).button("Exit", move |s| {
+        let last_page_ix: usize = settings__.get(String::from("last-page"))
+            .expect("`last-page` wasn't in settings.")
+            .parse()
+            .expect("Unable to parse last-page value into usize!");
+        let last_page = PAGE_LIST[last_page_ix];
+        let changed = check_changes(s, last_page, settings__.clone());
+        if changed {
+            s.add_layer(get_save_dialog(0, 0, settings__.clone(), true));
+        } else {
+            directory_exit(s, settings__.clone());
+        }
+    });
+    s.add_layer(directory);
+    if needs_start {
+        s.run();
+    }
+    switch_categories(s, &POSTGRES_SETTINGS, settings);
+}
+
+/// Sets the value of the directory's comment box.
+fn set_directory_comment(comment: Option<&str>, s: &mut Cursive) {
+    let comment_box = s.find_id::<TextView>("directory-comment").unwrap();
+    match comment {
+        Some(comment_str) => comment_box.set_content(comment_str),
+        None => comment_box.set_content(""),
+    }
 }
 
 /// Returns the Dialog shown when switching between different settings categories in the main settings catalog.
 /// If Save is selected, the changes are written written immediately to the Settings object as well as
 /// copied to all applicable files.  Also handles setting the new page up.
-fn get_save_dialog(last_page: SettingsPage, new_page: SettingsPage, settings: Settings) -> Dialog {
-    let settings_ = settings.clone();
+///
+/// If `quit` is true, the application exits instead of switching categories.
+fn get_save_dialog(last_page_ix: usize, new_page_ix: usize, settings: Settings, quit: bool) -> Dialog {
+    let settings_  = settings.clone();
+    let settings__ = settings.clone();
     Dialog::text("You have unsaved changes!  Do you want to preserve them?")
         .button("Save", move |s| {
-            save_changes(s, &last_page, settings.clone());
+            save_changes(s, PAGE_LIST[last_page_ix], settings.clone());
+            if !quit {
+                switch_categories(s, PAGE_LIST[new_page_ix], settings_.clone());
+                s.pop_layer();
+            } else {
+                directory_exit(s, settings_.clone());
+            }
         }).button("Discard", move |s| {
-            switch_categories(s, &new_page, settings_.clone());
+            if !quit {
+                switch_categories(s, PAGE_LIST[new_page_ix], settings__.clone());
+                s.pop_layer();
+            } else {
+                directory_exit(s, settings__.clone());
+            }
         })
 }
 
-fn switch_categories(s: &mut Cursive, new_page: &SettingsPage, settings: Settings) {
-    let lv: &mut ListView = s.find_id("directory-lv").expect("directory-lv not found");
-    populate_list_view(new_page, lv);
-    // do a dirty manual reverse lookup
-    let mut cur_page_name_opt = None;
-    for page in PAGE_LIST.iter() {
-        if page.name == new_page.name {
-            cur_page_name_opt = Some(page.name);
+/// Given a settings page and a name, returns the row that has that name.
+fn get_row_by_name(page: &'static SettingsPage, name: &str) -> &'static SettingRow {
+    for row in page.iter() {
+        if row.name == name {
+            return row
         }
     }
-    settings.set("last-page", cur_page_name_opt.expect("Failed to reverse lookup last page name."));
+    panic!("No setting row with that name in the supplied page!");
+}
+
+/// Changes to a different settings page in the directory, clearing the list of the old
+/// rows and adding the rows for the new page.
+fn switch_categories(s: &mut Cursive, new_page: &SettingsPage, settings: Settings) {
+    // blank out the comment
+    set_directory_comment(None, s);
+    let lv: &mut ListView = s.find_id("directory-lv").expect("directory-lv not found");
+    populate_list_view(&new_page, lv, settings.clone());
+    let i = get_page_index(new_page.name)
+        .expect("Unable to lookup page!");
+    settings.set("last-page", &i.to_string());
+}
+
+/// Returns the index of the page with the given name.
+fn get_page_index(page_name: &str) -> Option<usize> {
+    for (i, page) in PAGE_LIST.iter().enumerate() {
+        if page.name == page_name {
+            return Some(i);
+        }
+    }
+
+    None
 }
 
 /// Takes a SettingsPage and ListView and fills the ListView with the SettingRows contained inside the SettingsPage.
-fn populate_list_view(page: &SettingsPage, lv: &mut ListView) {
+fn populate_list_view(page: &SettingsPage, lv: &mut ListView, settings: Settings) {
     lv.clear();
     for row in page.iter() {
         let mut ev = EditView::new();
-        if row.default.is_some() {
+        let val = settings.get(String::from(row.id));
+        if val.is_some() {
+            ev.set_content(val.unwrap());
+        }
+        else if row.default.is_some() {
             ev.set_content(row.default.unwrap());
         }
         lv.add_child(row.name, BoxView::new(MIN15, FREE, ev.with_id(row.id)))
@@ -371,9 +453,10 @@ fn populate_list_view(page: &SettingsPage, lv: &mut ListView) {
 
 /// Returns true if the values any of the EditViews with IDs corresponding to the SettingsRows from the given page
 /// differ from the default values for that page.
-fn check_changes(s: &mut Cursive, page: SettingsPage, settings: Settings) -> bool {
+fn check_changes(s: &mut Cursive, page: &SettingsPage, settings: Settings) -> bool {
     for row in page.iter() {
-        let cur_val = get_by_id(row.id, s).unwrap();
+        let cur_val = get_by_id(row.id, s)
+            .expect(&format!("Unable to get {} by id!", row.id));
         let last_val = settings.get(String::from(row.id))
             .expect(&format!("Unable to get past val in check_changes: {}", row.id));
         if last_val != *cur_val {
@@ -390,7 +473,7 @@ fn save_changes(s: &mut Cursive, page: &SettingsPage, settings: Settings) {
         settings.set(row.id, &*cur_val);
     }
 
-    write_settings(s, settings);
+    write_settings(settings);
 }
 
 /// Runs `which [command]` and returns true if the binary is located.
@@ -418,25 +501,32 @@ fn error_popup(s: &mut Cursive, err_str: &str) {
     s.add_layer(Dialog::text(err_str).dismiss_button("Ok"));
 }
 
-/// Display completion message and write the entered settings to a JSON file.
-fn write_settings(s: &mut Cursive, settings: Settings) {
+/// Writes the entered settings to a JSON file.  Also generates Rust and JavaScript config files
+/// that can be copied into the project src directories.
+fn write_settings(settings: Settings) {
     settings.write_json("settings.json");
     settings.write_rust("conf.rs");
     settings.write_js("conf.js");
+}
 
+/// Displays a message about how to use the directory and saves all settings to file.
+fn initial_config_done(s: &mut Cursive, settings: Settings) {
     s.pop_layer();
+
+    write_settings(settings.clone());
 
     s.add_layer(Dialog::text(
         indoc!(
             "The trading platform has been successfully configured.  Run `run.sh` and visit `localhost:8002` in \
             your web browser to start using the platform.
 
-            To change settings, edit `config.json` and re-run the configurator via running `make configure` in the \
-            project root.  To start the configuration process over and reset all settings, delete `config.json` and \
-            re-run the configurator."
+            You will now be presented with the configuration directory containing all of the platform's settings.  \
+            You can reach that menu at any time by running `make configure` in the project's root directory.  If you \
+            want to reset all the settings and start the configuration process from scratch, just delete the \
+            `settings.json` file in the `configurator` directory and run `make config` again from the project root."
         )
     ).button("Ok", move |s| {
-        s.quit()
+        show_directory(s, settings.clone(), false);
     }))
 }
 

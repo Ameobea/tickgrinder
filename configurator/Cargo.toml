@@ -4,7 +4,8 @@ version = "0.1.0"
 authors = ["Casey Primozic <me@ameo.link>"]
 
 [dependencies]
-cursive = { git = "https://github.com/gyscos/Cursive.git", default-features = false, features = ["termion"] }
-lazy_static = "0.1.*"
+# cursive = { git = "https://github.com/gyscos/Cursive.git", default-features = false, features = ["termion"] }
+cursive = { path = "../../Cursive", default-features = false, features = ["termion"] }
 serde_json = "0.8"
 indoc = "^0.1"
+termion = "1.1.1"
