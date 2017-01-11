@@ -25,6 +25,11 @@ release:
 	cp spawner/target/release/spawner dist
 	cd tick_parser && cargo build --release
 	cp tick_parser/target/release/tick_processor dist
+
+	# build the FXCM native data downloader
+	cd data_downloaders/fxcm_native && cargo build --release
+	cp data_downloaders/fxcm_native/target/release/fxcm_native dist/fxcm_native_downloader
+
 	cd optimizer && cargo build --release
 	cp optimizer/target/release/optimizer dist
 	cd logger && cargo build --release
@@ -33,10 +38,6 @@ release:
 	cp ./mm dist -r
 	cd private && cargo build --release
 	cp private/target/release/libprivate.so dist/lib
-
-	# build the FXCM native data downloader
-	cd data_downloaders/fxcm_native && cargo build --release
-	cp data_downloaders/fxcm_native/target/release/fxcm_native dist/fxcm_native_downloader
 
 dev:
 	rm dist/mm -r
@@ -47,6 +48,9 @@ debug:
 
 	# build the configurator
 	cd configurator && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+
+	# Run the configurator if no settings exist from a previous run
+	if [[ ! -f configurator/settings.json ]]; then cd configurator && cargo run; fi;
 
 	# build the bot's utility library and copy into dist/lib
 	cd util && cargo build
@@ -67,6 +71,11 @@ debug:
 	cp spawner/target/debug/spawner dist
 	cd tick_parser && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
 	cp tick_parser/target/debug/tick_processor dist
+
+	# build the FXCM native data downloader
+	cd data_downloaders/fxcm_native && cargo build --release
+	cp data_downloaders/fxcm_native/target/release/fxcm_native dist/fxcm_native_downloader
+
 	cd optimizer && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
 	cp optimizer/target/debug/optimizer dist
 	cd logger && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
@@ -75,10 +84,6 @@ debug:
 	cp ./mm dist -r
 	cd private && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
 	cp private/target/debug/libprivate.so dist/lib
-
-	# build the FXCM native data downloader
-	cd data_downloaders/fxcm_native && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build
-	cp data_downloaders/fxcm_native/target/debug/fxcm_native dist/fxcm_native_downloader
 
 strip:
 	cd dist && strip backtester spawner optimizer tick_processor
@@ -156,16 +161,16 @@ update:
 	cd configurator && cargo update
 	git submodule update
 
-cdoc:
-	cd optimizer && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
-	cd logger && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
-	cd spawner && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
-
-	cd tick_parser && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
-	cd util && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
-	cd backtester && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
+doc:
 	cd configurator && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
-	cd private && rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
+	cd optimizer && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports -L ../util/target/release/deps -L ../dist/lib
+	cd logger && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports -L ../util/target/release/deps -L ../dist/lib
+	cd spawner && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports -L ../util/target/release/deps -L ../dist/lib
+
+	cd tick_parser && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports -L ../util/target/release/deps -L ../dist/lib
+	cd util && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports -L ../util/target/release/deps -L ../dist/lib
+	cd backtester && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports -L ../util/target/release/deps -L ../dist/lib
+	cd private && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports -L ../util/target/release/deps -L ../dist/lib
 	cd mm && npm install
 	# TODO: Collect the results into a nice format
 

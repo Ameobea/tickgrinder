@@ -17,6 +17,7 @@ use uuid::Uuid;
 use algobot_util::trading::tick::*;
 pub use algobot_util::trading::broker::*;
 use algobot_util::trading::trading_condition::*;
+use algobot_util::transport::command_server::CommandServer;
 
 /// A simulated broker that is used as the endpoint for trading activity in backtests.
 pub struct SimBroker {
@@ -59,7 +60,10 @@ impl Broker for SimBroker {
         let (c, o) = oneshot::<Result<Self, BrokerError>>();
         let broker_settings = SimBrokerSettings::from_hashmap(settings);
         if broker_settings.is_ok() {
-            c.complete(Ok(SimBroker::new(broker_settings.unwrap())));
+            let cs = CommandServer::new(Uuid::new_v4(), "Simbroker");
+            c.complete(
+                Ok(SimBroker::new(broker_settings.unwrap(), cs))
+            );
         } else {
             c.complete(Err(broker_settings.unwrap_err()));
         }
@@ -239,7 +243,7 @@ impl SimBroker {
         match account_ {
             Entry::Occupied(mut occ) => {
                 let mut account = occ.get_mut();
-                return account.ledger.open_position(pos)
+                return account.ledger.open_position(pos, 0) // TODO: Use real values
             },
             Entry::Vacant(_) => {
                 return Err(BrokerError::NoSuchAccount)
@@ -364,12 +368,6 @@ impl SimBroker {
     pub fn get_timestamp(&self) -> u64 {
         self.timestamp.load(Ordering::Relaxed) as u64
     }
-}
-
-/// Deducts the funds necessary to open the position from the account and opens the position.
-/// Assumes that the supplied entry price is sane.
-fn open_position(acct: &Ledger, entry_price: usize, symbol: &str, long: bool, size: ) -> Result<Position, BrokerError> {
-
 }
 
 /// Called during broker initialization.  Takes a stream of live ticks from the backtester

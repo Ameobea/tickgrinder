@@ -35,6 +35,7 @@ use algobot_util::trading::trading_condition::TradingAction;
 use algobot_util::conf::CONF;
 
 mod helper_objects;
+pub use helper_objects::FXCMNative;
 use helper_objects::*;
 
 // Link with all the FXCM native libraries, the C++ standard library, and the

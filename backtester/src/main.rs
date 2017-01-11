@@ -28,6 +28,7 @@ use std::env;
 use std::collections::HashMap;
 
 use uuid::Uuid;
+use futures::Future;
 use futures::stream::Stream;
 use futures::sync::mpsc::UnboundedReceiver;
 use serde_json::to_string;
@@ -104,7 +105,8 @@ impl Backtester {
     /// Creates a SimBroker that's managed by the Backtester.  Returns its UUID.
     pub fn init_simbroker(&mut self, settings: SimBrokerSettings) -> Uuid {
         let mut simbrokers = self.simbrokers.lock().unwrap();
-        let simbroker = SimBroker::new(settings);
+        // TODO: Use new updated SimbrokerSettings
+        let simbroker = SimBroker::init(HashMap::new()).wait().unwrap().unwrap();
         let uuid = Uuid::new_v4();
         simbrokers.insert(uuid, simbroker);
         uuid

@@ -1,7 +1,5 @@
 //! Configurator for the platform.  Initializes config files for the modules and sets up
 //! the initial environment for platform runtime.
-//!
-//! This requires that the package libncurses-dev is installed!
 
 #![feature(plugin)]
 #![plugin(indoc)]
@@ -13,6 +11,7 @@ extern crate termion;
 use std::process::{Command, Stdio};
 use std::path::Path;
 use std::rc::Rc;
+use std::str;
 
 use cursive::Cursive;
 #[allow(unused_imports)]
@@ -26,6 +25,8 @@ mod theme;
 use theme::THEME;
 mod misc;
 use misc::*;
+mod directory;
+use directory::*;
 
 const MIN15: SizeConstraint = SizeConstraint::AtLeast(10);
 const FREE: SizeConstraint = SizeConstraint::Free;
@@ -34,6 +35,7 @@ fn main() {
     // Check if this is the first run of the configurator
     let path = Path::new("settings.json");
     let mut s = Cursive::new();
+    s.set_theme(THEME);
 
     if !path.exists() {
         first_time(&mut s);
@@ -41,8 +43,6 @@ fn main() {
         let settings = Settings::read_json("settings.json");
         show_directory(&mut s, settings.clone(), true);
     }
-
-    // clear_console();
 }
 
 /// Called after exiting the directory.
@@ -72,8 +72,6 @@ fn get_by_id(id: &str, s: &mut Cursive) -> Option<Rc<String>> {
 
 /// Displays welcome and walks the user through first time configuration of the platform.
 fn first_time(siv: &mut Cursive) {
-    siv.set_theme(THEME);
-
     // Main Key:Value settings for the application
     let settings = Settings::new();
 
@@ -96,7 +94,7 @@ fn first_time(siv: &mut Cursive) {
                     )).button("Ok", |s| s.quit() ));
                 }
                 settings.set("node_binary_path", &which("node"));
-                redis_config(s, settings.clone());
+                boost_config(s, settings.clone());
             })
     );
 
@@ -104,6 +102,36 @@ fn first_time(siv: &mut Cursive) {
     siv.run();
 }
 
+/// Checks if we think libboost is installed and lets the user know.
+fn boost_config(s: &mut Cursive, settings: Settings) {
+    s.pop_layer();
+    let content: &str;
+    if libboost_detected() {
+        content = indoc!(
+            "From what I can see, libboost is installed on this system.  Boost is required for this platform's C++ \
+            FFI components.
+
+            If it's true that you have it installed (`sudo apt-get install libboost-all-dev`) then \
+            you can proceed with the installation.  If not, please install it before continuing."
+        );
+    } else {
+        content = indoc!(
+            "I was unable to detect the boot library on your computer.  It's possible that it's installed and that I \
+            simply can't see it.
+
+            However, if you haven't already installed libboost (`sudo apt-get install \
+            libboost-all-dev`), please install it before continuing."
+        );
+    }
+
+    let dialog = Dialog::around(TextView::new(content))
+        .button("Proceed", move |s| {
+            redis_config(s, settings.clone());
+        }).button("Exit", move |s| s.quit());
+    s.add_layer(dialog);
+}
+
+/// First stage of Redis configuration; asks if you want to do a Remote or Local installation.
 fn redis_config(s: &mut Cursive, settings: Settings) {
     let settings_clone = settings.clone();
 
@@ -267,7 +295,7 @@ fn postgres_local(s: &mut Cursive, installed: bool, settings: Settings) {
 /// Ask the user for a place to store historical data and do some basic sanity checks on the supplied path.
 fn set_data_dir(s: &mut Cursive, settings: Settings) {
     s.pop_layer();
-    let dialog = Dialog::around(LinearLayout::new(Orientation::Vertical)
+    let dialog = Dialog::new().content(LinearLayout::new(Orientation::Vertical)
         .child(TextView::new(
             indoc!(
                 "The data directory holds all persistant storage for the platform including historical price data, \
@@ -283,7 +311,7 @@ fn set_data_dir(s: &mut Cursive, settings: Settings) {
         match check_data_dir(&*(dir.clone()).unwrap()) {
             Ok(()) => {
                 settings.set("data_dir", &*dir.unwrap());
-                initial_config_done(s, settings.clone());
+                fxcm_config(s, settings.clone());
             },
             Err(err) => {
                 error_popup(s, err)
@@ -291,189 +319,6 @@ fn set_data_dir(s: &mut Cursive, settings: Settings) {
         };
     });
     s.add_layer(dialog)
-}
-
-/// Draws the global configuration directory which contains all possible settings and their current values.  Users can
-/// page through the various configuration settings and modify them as they desire.
-fn show_directory(s: &mut Cursive, settings: Settings, needs_start: bool) {
-    let settings_ = settings.clone();
-    let mut sv: SelectView<&'static SettingsPage> = SelectView::new()
-        // .popup()
-        .on_submit(move |s, new_page| {
-            let new_page: &&'static SettingsPage = new_page;
-            let last_page_ix: usize = settings_.get(String::from("last-page"))
-                .expect("`last-page` wasn't in settings.")
-                .parse()
-                .expect("Unable to parse last-page value into usize!");
-            let last_page = PAGE_LIST[last_page_ix];
-            let changed = check_changes(s, last_page, settings_.clone());
-            if changed {
-                let ix = get_page_index(new_page.name)
-                    .expect("Unable to find the index of the new page!");
-                s.add_layer(get_save_dialog(last_page_ix, ix, settings_.clone(), false));
-            } else {
-                switch_categories(s, new_page, settings_.clone());
-            }
-        });
-    for page in PAGE_LIST {
-        sv.add_item(page.name, *page);
-    }
-    settings.set("last-page", "0");
-
-    let settings_ = settings.clone();
-    let mut lv = ListView::new().on_select(move |s, label| {
-        // get the currently selected page and the currently selected row of that page
-        let ix: usize = settings_.get(String::from("last-page"))
-            .expect("Unable to get last-page")
-            .parse()
-            .expect("Unable to parse last-page value into usize!");
-        let page = PAGE_LIST[ix];
-        let row = get_row_by_name(page, label);
-        // If that row has a comment, display that comment
-        set_directory_comment(row.comment, s);
-    });
-    populate_list_view(PAGE_LIST[0], &mut lv, settings.clone());
-
-    let width = s.screen_size().x;
-    let settings__ = settings.clone();
-
-    let directory = Dialog::around(LinearLayout::new(Orientation::Vertical)
-        .child(sv.v_align(VAlign::Top).with_id("directory-category"))
-        .child(TextView::new("")
-            .v_align(VAlign::Center)
-            .with_id("directory-comment")
-            .fixed_height(4)
-        )
-        .child(lv.with_id("directory-lv"))
-        .fixed_width(width)
-    ).button("Exit", move |s| {
-        let last_page_ix: usize = settings__.get(String::from("last-page"))
-            .expect("`last-page` wasn't in settings.")
-            .parse()
-            .expect("Unable to parse last-page value into usize!");
-        let last_page = PAGE_LIST[last_page_ix];
-        let changed = check_changes(s, last_page, settings__.clone());
-        if changed {
-            s.add_layer(get_save_dialog(0, 0, settings__.clone(), true));
-        } else {
-            directory_exit(s, settings__.clone());
-        }
-    });
-    s.add_layer(directory);
-    if needs_start {
-        s.run();
-    }
-    switch_categories(s, &POSTGRES_SETTINGS, settings);
-}
-
-/// Sets the value of the directory's comment box.
-fn set_directory_comment(comment: Option<&str>, s: &mut Cursive) {
-    let comment_box = s.find_id::<TextView>("directory-comment").unwrap();
-    match comment {
-        Some(comment_str) => comment_box.set_content(comment_str),
-        None => comment_box.set_content(""),
-    }
-}
-
-/// Returns the Dialog shown when switching between different settings categories in the main settings catalog.
-/// If Save is selected, the changes are written written immediately to the Settings object as well as
-/// copied to all applicable files.  Also handles setting the new page up.
-///
-/// If `quit` is true, the application exits instead of switching categories.
-fn get_save_dialog(last_page_ix: usize, new_page_ix: usize, settings: Settings, quit: bool) -> Dialog {
-    let settings_  = settings.clone();
-    let settings__ = settings.clone();
-    Dialog::text("You have unsaved changes!  Do you want to preserve them?")
-        .button("Save", move |s| {
-            save_changes(s, PAGE_LIST[last_page_ix], settings.clone());
-            if !quit {
-                switch_categories(s, PAGE_LIST[new_page_ix], settings_.clone());
-                s.pop_layer();
-            } else {
-                directory_exit(s, settings_.clone());
-            }
-        }).button("Discard", move |s| {
-            if !quit {
-                switch_categories(s, PAGE_LIST[new_page_ix], settings__.clone());
-                s.pop_layer();
-            } else {
-                directory_exit(s, settings__.clone());
-            }
-        })
-}
-
-/// Given a settings page and a name, returns the row that has that name.
-fn get_row_by_name(page: &'static SettingsPage, name: &str) -> &'static SettingRow {
-    for row in page.iter() {
-        if row.name == name {
-            return row
-        }
-    }
-    panic!("No setting row with that name in the supplied page!");
-}
-
-/// Changes to a different settings page in the directory, clearing the list of the old
-/// rows and adding the rows for the new page.
-fn switch_categories(s: &mut Cursive, new_page: &SettingsPage, settings: Settings) {
-    // blank out the comment
-    set_directory_comment(None, s);
-    let lv: &mut ListView = s.find_id("directory-lv").expect("directory-lv not found");
-    populate_list_view(&new_page, lv, settings.clone());
-    let i = get_page_index(new_page.name)
-        .expect("Unable to lookup page!");
-    settings.set("last-page", &i.to_string());
-}
-
-/// Returns the index of the page with the given name.
-fn get_page_index(page_name: &str) -> Option<usize> {
-    for (i, page) in PAGE_LIST.iter().enumerate() {
-        if page.name == page_name {
-            return Some(i);
-        }
-    }
-
-    None
-}
-
-/// Takes a SettingsPage and ListView and fills the ListView with the SettingRows contained inside the SettingsPage.
-fn populate_list_view(page: &SettingsPage, lv: &mut ListView, settings: Settings) {
-    lv.clear();
-    for row in page.iter() {
-        let mut ev = EditView::new();
-        let val = settings.get(String::from(row.id));
-        if val.is_some() {
-            ev.set_content(val.unwrap());
-        }
-        else if row.default.is_some() {
-            ev.set_content(row.default.unwrap());
-        }
-        lv.add_child(row.name, BoxView::new(MIN15, FREE, ev.with_id(row.id)))
-    }
-}
-
-/// Returns true if the values any of the EditViews with IDs corresponding to the SettingsRows from the given page
-/// differ from the default values for that page.
-fn check_changes(s: &mut Cursive, page: &SettingsPage, settings: Settings) -> bool {
-    for row in page.iter() {
-        let cur_val = get_by_id(row.id, s)
-            .expect(&format!("Unable to get {} by id!", row.id));
-        let last_val = settings.get(String::from(row.id))
-            .expect(&format!("Unable to get past val in check_changes: {}", row.id));
-        if last_val != *cur_val {
-            return true
-        }
-    }
-    false
-}
-
-/// Commits all changes for a page to the internal Settings object and then writes them to all files.
-fn save_changes(s: &mut Cursive, page: &SettingsPage, settings: Settings) {
-    for row in page.iter() {
-        let cur_val = get_by_id(row.id, s).unwrap();
-        settings.set(row.id, &*cur_val);
-    }
-
-    write_settings(settings);
 }
 
 /// Runs `which [command]` and returns true if the binary is located.
@@ -509,6 +354,45 @@ fn write_settings(settings: Settings) {
     settings.write_js("conf.js");
 }
 
+/// Gets credentials for use in the FXCM broker shim.
+fn fxcm_config(s: &mut Cursive, settings: Settings) {
+    s.pop_layer();
+    let lv = ListView::new()
+        .child("Demo Account Username", BoxView::new(MIN15, FREE, EditView::new()
+            .content("D000000000000")
+            .with_id("fxcm_username"))
+        ).child("Demo Account Password", BoxView::new(MIN15, FREE, EditView::new()
+            .content("1234")
+            .with_id("fxcm_password"))
+        );
+    let text = TextView::new(
+        indoc!(
+            "The platform has a shim to the native C++ FXCM ForexConnect API which allows for historical data \
+            downloading and live price streaming of real FXCM data.  In order to use this broker, you must make a \
+            FXCM Demo account.  You can do this for free in a couple seconds (no personal details necessary) here:
+
+            https://www.fxcm.com/forex-trading-demo/
+
+            Once you have credentials, you can enter them here.  ONLY USE DEMO CREDENTIALS, NOT REAL ACCOUNT \
+            CREDENTIALS; the API isn't yet ready for live trading.
+
+            If you don't want to use the FXCM API, you can just leave these values at their defaults and select \
+            continue to proceed with the rest of the configuration process.\n\n"
+        )
+    );
+    s.add_layer(Dialog::around(LinearLayout::new(Orientation::Vertical)
+        .child(text)
+        .child(lv)
+    ).button("Ok", move |s| {
+        settings.set("fxcm_username", &*get_by_id("fxcm_username", s).unwrap());
+        settings.set("fxcm_password", &*get_by_id("fxcm_password", s).unwrap());
+        settings.set("fxcm_url", "http://www.fxcorporate.com/Hosts.jsp");
+        // let fxcm_username = String::from(settings.get(String::from("fxcm_username")).unwrap());
+        // s.add_layer(Dialog::around(TextView::new(fxcm_username)));
+        initial_config_done(s, settings.clone());
+    }));
+}
+
 /// Displays a message about how to use the directory and saves all settings to file.
 fn initial_config_done(s: &mut Cursive, settings: Settings) {
     s.pop_layer();
@@ -534,9 +418,10 @@ fn initial_config_done(s: &mut Cursive, settings: Settings) {
 /// into the Settings object.  Ignores them if such an ID doesn't exist.
 fn save_settings(s: &mut Cursive, settings: Settings, ids: &[&str]) {
     for id in ids {
+        let id: &str = id;
         let val = get_by_id(id, s);
         if val.is_some() {
-            settings.set(id, &(*val.unwrap()) );
+            settings.set(id, &*val.unwrap() );
         }
     }
 }
@@ -553,6 +438,22 @@ fn check_data_dir(dir: &str) -> Result<(), &'static str> {
     // TODO: Check that the directory has the correct permissions, maybe auto-create directory if it doesn't exist.
 
     Ok(())
+}
+
+/// Returns True if we think libboost is installed
+fn libboost_detected() -> bool {
+    // ldconfig -p | grep libboost
+    let child = Command::new("ldconfig")
+        .arg("-p")
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("Unable to spawn `ldconfig -p`");
+
+    let output = child.wait_with_output()
+        .expect("Unable to get output from `which redis_server`");
+    let output_string = String::from(str::from_utf8(output.stdout.as_slice())
+        .expect("Unable to convert result buffer into String"));
+    output_string.find("libboost").is_some()
 }
 
 #[test]
