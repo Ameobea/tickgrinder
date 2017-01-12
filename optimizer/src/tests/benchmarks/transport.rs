@@ -2,7 +2,7 @@ use test;
 
 use serde_json;
 use uuid::Uuid;
-use algobot_util::transport::commands::*;
+use tickgrinder_util::transport::commands::*;
 
 #[bench]
 fn wrappedcmd_to_string(b: &mut test::Bencher) {

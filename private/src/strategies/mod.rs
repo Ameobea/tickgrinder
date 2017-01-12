@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use algobot_util::strategies::Strategy;
+use tickgrinder_util::strategies::Strategy;
 
 mod sma_cross;
 

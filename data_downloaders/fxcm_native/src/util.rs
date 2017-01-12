@@ -9,9 +9,9 @@ use postgres::Connection;
 
 use super::get_rx_closure;
 
-use algobot_util::trading::tick::*;
-use algobot_util::transport::postgres::*;
-use algobot_util::transport::commands::HistTickDst;
+use tickgrinder_util::trading::tick::*;
+use tickgrinder_util::transport::postgres::*;
+use tickgrinder_util::transport::commands::HistTickDst;
 
 pub fn transfer_data(src: HistTickDst, dst: HistTickDst) {
     thread::spawn(move || {

@@ -84,7 +84,7 @@ impl QueryServer {
             // push query to the query queue
             self.query_queue.lock().unwrap().push_back(query);
         } else {
-            let mut tx = self.conn_queue.lock().unwrap().pop_front().unwrap();
+            let tx = self.conn_queue.lock().unwrap().pop_front().unwrap();
             let cq_clone = self.conn_queue.clone();
             // future for notifying main thread when query is done and worker is idle
             let (c, o) = oneshot::<()>();

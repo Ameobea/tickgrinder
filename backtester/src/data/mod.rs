@@ -8,7 +8,7 @@ use std::thread::Thread;
 use test;
 
 use futures::sync::mpsc::UnboundedReceiver;
-use algobot_util::trading::tick::Tick;
+use tickgrinder_util::trading::tick::Tick;
 
 use backtest::BacktestMap;
 

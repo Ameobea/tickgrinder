@@ -2,4 +2,4 @@
 name = "spawner"
 version = "0.1.0"
 authors = ["Casey Primozic <me@ameo.link>"]
-description = "Instance spawner and management system for the Bot4 algorithmic trading platform"
+description = "Instance spawner and management system for the TickGrinder algorithmic trading platform"

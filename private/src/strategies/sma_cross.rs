@@ -10,10 +10,10 @@ use std::fmt::Debug;
 
 use futures::{Future, Complete};
 
-use algobot_util::strategies::Strategy;
-use algobot_util::transport::command_server::CommandServer;
-use algobot_util::transport::query_server::QueryServer;
-use algobot_util::trading::broker::Broker;
+use tickgrinder_util::strategies::Strategy;
+use tickgrinder_util::transport::command_server::CommandServer;
+use tickgrinder_util::transport::query_server::QueryServer;
+use tickgrinder_util::trading::broker::Broker;
 
 use ActiveBroker;
 use super::get_broker_settings;

@@ -2,8 +2,8 @@
 
 use redis::{Client, cmd};
 
-use algobot_util::transport::redis::get_client;
-use algobot_util::trading::tick::Tick;
+use tickgrinder_util::transport::redis::get_client;
+use tickgrinder_util::trading::tick::Tick;
 
 use data::TickSink;
 

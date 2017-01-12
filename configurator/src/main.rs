@@ -78,7 +78,7 @@ fn first_time(siv: &mut Cursive) {
     siv.add_layer(
         Dialog::around(TextView::new(
             indoc!(
-                "Welcome to the Bot4 Algorithmic Trading Platform!
+                "Welcome to the TickGrinder Algorithmic Trading Platform!
 
                 This tool will set up the environment for the trading platform.  It will walk you through the process of \
                 installing all prerequisite software and initializing all necessary configuration settings for the platform's \
@@ -305,7 +305,7 @@ fn set_data_dir(s: &mut Cursive, settings: Settings) {
             )
         ))
         .child(ListView::new()
-            .child("Data Directory", BoxView::new(MIN15, FREE, EditView::new().content("/var/bot4_data/").with_id("data_directory")))
+            .child("Data Directory", BoxView::new(MIN15, FREE, EditView::new().content("/var/tickgrinder_data/").with_id("data_directory")))
         )
     ).title("Data Directory").button("Ok", move |s| {
         let dir = get_by_id("data_directory", s);

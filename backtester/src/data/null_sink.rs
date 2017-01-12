@@ -3,7 +3,7 @@
 #[allow(unused_imports)]
 use test;
 
-use algobot_util::trading::tick::Tick;
+use tickgrinder_util::trading::tick::Tick;
 
 use data::TickSink;
 

@@ -1,4 +1,4 @@
-//! Bot4 Instance Spawner and Manager
+//! TickGrinder Instance Spawner and Manager
 //!
 //! Responsible for spawning, destroying, and managing all instances of the bot4
 //! platform's modules and reporting on their status.
@@ -7,7 +7,7 @@
 
 extern crate uuid;
 extern crate redis;
-extern crate algobot_util;
+extern crate tickgrinder_util;
 extern crate futures;
 extern crate test;
 extern crate serde;
@@ -24,10 +24,10 @@ use uuid::Uuid;
 use futures::{Future, oneshot, Complete};
 use futures::stream::Stream;
 #[allow(unused_imports)]
-use algobot_util::transport::redis::{sub_channel, sub_multiple, get_client};
-use algobot_util::transport::commands::*;
-use algobot_util::transport::command_server::*;
-use algobot_util::conf::CONF;
+use tickgrinder_util::transport::redis::{sub_channel, sub_multiple, get_client};
+use tickgrinder_util::transport::commands::*;
+use tickgrinder_util::transport::command_server::*;
+use tickgrinder_util::conf::CONF;
 
 /// Holds a list of all instances that the spawner has spawned and thinks are alive
 #[derive(Clone)]

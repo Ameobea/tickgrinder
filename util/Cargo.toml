@@ -1,20 +1,21 @@
 [package]
-name = "algobot-util"
+name = "tickgrinder-util"
 version = "0.1.0"
 authors = ["Casey Primozic <me@ameo.link>"]
 description = "Code used in all of TickGrinder's modules."
 
 [dependencies]
 redis = "0.5.3"
-futures = "0.1.6"
+futures = "0.1.8"
 postgres = "0.13"
-serde = "0.8.21"
-serde_json = "0.8.4"
-serde_derive = "0.8.21"
+serde = "0.8.22"
+serde_json = "0.8"
+serde_derive = "0.8.22"
 uuid = { version = "0.3.1", features = ["serde", "v4",] }
 indoc = "^0.1"
+time = "0.1.35"
 from_hashmap = { path = "from_hashmap" }
 
 [lib]
-name = "algobot_util"
+name = "tickgrinder_util"
 crate-type = ["dylib"]

@@ -1,5 +1,5 @@
-# Bot4 Backtester
-The backtester is an external application that integrates into the bot4 platform and simulates live market data in order to test the platform's trading activities.  Its primary purpose is to allow users to test out strategies and view their performance based on historical data downloaded elsewhere.
+# TickGrinder Backtester
+The backtester is an external application that integrates into the TickGrinder platform and simulates live market data in order to test the platform's trading activities.  Its primary purpose is to allow users to test out strategies and view their performance based on historical data downloaded elsewhere.
 
 # Backtest Modes
 There are different modes that the backtester can use, each acting a bit differently than the others.  This allows for the backtester to be used in unique situations where different parts of the platform's performance are important.

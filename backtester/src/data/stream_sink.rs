@@ -4,7 +4,7 @@ use std::thread;
 use std::sync::mpsc;
 
 use futures::sync::mpsc::UnboundedSender;
-use algobot_util::trading::tick::Tick;
+use tickgrinder_util::trading::tick::Tick;
 
 use data::TickSink;
 
@@ -20,9 +20,9 @@ impl StreamSink {
     pub fn new(symbol: String, dst_tx: UnboundedSender<Tick>) -> StreamSink {
         let (tx, rx) = mpsc::channel::<Tick>();
         thread::spawn(move || {
-            let mut dst_tx = dst_tx;
+            let dst_tx = dst_tx;
             for t in rx.iter() {
-                dst_tx.send(t).unwrap();
+                dst_tx.send(t).expect("Unable to send tick to sink in stream_sink.rs");
             }
         });
 
@@ -35,6 +35,6 @@ impl StreamSink {
 
 impl TickSink for StreamSink {
     fn tick(&mut self, t: Tick) {
-        let _ = self.mpsc_tx.send(t);
+        self.mpsc_tx.send(t).unwrap();
     }
 }

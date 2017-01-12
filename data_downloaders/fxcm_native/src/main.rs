@@ -5,7 +5,7 @@
 #![feature(custom_derive, plugin, libc, conservative_impl_trait, fn_traits, unboxed_closures)]
 
 extern crate libc;
-extern crate algobot_util;
+extern crate tickgrinder_util;
 extern crate redis;
 extern crate time;
 extern crate futures;
@@ -30,14 +30,14 @@ use uuid::Uuid;
 use libc::{c_char, c_void, uint64_t, c_double, c_int};
 use futures::stream::Stream;
 
-use algobot_util::transport::commands::*;
-use algobot_util::transport::redis::get_client as get_redis_client;
-use algobot_util::transport::redis::sub_multiple;
-use algobot_util::transport::postgres::*;
-use algobot_util::transport::query_server::QueryServer;
-use algobot_util::transport::command_server::CommandServer;
-use algobot_util::trading::tick::*;
-use algobot_util::conf::CONF;
+use tickgrinder_util::transport::commands::*;
+use tickgrinder_util::transport::redis::get_client as get_redis_client;
+use tickgrinder_util::transport::redis::sub_multiple;
+use tickgrinder_util::transport::postgres::*;
+use tickgrinder_util::transport::query_server::QueryServer;
+use tickgrinder_util::transport::command_server::CommandServer;
+use tickgrinder_util::trading::tick::*;
+use tickgrinder_util::conf::CONF;
 
 mod util;
 use util::transfer_data;
@@ -469,7 +469,7 @@ fn main() {
 
 #[test]
 fn history_downloader_functionality() {
-    use algobot_util::transport::redis::sub_channel;
+    use tickgrinder_util::transport::redis::sub_channel;
     let start_time = "01.01.2012 00:00:00";
     let end_time   = "12.06.2016 00.00.00";
     let symbol = "EUR/USD";

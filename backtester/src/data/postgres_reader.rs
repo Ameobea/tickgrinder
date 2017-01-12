@@ -8,8 +8,8 @@ use futures::sync::mpsc::{unbounded, UnboundedReceiver};
 use postgres::Connection;
 use postgres::rows::Rows;
 use postgres::error::Error;
-use algobot_util::trading::tick::*;
-use algobot_util::transport::postgres::*;
+use tickgrinder_util::trading::tick::*;
+use tickgrinder_util::transport::postgres::*;
 
 use data::*;
 use backtest::{BacktestCommand, BacktestMap};
@@ -26,7 +26,7 @@ impl TickGenerator for PostgresReader {
         // small atomic communication bus between the handle listener and worker threads
         let internal_message: Arc<Mutex<BacktestCommand>> = Arc::new(Mutex::new(BacktestCommand::Stop));
         let got_mail = Arc::new(AtomicBool::new(false));
-        let (mut tx, rx) = unbounded::<Tick>();
+        let (tx, rx) = unbounded::<Tick>();
 
         let _got_mail = got_mail.clone();
         let symbol = self.symbol.clone();

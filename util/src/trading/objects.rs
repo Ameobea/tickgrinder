@@ -56,6 +56,7 @@ pub enum PositionClosureReason {
     MarginCall,
     Expired,
     FillOrKill,
+    MarketClose,
 }
 
 #[derive(Clone, Debug)]
@@ -66,20 +67,21 @@ pub enum BrokerError {
     NoSuchPosition,
     NoSuchAccount,
     NoSuchSymbol,
+    InvalidModificationAmount,
 }
 
 /// The platform's internal representation of the current state of an account.
 /// Contains information about past trades as well as current positions.
 #[derive(Clone, Debug)]
 pub struct Ledger {
-    pub balance: f64,
+    pub balance: usize,
     pub pending_positions: HashMap<Uuid, Position>,
     pub open_positions: HashMap<Uuid, Position>,
     pub closed_positions: HashMap<Uuid, Position>,
 }
 
 impl Ledger {
-    pub fn new(starting_balance: f64) -> Ledger {
+    pub fn new(starting_balance: usize) -> Ledger {
         Ledger {
             balance: starting_balance,
             pending_positions: HashMap::new(),
@@ -89,13 +91,12 @@ impl Ledger {
     }
 
     /// Opens the supplied position in the ledger.  Returns an error if there are insufficient funds
-    /// in the ledger to open the position.
+    /// in the ledger to open the position in units of the base currency.
     ///
-    /// `base_rate` is the exchange rate of the first currency of the pair to the bas currency
-    /// If the position is EUR/JPY and the base currency is USD, then the base exchange rate
-    /// would be that of EUR/USD.
-    pub fn open_position(&mut self, pos: Position, base_rate: usize) -> BrokerResult {
+    /// `position_value` is the dollar value of the position.
+    pub fn open_position(&mut self, pos: Position, position_value: usize) -> BrokerResult {
         let uuid = Uuid::new_v4();
+        // we assume that the supplied execution time is valid here
         let execution_time = pos.execution_time.unwrap();
         if pos.price.is_none() {
             return Err(BrokerError::Message{
@@ -103,13 +104,10 @@ impl Ledger {
             })
         }
 
-        let cost = (pos.price.unwrap() * pos.size as usize) as f64;
-        if cost > self.balance as f64 {
+        if position_value > self.balance {
             return Err(BrokerError::InsufficientBuyingPower)
         }
-        self.balance -= cost;
-
-        // TODO
+        self.balance -= position_value;
 
         self.open_positions.insert(uuid, pos.clone());
         Ok(BrokerMessage::PositionOpened{
@@ -120,21 +118,54 @@ impl Ledger {
     }
 
     /// Completely closes the specified condition at the given price, crediting the account the
-    /// funds yielded.
-    pub fn close_position(&mut self, uuid: Uuid, base_rate: usize) -> BrokerResult {
-        let res = self.open_positions.remove(&uuid);
-        if res.is_none() {
+    /// funds yielded.  Timestamp is the time the order was submitted + any simulated delays.
+    pub fn close_position(&mut self, uuid: Uuid, position_value: usize, timestamp: u64) -> BrokerResult {
+        let pos = self.open_positions.remove(&uuid);
+        if pos.is_none() {
             return Err(BrokerError::NoSuchPosition)
         }
-        // TODO
-        Ok(BrokerMessage::Success)
+        self.balance += position_value;
+
+        Ok(BrokerMessage::PositionClosed{
+            position: pos.unwrap(),
+            position_id: uuid,
+            reason: PositionClosureReason::MarketClose,
+            timestamp: timestamp,
+        })
     }
 
     /// Increases or decreases the size of the specified position by the given amount.  Returns errors
     /// if the account doesn't have enough buying power to execute the action or if a position with
     /// the specified UUID doesn't exist.
-    pub fn modify_position(&mut self, uuid: Uuid, base_rate: usize) -> BrokerResult {
-        unimplemented!();
+    pub fn modify_position(&mut self, uuid: Uuid, units: isize, modification_cost: usize, timestamp: u64) -> BrokerResult {
+        let mut pos = match self.open_positions.remove(&uuid) {
+            Some(p) => p,
+            None => {
+                return Err(BrokerError::NoSuchPosition);
+            },
+        };
+
+        let unit_diff = units + (pos.size as isize);
+        if unit_diff < 0 {
+            return Err(BrokerError::InvalidModificationAmount);
+        } else if unit_diff == 0 {
+            return self.close_position(uuid, modification_cost, timestamp);
+        }
+
+        if self.balance < modification_cost {
+            return Err(BrokerError::InsufficientBuyingPower);
+        }
+
+        // everything seems to be in order, so do the modification
+        pos.size = ((pos.size as isize) + units) as u64;
+        self.balance -= modification_cost;
+        self.open_positions.insert(uuid, pos.clone());
+
+        Ok(BrokerMessage::PositionModified{
+            position: pos,
+            position_id: uuid,
+            timestamp: timestamp,
+        })
     }
 }
 
@@ -205,37 +236,47 @@ impl Position {
     }
 }
 
-/// Returns a struct given the struct's field:value pairs in a HashMap.  If
-/// the provided HashMap doesn't contain a field, then the default is used.
+/// Returns a struct given the struct's field:value pairs in a HashMap.  If the provided HashMap
+/// doesn't contain a field, then the default is used.
 pub trait FromHashmap<T> : Default {
     fn from_hashmap(hm: HashMap<String, String>) -> T;
 }
 
-/// Settings for the simulated broker that determine things like trade fees,
-/// estimated slippage, etc.
+/// Settings for the simulated broker that determine things like trade fees,estimated slippage, etc.
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-// procedural macro is defined in the `from_hashmap` crate found in the util
-// directory's root.
+// procedural macro is defined in the `from_hashmap` crate found in the util directory's root.
 #[derive(FromHashmap)]
 pub struct SimBrokerSettings {
-    pub starting_balance: f64,
-    /// how many microseconds ahead the broker is to the client.
+    pub starting_balance: usize,
+    /// How many nanoseconds ahead the broker is to the client
     pub ping_ns: usize,
-    /// how many us between when the broker receives an order and executes it.
-    pub execution_delay_us: usize,
-    /// the minimum size that a trade can be in cents of .
-    pub lot_size: usize,
+    /// How many nanoseconds between when the broker receives an order and executes it
+    pub execution_delay_ns: usize,
+    /// Buying power is leverage * balance
     pub leverage: usize,
+    /// `true` if this simbroker is simulating a forex borker
+    pub fx: bool,
+    /// Base currency in which the SimBroker is funded.  Should be in the lowest division of that
+    /// currency available (e.g. cents).
+    pub fx_base_currency: String,
+    /// For forex, the amount of units of currency in one lot.
+    pub fx_lot_size: usize,
+    /// For forex, if true, calculates accurate position values by converting to the base currency.
+    /// If false, profits are calculated in pips and it is assumed that all
+    pub fx_accurate_pricing: bool,
 }
 
 impl Default for SimBrokerSettings {
     fn default() -> SimBrokerSettings {
         SimBrokerSettings {
-            starting_balance: 1f64,
+            starting_balance: 50 * 1000 * 100, // $50,000
             ping_ns: 0,
-            execution_delay_us: 0usize,
-            lot_size: 1000,
+            execution_delay_ns: 0usize,
             leverage: 50,
+            fx: true,
+            fx_base_currency: String::from("USD"),
+            fx_lot_size: 1000,
+            fx_accurate_pricing: false,
         }
     }
 }

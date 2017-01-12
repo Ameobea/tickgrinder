@@ -1,7 +1,8 @@
 [package]
-name = "bot4-private"
+name = "tickgrinder-private"
 version = "0.1.0"
 authors = ["Casey Primozic <me@ameo.link>"]
+description = "Contains the user-defined strategies, indicators, and other custom proprietary parts of the platform."
 
 [lib]
 name = "private"

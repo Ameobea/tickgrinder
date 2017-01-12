@@ -14,7 +14,7 @@ extern crate serde_json;
 extern crate serde_derive;
 extern crate fxcm;
 
-extern crate algobot_util;
+extern crate tickgrinder_util;
 
 use std::collections::HashMap;
 use std::thread;
@@ -25,13 +25,13 @@ use uuid::Uuid;
 use futures::Future;
 use futures::stream::Stream;
 
-use algobot_util::trading::broker::Broker;
-use algobot_util::transport::redis::*;
-use algobot_util::transport::commands::*;
-use algobot_util::transport::command_server::CommandServer;
-use algobot_util::transport::query_server::QueryServer;
-use algobot_util::strategies::Strategy;
-use algobot_util::conf::CONF;
+use tickgrinder_util::trading::broker::Broker;
+use tickgrinder_util::transport::redis::*;
+use tickgrinder_util::transport::commands::*;
+use tickgrinder_util::transport::command_server::CommandServer;
+use tickgrinder_util::transport::query_server::QueryServer;
+use tickgrinder_util::strategies::Strategy;
+use tickgrinder_util::conf::CONF;
 use fxcm::FXCMNative;
 
 struct Optimizer {
