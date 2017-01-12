@@ -8,7 +8,7 @@ extern crate serde;
 extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
-extern crate algobot_util;
+extern crate tickgrinder_util;
 extern crate futures;
 extern crate fxcm;
 

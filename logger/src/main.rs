@@ -7,7 +7,7 @@ extern crate test;
 extern crate uuid;
 extern crate futures;
 extern crate postgres;
-extern crate algobot_util;
+extern crate tickgrinder_util;
 extern crate time;
 extern crate serde_json;
 
@@ -19,11 +19,11 @@ use std::time::Duration;
 use futures::Stream;
 use uuid::Uuid;
 
-use algobot_util::transport::redis::{get_client as get_redis_client, sub_multiple};
-use algobot_util::transport::commands::*;
-use algobot_util::transport::command_server::*;
-use algobot_util::transport::query_server::*;
-use algobot_util::conf::CONF;
+use tickgrinder_util::transport::redis::{get_client as get_redis_client, sub_multiple};
+use tickgrinder_util::transport::commands::*;
+use tickgrinder_util::transport::command_server::*;
+use tickgrinder_util::transport::query_server::*;
+use tickgrinder_util::conf::CONF;
 
 pub struct Logger {
     cs: CommandServer,

@@ -4,8 +4,8 @@ use std::thread;
 
 use futures::Stream;
 use futures::sync::mpsc::{unbounded, UnboundedReceiver};
-use algobot_util::trading::tick::Tick;
-use algobot_util::transport::redis::sub_channel;
+use tickgrinder_util::trading::tick::Tick;
+use tickgrinder_util::transport::redis::sub_channel;
 
 use data::*;
 use backtest::BacktestMap;
@@ -23,7 +23,7 @@ impl TickGenerator for RedisReader {
         let host = self.redis_host.clone();
         let input_channel = self.channel.clone();
 
-        let (mut tx, rx) = unbounded::<Tick>();
+        let (tx, rx) = unbounded::<Tick>();
 
         thread::spawn(move || {
             let in_rx = sub_channel(host.as_str(), input_channel.as_str());

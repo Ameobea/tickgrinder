@@ -3,7 +3,7 @@
 
 pub mod sma_cross;
 
-use algobot_util::trading::trading_condition::*;
+use tickgrinder_util::trading::trading_condition::*;
 
 use indicators::*;
 use self::sma_cross::*;

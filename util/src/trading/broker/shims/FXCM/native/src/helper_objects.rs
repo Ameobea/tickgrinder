@@ -7,9 +7,9 @@ use std::sync::Mutex;
 use libc::{c_char, c_void, uint64_t, c_double, c_int};
 use futures::sync::mpsc::{UnboundedSender, UnboundedReceiver};
 
-use algobot_util::transport::command_server::CommandServer;
-use algobot_util::trading::broker::*;
-use algobot_util::trading::tick::*;
+use tickgrinder_util::transport::command_server::CommandServer;
+use tickgrinder_util::trading::broker::*;
+use tickgrinder_util::trading::tick::*;
 
 pub const NULL: *mut c_void = 0 as *mut c_void;
 

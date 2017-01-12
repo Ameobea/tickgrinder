@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicBool;
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver};
-use algobot_util::trading::tick::Tick;
-use algobot_util::conf::CONF;
+use tickgrinder_util::trading::tick::Tick;
+use tickgrinder_util::conf::CONF;
 
 use data::*;
 use backtest::{BacktestCommand, BacktestMap};
@@ -26,7 +26,7 @@ impl TickGenerator for FlatfileReader {
         // small atomic communication bus between the handle listener and worker threads
         let internal_message: Arc<Mutex<BacktestCommand>> = Arc::new(Mutex::new(BacktestCommand::Stop));
         let got_mail = Arc::new(AtomicBool::new(false));
-        let (mut sender, receiver) = unbounded::<Tick>();
+        let (sender, receiver) = unbounded::<Tick>();
 
         // spawn the worker thread that does the blocking
         let mut _got_mail = got_mail.clone();

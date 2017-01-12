@@ -1,6 +1,6 @@
 use serde_json;
 
-use algobot_util::transport::commands::*;
+use tickgrinder_util::transport::commands::*;
 
 #[test]
 fn command_serialization() {

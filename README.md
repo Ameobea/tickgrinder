@@ -1,11 +1,9 @@
-# Algobot 4
-
-[![Join the chat at https://gitter.im/TickGrinder/Lobby](https://badges.gitter.im/TickGrinder/Lobby.svg)](https://gitter.im/TickGrinder/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+# TickGrinder Algorithmic Trading Platform
 ![](https://camo.githubusercontent.com/79318781f189b2ee91c3a150bf27813c386afaf2/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f72757374632d6e696768746c792d79656c6c6f772e737667)
-![](https://tokei.rs/b1/github/Ameobea/bot4)
-![](https://tokei.rs/b1/github/Ameobea/bot4?category=files)
+![](https://tokei.rs/b1/github/Ameobea/tickgrinder)
+![](https://tokei.rs/b1/github/Ameobea/tickgrinder?category=files)
 
-Bot4 is a high performance algorithmic trading platform primarilly written in Rust.  It is designed with the goal of efficiently processing event-based market data as quickly as possible in order to automatically place and manage trades.
+TickGrinder is a high performance algorithmic trading platform written primarilly in Rust.  It is designed with the goal of efficiently processing event-based market data as quickly as possible in order to automatically place and manage trades.
 
 # Overview
 The basis of the platform is written in Rust.  It consists of several distinct modules that operate independently but communicate with each other via a custom messaging protocol implemented on top of Redis Pub/Sub.  It is designed to be extensible and robust, capable of being used to trade any market consisting of event-based streaming Tick data.
@@ -58,5 +56,3 @@ As for contributing to master, I'm very happy to merge pull requests containing 
 If you've got any feedback or comments on the project, I'd love to hear it!  I'm always working on developing my skills as a programmer, so any sage advice from seasoned veterans (or questions from eager beginners) are very welcome.
 
 If you find this project useful, exciting, or have plans to use this in production, **please** let me know!  I'd maybe be willing to work with you to make sure that your needs are met and improve the platform in the process.
-
-Thanks for reading, and may the best bot win!

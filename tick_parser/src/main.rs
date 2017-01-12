@@ -9,7 +9,7 @@ extern crate serde_json;
 extern crate postgres;
 extern crate test;
 extern crate uuid;
-extern crate algobot_util;
+extern crate tickgrinder_util;
 
 mod transport;
 mod processor;
@@ -20,10 +20,10 @@ use futures::stream::Stream;
 use uuid::Uuid;
 
 use processor::Processor;
-use algobot_util::transport::postgres::{get_client, reset_db};
-use algobot_util::transport::redis::sub_multiple;
-use algobot_util::transport::commands::{Command, send_command};
-use algobot_util::conf::CONF;
+use tickgrinder_util::transport::postgres::{get_client, reset_db};
+use tickgrinder_util::transport::redis::sub_multiple;
+use tickgrinder_util::transport::commands::{Command, send_command};
+use tickgrinder_util::conf::CONF;
 
 struct TickProcessor {
     uuid: Uuid

@@ -1,7 +1,7 @@
 {
   "name": "mm",
-  "version": "0.0.0",
-  "description": "User interface for Monitoring/Management of the bot4 algorithmic trading platform",
+  "version": "0.1.0",
+  "description": "Management/Monitoring web interface for the TickGrinder algorithmic trading platform",
   "main": "manager.js",
   "license": "MIT",
   "scripts": {
@@ -9,11 +9,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ameobea/bot4-mm.git"
+    "url": "git+git@github.com:Ameobea/tickgrinder.git"
   },
   "author": "Casey Primozic <me@ameo.link>",
   "bugs": {
-    "url": "https://github.com/Ameobea/bot4-mm/issues"
+    "url": "https://github.com/Ameobea/tickgrinder/issues"
   },
   "dependencies": {
     "express": "4.13.4",
@@ -25,5 +25,5 @@
     "pg": "6.1.1",
     "pg-native": "1.10.0"
   },
-  "homepage": "https://github.com/Ameobea/bot4-mm#readme"
+  "homepage": "https://github.com/Ameobea/tickgrinder"
 }

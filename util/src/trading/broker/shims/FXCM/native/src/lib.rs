@@ -5,7 +5,7 @@
 
 extern crate uuid;
 extern crate futures;
-extern crate algobot_util;
+extern crate tickgrinder_util;
 extern crate libc;
 extern crate test;
 extern crate redis;
@@ -26,15 +26,16 @@ use futures::stream::Stream;
 use futures::sync::oneshot::Receiver;
 use futures::sync::mpsc::{unbounded, UnboundedReceiver};
 
-use algobot_util::transport::commands::{LogLevel, CLogLevel};
-use algobot_util::transport::command_server::CommandServer;
-use algobot_util::transport::redis::*;
-use algobot_util::trading::broker::*;
-use algobot_util::trading::tick::*;
-use algobot_util::trading::trading_condition::TradingAction;
-use algobot_util::conf::CONF;
+use tickgrinder_util::transport::commands::{LogLevel, CLogLevel};
+use tickgrinder_util::transport::command_server::CommandServer;
+use tickgrinder_util::transport::redis::*;
+use tickgrinder_util::trading::broker::*;
+use tickgrinder_util::trading::tick::*;
+use tickgrinder_util::trading::trading_condition::TradingAction;
+use tickgrinder_util::conf::CONF;
 
 mod helper_objects;
+pub use helper_objects::FXCMNative;
 use helper_objects::*;
 
 // Link with all the FXCM native libraries, the C++ standard library, and the
@@ -417,11 +418,13 @@ fn broker_server() {
 #[test]
 fn tickstream_subbing() {
     use futures::Future;
-    let mut broker = FXCMNative::init(HashMap::new()).wait().unwrap().unwrap();
-    let rx = broker.sub_ticks(String::from("EUR/USD")).unwrap();
-    for msg in rx.wait() {
-        println!("{:?}", msg);
-    }
+    let mut broker = Box::new(FXCMNative::init(HashMap::new()).wait().unwrap().unwrap());
+    let rx = Box::new(broker.sub_ticks(String::from("EUR/USD")).unwrap());
+    // leak everything to prevent internals from getting dropped and messing with FFI
+    // only necessary since we're not doing anything with the tickstream.
+    // TODO: handle this contingency (maybe some kind of reference-counted thing?)
+    mem::forget(rx);
+    mem::forget(broker);
 }
 
 #[test]

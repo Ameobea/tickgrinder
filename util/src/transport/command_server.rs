@@ -310,7 +310,7 @@ impl CommandServer {
         }else{
             // type WorkerTask
             let req = (cr, idle_c);
-            let mut tx;
+            let tx;
             {
                 tx = self.conn_queue.lock().unwrap().pop_front().unwrap();
                 tx.send(req).unwrap();
@@ -331,7 +331,7 @@ impl CommandServer {
         &mut self, command: Command, commands_channel: String
     ) -> Receiver<Vec<Response>> {
         // spawn a new timeout thread just for this request
-        let (mut sleeper_tx, sleeper_rx) = unbounded::<TimeoutRequest>();
+        let (sleeper_tx, sleeper_rx) = unbounded::<TimeoutRequest>();
         let dur = Duration::from_millis(CONF.cs_timeout as u64);
 
         let (sleepy_c, _) = oneshot::<Thread>();

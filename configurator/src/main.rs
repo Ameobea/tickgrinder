@@ -1,64 +1,65 @@
 //! Configurator for the platform.  Initializes config files for the modules and sets up
 //! the initial environment for platform runtime.
-//!
-//! This requires that the package libncurses-dev is installed!
 
 #![feature(plugin)]
 #![plugin(indoc)]
 
 extern crate cursive;
 extern crate serde_json;
+extern crate termion;
 
 use std::process::{Command, Stdio};
 use std::path::Path;
 use std::rc::Rc;
-use std::panic::{set_hook, take_hook};
+use std::str;
 
 use cursive::Cursive;
 #[allow(unused_imports)]
 use cursive::views::{Dialog, TextView, EditView, ListView, BoxView, LinearLayout, SelectView, Panel};
 use cursive::view::SizeConstraint;
 use cursive::direction::Orientation;
+use cursive::align::VAlign;
 use cursive::traits::*;
 
 mod theme;
 use theme::THEME;
 mod misc;
 use misc::*;
+mod directory;
+use directory::*;
 
 const MIN15: SizeConstraint = SizeConstraint::AtLeast(10);
 const FREE: SizeConstraint = SizeConstraint::Free;
 
 fn main() {
-    // Register panic hook to reset terminal settings on panic so we can see the error
-    let old_hook = take_hook();
-    set_hook(Box::new(move |p| {
-        clear_console();
-        old_hook(p);
-    }));
-
     // Check if this is the first run of the configurator
     let path = Path::new("settings.json");
-    if !path.exists() {
-        first_time();
+    let mut s = Cursive::new();
+    s.set_theme(THEME);
 
-        // clear console + reset colored background before exiting
-        clear_console();
+    if !path.exists() {
+        first_time(&mut s);
     } else {
-        // if we're already configured, just read in the old settings and re-generate Rust config files.
         let settings = Settings::read_json("settings.json");
-        write_settings(&mut Cursive::new(), settings);
-        clear_console();
-        println!("{}", &format!("{}[35mSettings files have been regenerated.", 27 as char));
-        println!("{}", &format!("However, the platform must be rebuilt (`make`) in order for any changes to be reflected.{}[0m\n", 27 as char));
-        println!("Edit `settings.json` in the `configurator` directory and run `make config` again to change settings.");
-        println!("Delete `settings.json` and re-run configurator to start from scratch.");
+        show_directory(&mut s, settings.clone(), true);
     }
 }
 
-/// Clears all custom colors and formatting, restoring the terminal to defaults and clearing it.
-fn clear_console() {
-    print!("{}[0m{}[2J", 27 as char, 27 as char);
+/// Called after exiting the directory.
+fn directory_exit(s: &mut Cursive, settings: Settings) {
+    write_settings(settings);
+    let content = indoc!(
+        "Settings files have been regenerated.  However, the platform must be rebuilt (`make`) \
+        in order for any changes to be reflected.
+
+        Edit `settings.json` in the `configurator` directory and run `make config` again to change settings.
+        Delete `settings.json` and re-run configurator to start from scratch."
+    );
+    s.add_layer(Dialog::text(content)
+        .button("Ok", move |s| {
+            s.quit();
+        })
+    );
 }
 
 /// Returns the content of the EditView with the given ID.
@@ -70,17 +71,14 @@ fn get_by_id(id: &str, s: &mut Cursive) -> Option<Rc<String>> {
 }
 
 /// Displays welcome and walks the user through first time configuration of the platform.
-fn first_time() {
-    let mut siv = Cursive::new();
-    siv.set_theme(THEME);
-
+fn first_time(siv: &mut Cursive) {
     // Main Key:Value settings for the application
     let settings = Settings::new();
 
     siv.add_layer(
         Dialog::around(TextView::new(
             indoc!(
-                "Welcome to the Bot4 Algorithmic Trading Platform!
+                "Welcome to the TickGrinder Algorithmic Trading Platform!
 
                 This tool will set up the environment for the trading platform.  It will walk you through the process of \
                 installing all prerequisite software and initializing all necessary configuration settings for the platform's \
@@ -96,7 +94,7 @@ fn first_time() {
                     )).button("Ok", |s| s.quit() ));
                 }
                 settings.set("node_binary_path", &which("node"));
-                redis_config(s, settings.clone());
+                boost_config(s, settings.clone());
             })
     );
 
@@ -104,6 +102,36 @@ fn first_time() {
     siv.run();
 }
 
+/// Checks if we think libboost is installed and lets the user know.
+fn boost_config(s: &mut Cursive, settings: Settings) {
+    s.pop_layer();
+    let content: &str;
+    if libboost_detected() {
+        content = indoc!(
+            "From what I can see, libboost is installed on this system.  Boost is required for this platform's C++ \
+            FFI components.
+
+            If it's true that you have it installed (`sudo apt-get install libboost-all-dev`) then \
+            you can proceed with the installation.  If not, please install it before continuing."
+        );
+    } else {
+        content = indoc!(
+            "I was unable to detect the boot library on your computer.  It's possible that it's installed and that I \
+            simply can't see it.
+
+            However, if you haven't already installed libboost (`sudo apt-get install \
+            libboost-all-dev`), please install it before continuing."
+        );
+    }
+
+    let dialog = Dialog::around(TextView::new(content))
+        .button("Proceed", move |s| {
+            redis_config(s, settings.clone());
+        }).button("Exit", move |s| s.quit());
+    s.add_layer(dialog);
+}
+
+/// First stage of Redis configuration; asks if you want to do a Remote or Local installation.
 fn redis_config(s: &mut Cursive, settings: Settings) {
     let settings_clone = settings.clone();
 
@@ -159,6 +187,7 @@ fn redis_local(s: &mut Cursive, installed: bool, settings: Settings) {
                     "redis://localhost:{}/",
                     port
                 ));
+                settings.set("redis_server_binary_path", &which("redis-server"));
                 postgres_config(s, settings.clone())
             });
         port_box.set_content("6379");
@@ -267,7 +296,7 @@ fn postgres_local(s: &mut Cursive, installed: bool, settings: Settings) {
 /// Ask the user for a place to store historical data and do some basic sanity checks on the supplied path.
 fn set_data_dir(s: &mut Cursive, settings: Settings) {
     s.pop_layer();
-    let dialog = Dialog::around(LinearLayout::new(Orientation::Vertical)
+    let dialog = Dialog::new().content(LinearLayout::new(Orientation::Vertical)
         .child(TextView::new(
             indoc!(
                 "The data directory holds all persistant storage for the platform including historical price data, \
@@ -276,14 +305,14 @@ fn set_data_dir(s: &mut Cursive, settings: Settings) {
             )
         ))
         .child(ListView::new()
-            .child("Data Directory", BoxView::new(MIN15, FREE, EditView::new().content("/var/bot4_data/").with_id("data_directory")))
+            .child("Data Directory", BoxView::new(MIN15, FREE, EditView::new().content("/var/tickgrinder_data/").with_id("data_directory")))
         )
     ).title("Data Directory").button("Ok", move |s| {
         let dir = get_by_id("data_directory", s);
         match check_data_dir(&*(dir.clone()).unwrap()) {
             Ok(()) => {
                 settings.set("data_dir", &*dir.unwrap());
-                show_directory(s, settings.clone())
+                fxcm_config(s, settings.clone());
             },
             Err(err) => {
                 error_popup(s, err)
@@ -291,106 +320,6 @@ fn set_data_dir(s: &mut Cursive, settings: Settings) {
         };
     });
     s.add_layer(dialog)
-}
-
-/// Draws the global configuration directory which contains all possible settings and their current values.  Users can
-/// page through the various configuration settings and modify them as they desire.
-/// -------
-/// This is currently broken; probably an internal Cursive bug.  Will work on implementing this later.  For now, it just
-/// calls `write_settings` and calls it a day.
-fn show_directory(s: &mut Cursive, settings: Settings) {
-    write_settings(s, settings);
-    // let settings_ = settings.clone();
-    // s.pop_layer();
-    // let mut sv: SelectView<SettingsPage> = SelectView::new()
-    //     .popup()
-    //     .on_submit(move |s, new_page| {
-    //         let last_page_name = settings_.get(String::from("last-page"))
-    //             .expect("`last-page` wasn't in settings.");
-    //         let last_page = PAGE_MAPPINGS.get(last_page_name.as_str()).expect("Last page name wasn't in mapping");
-    //         let changed = check_changes(s, *last_page, settings_.clone());
-    //         if changed {
-    //             // s.add_layer(get_save_dialog(last_page, *new_page, settings_.clone()));
-    //         } else {
-    //             switch_categories(s, new_page, settings_.clone());
-    //         }
-    //     });
-    // sv.add_item("postgres", POSTGRES_SETTINGS);
-    // settings.set("last-page", "postgres");
-    // for (k, v) in PAGE_MAPPINGS.iter() {
-    //     if *k != "postgres" {
-    //         sv.add_item(*k, *v);
-    //     }
-    // }
-    // let directory = Dialog::around(LinearLayout::new(Orientation::Vertical)
-    //     .child(sv.v_align(VAlign::Center).fixed_size((20, 10)).with_id("directory-category"))
-    //     .child(ListView::new().with_id("directory-lv").fixed_width(30))
-    // ).button("Exit", |s| s.quit() );
-    // s.add_layer(directory);
-    // // s.add_layer(Dialog::around(sv.fixed_size))
-    // switch_categories(s, &POSTGRES_SETTINGS, settings);
-}
-
-/// Returns the Dialog shown when switching between different settings categories in the main settings catalog.
-/// If Save is selected, the changes are written written immediately to the Settings object as well as
-/// copied to all applicable files.  Also handles setting the new page up.
-fn get_save_dialog(last_page: SettingsPage, new_page: SettingsPage, settings: Settings) -> Dialog {
-    let settings_ = settings.clone();
-    Dialog::text("You have unsaved changes!  Do you want to preserve them?")
-        .button("Save", move |s| {
-            save_changes(s, &last_page, settings.clone());
-        }).button("Discard", move |s| {
-            switch_categories(s, &new_page, settings_.clone());
-        })
-}
-
-fn switch_categories(s: &mut Cursive, new_page: &SettingsPage, settings: Settings) {
-    let lv: &mut ListView = s.find_id("directory-lv").expect("directory-lv not found");
-    populate_list_view(new_page, lv);
-    // do a dirty manual reverse lookup
-    let mut cur_page_name_opt = None;
-    for page in PAGE_LIST.iter() {
-        if page.name == new_page.name {
-            cur_page_name_opt = Some(page.name);
-        }
-    }
-    settings.set("last-page", cur_page_name_opt.expect("Failed to reverse lookup last page name."));
-}
-
-/// Takes a SettingsPage and ListView and fills the ListView with the SettingRows contained inside the SettingsPage.
-fn populate_list_view(page: &SettingsPage, lv: &mut ListView) {
-    lv.clear();
-    for row in page.iter() {
-        let mut ev = EditView::new();
-        if row.default.is_some() {
-            ev.set_content(row.default.unwrap());
-        }
-        lv.add_child(row.name, BoxView::new(MIN15, FREE, ev.with_id(row.id)))
-    }
-}
-
-/// Returns true if the values any of the EditViews with IDs corresponding to the SettingsRows from the given page
-/// differ from the default values for that page.
-fn check_changes(s: &mut Cursive, page: SettingsPage, settings: Settings) -> bool {
-    for row in page.iter() {
-        let cur_val = get_by_id(row.id, s).unwrap();
-        let last_val = settings.get(String::from(row.id))
-            .expect(&format!("Unable to get past val in check_changes: {}", row.id));
-        if last_val != *cur_val {
-            return true
-        }
-    }
-    false
-}
-
-/// Commits all changes for a page to the internal Settings object and then writes them to all files.
-fn save_changes(s: &mut Cursive, page: &SettingsPage, settings: Settings) {
-    for row in page.iter() {
-        let cur_val = get_by_id(row.id, s).unwrap();
-        settings.set(row.id, &*cur_val);
-    }
-
-    write_settings(s, settings);
 }
 
 /// Runs `which [command]` and returns true if the binary is located.
@@ -418,25 +347,71 @@ fn error_popup(s: &mut Cursive, err_str: &str) {
     s.add_layer(Dialog::text(err_str).dismiss_button("Ok"));
 }
 
-/// Display completion message and write the entered settings to a JSON file.
-fn write_settings(s: &mut Cursive, settings: Settings) {
+/// Writes the entered settings to a JSON file.  Also generates Rust and JavaScript config files
+/// that can be copied into the project src directories.
+fn write_settings(settings: Settings) {
     settings.write_json("settings.json");
     settings.write_rust("conf.rs");
     settings.write_js("conf.js");
+}
 
+/// Gets credentials for use in the FXCM broker shim.
+fn fxcm_config(s: &mut Cursive, settings: Settings) {
     s.pop_layer();
+    let lv = ListView::new()
+        .child("Demo Account Username", BoxView::new(MIN15, FREE, EditView::new()
+            .content("D000000000000")
+            .with_id("fxcm_username"))
+        ).child("Demo Account Password", BoxView::new(MIN15, FREE, EditView::new()
+            .content("1234")
+            .with_id("fxcm_password"))
+        );
+    let text = TextView::new(
+        indoc!(
+            "The platform has a shim to the native C++ FXCM ForexConnect API which allows for historical data \
+            downloading and live price streaming of real FXCM data.  In order to use this broker, you must make a \
+            FXCM Demo account.  You can do this for free in a couple seconds (no personal details necessary) here:
+
+            https://www.fxcm.com/forex-trading-demo/
+
+            Once you have credentials, you can enter them here.  ONLY USE DEMO CREDENTIALS, NOT REAL ACCOUNT \
+            CREDENTIALS; the API isn't yet ready for live trading.
+
+            If you don't want to use the FXCM API, you can just leave these values at their defaults and select \
+            continue to proceed with the rest of the configuration process.\n\n"
+        )
+    );
+    s.add_layer(Dialog::around(LinearLayout::new(Orientation::Vertical)
+        .child(text)
+        .child(lv)
+    ).button("Ok", move |s| {
+        settings.set("fxcm_username", &*get_by_id("fxcm_username", s).unwrap());
+        settings.set("fxcm_password", &*get_by_id("fxcm_password", s).unwrap());
+        settings.set("fxcm_url", "http://www.fxcorporate.com/Hosts.jsp");
+        // let fxcm_username = String::from(settings.get(String::from("fxcm_username")).unwrap());
+        // s.add_layer(Dialog::around(TextView::new(fxcm_username)));
+        initial_config_done(s, settings.clone());
+    }));
+}
+
+/// Displays a message about how to use the directory and saves all settings to file.
+fn initial_config_done(s: &mut Cursive, settings: Settings) {
+    s.pop_layer();
+
+    write_settings(settings.clone());
 
     s.add_layer(Dialog::text(
         indoc!(
             "The trading platform has been successfully configured.  Run `run.sh` and visit `localhost:8002` in \
             your web browser to start using the platform.
 
-            To change settings, edit `config.json` and re-run the configurator via running `make configure` in the \
-            project root.  To start the configuration process over and reset all settings, delete `config.json` and \
-            re-run the configurator."
+            You will now be presented with the configuration directory containing all of the platform's settings.  \
+            You can reach that menu at any time by running `make configure` in the project's root directory.  If you \
+            want to reset all the settings and start the configuration process from scratch, just delete the \
+            `settings.json` file in the `configurator` directory and run `make config` again from the project root."
         )
     ).button("Ok", move |s| {
-        s.quit()
+        show_directory(s, settings.clone(), false);
     }))
 }
 
@@ -444,9 +419,10 @@ fn write_settings(s: &mut Cursive, settings: Settings) {
 /// into the Settings object.  Ignores them if such an ID doesn't exist.
 fn save_settings(s: &mut Cursive, settings: Settings, ids: &[&str]) {
     for id in ids {
+        let id: &str = id;
         let val = get_by_id(id, s);
         if val.is_some() {
-            settings.set(id, &(*val.unwrap()) );
+            settings.set(id, &*val.unwrap() );
         }
     }
 }
@@ -463,6 +439,22 @@ fn check_data_dir(dir: &str) -> Result<(), &'static str> {
     // TODO: Check that the directory has the correct permissions, maybe auto-create directory if it doesn't exist.
 
     Ok(())
+}
+
+/// Returns True if we think libboost is installed
+fn libboost_detected() -> bool {
+    // ldconfig -p | grep libboost
+    let child = Command::new("ldconfig")
+        .arg("-p")
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("Unable to spawn `ldconfig -p`");
+
+    let output = child.wait_with_output()
+        .expect("Unable to get output from `which redis_server`");
+    let output_string = String::from(str::from_utf8(output.stdout.as_slice())
+        .expect("Unable to convert result buffer into String"));
+    output_string.find("libboost").is_some()
 }
 
 #[test]

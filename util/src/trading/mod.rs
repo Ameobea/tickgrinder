@@ -6,3 +6,4 @@ pub mod broker;
 pub mod indicators;
 pub mod trading_condition;
 pub mod datafield;
+pub mod objects;

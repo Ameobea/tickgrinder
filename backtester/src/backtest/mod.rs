@@ -6,7 +6,7 @@ use std::time::Duration;
 use std::sync::mpsc;
 use uuid::Uuid;
 
-use algobot_util::trading::tick::*;
+use tickgrinder_util::trading::tick::*;
 
 use {BacktestType, DataSource, DataDest};
 use sim_broker::SimBrokerSettings;

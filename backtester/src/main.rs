@@ -3,10 +3,10 @@
 //! Plays back market data and executes strategies, providing a simulated broker and
 //! account as well as statistics and data about the results of the strategy.
 
-#![feature(conservative_impl_trait, associated_consts, custom_derive, proc_macro, test, slice_patterns)]
+#![feature(conservative_impl_trait, associated_consts, custom_derive, test, slice_patterns)]
 #![allow(unused_variables, dead_code,)]
 
-extern crate algobot_util;
+extern crate tickgrinder_util;
 extern crate rand;
 extern crate futures;
 extern crate uuid;
@@ -28,15 +28,16 @@ use std::env;
 use std::collections::HashMap;
 
 use uuid::Uuid;
+use futures::Future;
 use futures::stream::Stream;
 use futures::sync::mpsc::UnboundedReceiver;
 use serde_json::to_string;
 
-use algobot_util::transport::command_server::CommandServer;
-use algobot_util::transport::redis::{sub_multiple, get_client};
-use algobot_util::transport::commands::*;
-use algobot_util::trading::tick::Tick;
-use algobot_util::conf::CONF;
+use tickgrinder_util::transport::command_server::CommandServer;
+use tickgrinder_util::transport::redis::{sub_multiple, get_client};
+use tickgrinder_util::transport::commands::*;
+use tickgrinder_util::trading::tick::Tick;
+use tickgrinder_util::conf::CONF;
 use backtest::*;
 use data::*;
 use sim_broker::*;
@@ -104,7 +105,8 @@ impl Backtester {
     /// Creates a SimBroker that's managed by the Backtester.  Returns its UUID.
     pub fn init_simbroker(&mut self, settings: SimBrokerSettings) -> Uuid {
         let mut simbrokers = self.simbrokers.lock().unwrap();
-        let simbroker = SimBroker::new(settings);
+        // TODO: Use new updated SimbrokerSettings
+        let simbroker = SimBroker::init(HashMap::new()).wait().unwrap().unwrap();
         let uuid = Uuid::new_v4();
         simbrokers.insert(uuid, simbroker);
         uuid
@@ -125,7 +127,7 @@ impl Backtester {
         );
 
         for res in rx.wait() {
-            let (_, msg) = res.unwrap();
+            let (_, msg) = res.expect("Received err in the listen() event loop for the backtester!");
             let wr_cmd = match WrappedCommand::from_str(msg.as_str()) {
                 Ok(wr) => wr,
                 Err(e) => {
@@ -284,7 +286,8 @@ impl Backtester {
                         },
                         Err(_) => {
                             println!("Stopping backtest because tickstream has ended");
-                            let _ = internal_handle_tx.send(BacktestCommand::Stop);
+                            internal_handle_tx.send(BacktestCommand::Stop)
+                                .expect("Sending through the internal handle failed; tickstream dropped?");
                         }
                     };
                 }
@@ -299,7 +302,8 @@ impl Backtester {
 
             let simbroker = simbroker_opt.unwrap();
             // plug the tickstream into the matching SimBroker
-            simbroker.register_tickstream(definition.symbol.clone(), tickstream.unwrap()).unwrap();
+            // TODO TODO TODO: Implement proper values here
+            simbroker.register_tickstream(definition.symbol.clone(), tickstream.unwrap(), true, 6).unwrap();
         }
 
         let handle = BacktestHandle {
@@ -332,7 +336,8 @@ impl Backtester {
             return Err(());
         }
         let ref sender = handle.unwrap().handle;
-        let _ = sender.send(cmd);
+        sender.send(cmd)
+            .expect("The receiver corresponding to the sender in the backtest handle seems to have been dropped.");
 
         Ok(())
     }
@@ -378,9 +383,9 @@ fn check_early_exit (
 
 #[test]
 fn backtest_n_early_exit() {
-    let rx = algobot_util::transport::redis::sub_channel(CONF.redis_host, "test1_ii");
+    let rx = tickgrinder_util::transport::redis::sub_channel(CONF.redis_host, "test1_ii");
 
-    let mut bt = Backtester::new();
+    let mut bt = Backtester::new(Uuid::new_v4());
     let definition = BacktestDefinition {
         start_time: None,
         max_tick_n: Some(10),
@@ -404,9 +409,9 @@ fn backtest_n_early_exit() {
 
 #[test]
 fn backtest_timestamp_early_exit() {
-    let rx = algobot_util::transport::redis::sub_channel(CONF.redis_host, "test2_ii");
+    let rx = tickgrinder_util::transport::redis::sub_channel(CONF.redis_host, "test2_ii");
 
-    let mut bt = Backtester::new();
+    let mut bt = Backtester::new(Uuid::new_v4());
     let definition = BacktestDefinition {
         start_time: None,
         max_tick_n: None,
@@ -421,9 +426,10 @@ fn backtest_timestamp_early_exit() {
         broker_settings: SimBrokerSettings::default(),
     };
 
-    let uuid = bt.start_backtest(definition).unwrap();
+    let uuid = bt.start_backtest(definition)
+        .expect("start_backtest() returned Err!");
     // backtest starts paused so resume it
-    let _ = bt.send_backtest_cmd(&uuid, BacktestCommand::Resume);
+    bt.send_backtest_cmd(&uuid, BacktestCommand::Resume).expect("no handle exists for the backtest!");
     let res = rx.wait().take(8).collect::<Vec<_>>();
     assert_eq!(res.len(), 8);
 }

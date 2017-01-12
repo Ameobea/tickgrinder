@@ -9,16 +9,13 @@ use std::env;
 
 use redis;
 use uuid::Uuid;
-use serde_json;
-
-use algobot_util::transport::commands::*;
-use algobot_util::trading::datafield::DataField;
-use algobot_util::trading::tick::Tick;
-use algobot_util::trading::trading_condition::*;
-use algobot_util::transport::postgres::{get_client, init_tick_table};
-use algobot_util::transport::query_server::QueryServer;
-use algobot_util::transport::redis::get_client as get_redis_client;
-use algobot_util::conf::CONF;
+use tickgrinder_util::transport::commands::*;
+use tickgrinder_util::trading::datafield::DataField;
+use tickgrinder_util::trading::tick::Tick;
+use tickgrinder_util::transport::postgres::{get_client, init_tick_table};
+use tickgrinder_util::transport::query_server::QueryServer;
+use tickgrinder_util::transport::redis::get_client as get_redis_client;
+use tickgrinder_util::conf::CONF;
 
 pub struct Processor {
     pub uuid: Uuid,
@@ -89,7 +86,3 @@ impl Processor {
         let _ = send_response(&wr, &self.redis_client, res_channel);
     }
 }
-
-// fn try_parse_conditionstring(condition_string: String) -> Result<impl TradingCondition, String> {
-//     let res = serde_json::from_str::<TradingCondition>
-// }
