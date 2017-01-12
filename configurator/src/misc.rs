@@ -37,7 +37,7 @@ impl SettingRow {
             SettingType::String | SettingType::Usize | SettingType::Boolean => format!("\"{}\"", raw_val),
             SettingType::OptionString => match raw_val.as_str() {
                 "" => String::from("null"),
-                _ => raw_val,
+                _ => format!("\"{}\"", raw_val),
             },
         }
     }
@@ -51,7 +51,7 @@ impl SettingRow {
             SettingType::Boolean => raw_val, // Assume it's in the right format.
             SettingType::OptionString => match raw_val.as_str() {
                 "" => String::from("None"),
-                _ => format!("Some({})", raw_val),
+                _ => format!("Some(\"{}\")", raw_val),
             },
         }
     }
@@ -65,7 +65,7 @@ impl SettingRow {
             SettingType::Boolean => raw_val, // Assume it's in the right format.
             SettingType::OptionString => match raw_val.as_str() {
                 "" => String::from("null"),
-                _ => raw_val,
+                _ => format!("\"{}\"", raw_val),
             },
         }
     }
@@ -367,7 +367,7 @@ pub const FXCM_SETTINGS: SettingsPage = SettingsPage {
             name: "URL",
             default: Some("http://www.fxcorporate.com/Hosts.jsp"),
             setting_type: SettingType::String,
-            comment: None,
+            comment: Some("Path to the `Hosts.jsp` file for the FXCM API."),
         },
         SettingRow {
             id: "fxcm_pin",
@@ -406,14 +406,14 @@ pub const GENERAL_SETTINGS: SettingsPage = SettingsPage {
             name: "Log Channel",
             default: Some("log"),
             setting_type: SettingType::String,
-            comment: None,
+            comment: Some("The redis pub/sub channel on which log messages will be sent."),
         },
         SettingRow {
             id: "data_dir",
             name: "Data Directory",
             default: None,
             setting_type: SettingType::String,
-            comment: None,
+            comment: Some("Data directory for the platform where things like historical ticks and settings are stored."),
         },
         SettingRow {
             id: "websocket_port",
@@ -427,14 +427,21 @@ pub const GENERAL_SETTINGS: SettingsPage = SettingsPage {
             name: "MM Port",
             default: Some("8002"),
             setting_type: SettingType::Usize,
-            comment: Some("The port the MM will listen on."),
+            comment: Some("The port the MM web GUI will listen on."),
         },
         SettingRow {
             id: "node_binary_path",
             name: "NodeJS Binary Path",
             default: None,
             setting_type: SettingType::String,
-            comment: None,
+            comment: Some("The absolute path to the `node` binary."),
+        },
+        SettingRow {
+            id: "redis_server_binary_path",
+            name: "Redis Server Path",
+            default: Some(""),
+            setting_type: SettingType::OptionString,
+            comment: Some("The absolute path to the `redis-server` executable.  Empty if Redis is installed remotely."),
         },
         SettingRow {
             id: "logger_persistance_table",

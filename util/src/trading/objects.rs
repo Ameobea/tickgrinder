@@ -204,3 +204,46 @@ impl Position {
         None
     }
 }
+
+/// Returns a struct given the struct's field:value pairs in a HashMap.  If
+/// the provided HashMap doesn't contain a field, then the default is used.
+pub trait FromHashmap<T> : Default {
+    fn from_hashmap(hm: HashMap<String, String>) -> T;
+}
+
+/// Settings for the simulated broker that determine things like trade fees,
+/// estimated slippage, etc.
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+// procedural macro is defined in the `from_hashmap` crate found in the util
+// directory's root.
+#[derive(FromHashmap)]
+pub struct SimBrokerSettings {
+    pub starting_balance: f64,
+    /// how many microseconds ahead the broker is to the client.
+    pub ping_ns: usize,
+    /// how many us between when the broker receives an order and executes it.
+    pub execution_delay_us: usize,
+    /// the minimum size that a trade can be in cents of .
+    pub lot_size: usize,
+    pub leverage: usize,
+}
+
+impl Default for SimBrokerSettings {
+    fn default() -> SimBrokerSettings {
+        SimBrokerSettings {
+            starting_balance: 1f64,
+            ping_ns: 0,
+            execution_delay_us: 0usize,
+            lot_size: 1000,
+            leverage: 50,
+        }
+    }
+}
+
+#[test]
+fn simbroker_settings_hashmap_population() {
+    let mut hm = HashMap::new();
+    hm.insert(String::from("ping_ns"), String::from("2000"));
+    let settings = SimBrokerSettings::from_hashmap(hm);
+    assert_eq!(settings.ping_ns, 2000);
+}

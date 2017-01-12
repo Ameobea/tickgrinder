@@ -187,6 +187,7 @@ fn redis_local(s: &mut Cursive, installed: bool, settings: Settings) {
                     "redis://localhost:{}/",
                     port
                 ));
+                settings.set("redis_server_binary_path", &which("redis-server"));
                 postgres_config(s, settings.clone())
             });
         port_box.set_content("6379");

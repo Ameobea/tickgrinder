@@ -6,8 +6,6 @@ use std::collections::hash_map::Entry;
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-#[allow(unused_imports)]
-use test;
 
 use futures::{oneshot, Oneshot};
 use futures::stream::{BoxStream, Stream};

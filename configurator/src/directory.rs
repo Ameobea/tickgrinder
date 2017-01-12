@@ -67,7 +67,7 @@ pub fn show_directory(s: &mut Cursive, settings: Settings, needs_start: bool) {
         let last_page = PAGE_LIST[last_page_ix];
         let changed = check_changes(s, last_page, settings__.clone());
         if changed {
-            s.add_layer(get_save_dialog(0, 0, settings__.clone(), true));
+            s.add_layer(get_save_dialog(last_page_ix, last_page_ix, settings__.clone(), true));
         } else {
             directory_exit(s, settings__.clone());
         }
@@ -170,8 +170,13 @@ fn check_changes(s: &mut Cursive, page: &SettingsPage, settings: Settings) -> bo
     for row in page.iter() {
         let cur_val = get_by_id(row.id, s)
             .expect(&format!("Unable to get {} by id!", row.id));
-        let last_val = settings.get(String::from(row.id))
-            .expect(&format!("Unable to get past val in check_changes: {}", row.id));
+        let last_val_opt = settings.get(String::from(row.id));
+        let last_val;
+        if last_val_opt.is_none() {
+            last_val = String::from(row.default.expect(&format!("No past val for {} and no default!", row.id)));
+        } else {
+            last_val = last_val_opt.unwrap();
+        }
         if last_val != *cur_val {
             return true
         }
@@ -182,7 +187,7 @@ fn check_changes(s: &mut Cursive, page: &SettingsPage, settings: Settings) -> bo
 /// Commits all changes for a page to the internal Settings object and then writes them to all files.
 fn save_changes(s: &mut Cursive, page: &SettingsPage, settings: Settings) {
     for row in page.iter() {
-        let cur_val = get_by_id(row.id, s).unwrap();
+        let cur_val = get_by_id(row.id, s).expect(&format!("Couldn't get value by id for: {}", row.id));
         settings.set(row.id, &*cur_val);
     }
 

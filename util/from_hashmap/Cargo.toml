@@ -1,0 +1,12 @@
+[package]
+name = "from_hashmap"
+version = "0.1.0"
+authors = ["Casey Primozic <me@ameo.link>"]
+description = "Defines a procedural macro to build a struct from a HashMap containing values for its fields"
+
+[dependencies]
+syn = "0.10"
+quote = "0.3"
+
+[lib]
+proc-macro = true
