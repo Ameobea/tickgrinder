@@ -1,4 +1,4 @@
-//! A TickGenerator that reads historical ticks out of CSV files.
+//! A `TickGenerator` that reads historical ticks out of CSV files.
 
 use std::path::PathBuf;
 use std::fs::File;
@@ -32,7 +32,7 @@ impl TickGenerator for FlatfileReader {
         let mut _got_mail = got_mail.clone();
         let _internal_message = internal_message.clone();
         let symbol = self.symbol.clone();
-        let start_time = self.start_time.clone();
+        let start_time = self.start_time;
         let reader_handle = thread::spawn(move || {
             // open the file and get an iterator over its lines set to the starting point
             let iter_ = init_reader(&symbol);

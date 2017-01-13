@@ -9,9 +9,8 @@ use serde_json;
 use tickgrinder_util::trading::indicators::*;
 use tickgrinder_util::trading::tick::*;
 use tickgrinder_util::transport::postgres::*;
-#[allow(unused_imports)]
-use tickgrinder_util::trading::datafield::DataField;
-use tickgrinder_util::trading::trading_condition::*;
+// use tickgrinder_util::trading::datafield::DataField;
+// use tickgrinder_util::trading::trading_condition::*;
 
 /// Alteration of a simple moving average using ticks as input where the prices in a time frame
 /// are weighted by the time the price stayed at that level before changing.

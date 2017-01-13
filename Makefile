@@ -122,8 +122,9 @@ test:
 	cd tick_parser && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd backtester && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd mm && npm install
+	cd private && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
 	cd private && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
-	cp private/target/release/libprivate.so dist/lib
+	cp private/target/debug/libprivate.so dist/lib
 	cd util/src/trading/broker/shims/FXCM/native && LD_LIBRARY_PATH=native/dist:../../../../../../target/debug/deps \
 		RUSTFLAGS="-L ../../../../../../target/debug/deps -L ../../../../../../../dist/lib -C prefer-dynamic" cargo test -- --nocapture
 	cd data_downloaders/fxcm_native && LD_LIBRARY_PATH="../../dist/lib" RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
@@ -142,7 +143,7 @@ bench:
 	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
 	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
 	cd util/src/trading/broker/shims/FXCM/native && cargo build --release
-	cp util/src/trading/broker/shims/FXCM/native/target/debug/libfxcm.so dist/lib
+	cp util/src/trading/broker/shims/FXCM/native/target/release/libfxcm.so dist/lib
 
 	cd optimizer && LD_LIBRARY_PATH="../dist/lib" cargo bench
 	cd logger && LD_LIBRARY_PATH="../dist/lib" cargo bench

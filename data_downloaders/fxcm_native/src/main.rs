@@ -20,7 +20,6 @@ use std::thread;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Sender};
 use std::ffi::CString;
-use std::mem::transmute;
 use std::fs::{File, OpenOptions};
 use std::path::Path;
 use std::io::prelude::*;
@@ -274,7 +273,7 @@ impl DataDownloader {
 
 #[no_mangle]
 pub extern fn handler(tx_ptr: *mut c_void, timestamp: uint64_t, bid: c_double, ask: c_double) {
-    let sender: &Sender<CTick> = unsafe { transmute(tx_ptr) };
+    let sender: &Sender<CTick> = unsafe { &*(tx_ptr as *const std::sync::mpsc::Sender<CTick>) };
     let _ = sender.send( CTick{
         timestamp: timestamp,
         bid: bid,
@@ -382,7 +381,7 @@ pub fn get_rx_closure(dst: HistTickDst) -> Result<RxCallback, String> {
                 return Err(String::from("Unable to connect to PostgreSQL!"))
             }
             let connection = connection_opt.unwrap();
-            let _ = try!(init_hist_data_table(table.as_str(), &connection, CONF.postgres_user));
+            try!(init_hist_data_table(table.as_str(), &connection, CONF.postgres_user));
             let mut qs = QueryServer::new(10);
 
             let mut inner_buffer = Vec::with_capacity(5000);
@@ -408,7 +407,7 @@ pub fn get_rx_closure(dst: HistTickDst) -> Result<RxCallback, String> {
         },
     };
 
-    return Ok(cb);
+    Ok(cb)
 }
 
 pub struct RxCallback {

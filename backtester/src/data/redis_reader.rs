@@ -1,4 +1,4 @@
-//! A TickGenerator that reads ticks out of a Redis channel.
+//! A `TickGenerator` that reads ticks out of a Redis channel.
 
 use std::thread;
 

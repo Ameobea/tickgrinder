@@ -74,8 +74,8 @@ fn main() {
     let uuid: Uuid;
     let symbol: String;
 
-    match args.as_slice() {
-        &[_, ref uuid_str, ref symbol_str] => {
+    match *args.as_slice() {
+        [_, ref uuid_str, ref symbol_str] => {
             uuid = Uuid::parse_str(uuid_str.as_str())
                 .expect("Unable to parse Uuid from supplied argument");
             symbol = symbol_str.to_string();

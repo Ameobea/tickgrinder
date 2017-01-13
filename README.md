@@ -1,4 +1,6 @@
 # TickGrinder Algorithmic Trading Platform
+
+[![Join the chat at https://gitter.im/TickGrinder/Lobby](https://badges.gitter.im/TickGrinder/Lobby.svg)](https://gitter.im/TickGrinder/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 ![](https://camo.githubusercontent.com/79318781f189b2ee91c3a150bf27813c386afaf2/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f72757374632d6e696768746c792d79656c6c6f772e737667)
 ![](https://tokei.rs/b1/github/Ameobea/tickgrinder)
 ![](https://tokei.rs/b1/github/Ameobea/tickgrinder?category=files)

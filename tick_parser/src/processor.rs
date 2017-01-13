@@ -68,10 +68,10 @@ impl Processor {
                 Response::Info{info: "Tick Processor".to_string()}
             },
             Command::AddCondition{condition_string} => {
-                Response::Ok
+                unimplemented!();
             },
             Command::RemoveCondition{condition_string} => {
-                Response::Ok
+                unimplemented!();
             },
             Command::ListConditions => {
                 unimplemented!();

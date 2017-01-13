@@ -67,7 +67,7 @@ pub fn check_mail(got_mail: &AtomicBool, message: &Mutex<BacktestCommand>) -> bo
     false
 }
 
-/// Spawns the thread that listens for new BacktestCommands and relays them
+/// Spawns the thread that listens for new `BacktestCommand`s and relays them
 /// internally to the worker thread.
 pub fn spawn_listener_thread(
     got_mail: Arc<AtomicBool>, cmd_handle: CommandStream,

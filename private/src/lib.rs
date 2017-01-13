@@ -1,6 +1,6 @@
 //! Private data directory for the platform.  See README.md for more information.
 
-#![feature(test, plugin, proc_macro, custom_derive, conservative_impl_trait)]
+#![feature(test, plugin, custom_derive, conservative_impl_trait)]
 
 extern crate test;
 extern crate postgres;

@@ -131,7 +131,7 @@ fn switch_categories(s: &mut Cursive, new_page: &SettingsPage, settings: Setting
     // blank out the comment
     set_directory_comment(None, s);
     let lv: &mut ListView = s.find_id("directory-lv").expect("directory-lv not found");
-    populate_list_view(&new_page, lv, settings.clone());
+    populate_list_view(new_page, lv, settings.clone());
     let i = get_page_index(new_page.name)
         .expect("Unable to lookup page!");
     settings.set("last-page", &i.to_string());
@@ -148,7 +148,8 @@ fn get_page_index(page_name: &str) -> Option<usize> {
     None
 }
 
-/// Takes a SettingsPage and ListView and fills the ListView with the SettingRows contained inside the SettingsPage.
+/// Takes a `SettingsPage` and `ListView` and fills the `ListView` with the `SettingRow`s contained
+/// inside the `SettingsPage`.
 fn populate_list_view(page: &SettingsPage, lv: &mut ListView, settings: Settings) {
     lv.clear();
     for row in page.iter() {
@@ -164,19 +165,18 @@ fn populate_list_view(page: &SettingsPage, lv: &mut ListView, settings: Settings
     }
 }
 
-/// Returns true if the values any of the EditViews with IDs corresponding to the SettingsRows from the given page
-/// differ from the default values for that page.
+/// Returns true if the values any of the `EditView`s with IDs corresponding to the `SettingsRow`s
+/// from the given page differ from the default values for that page.
 fn check_changes(s: &mut Cursive, page: &SettingsPage, settings: Settings) -> bool {
     for row in page.iter() {
         let cur_val = get_by_id(row.id, s)
             .expect(&format!("Unable to get {} by id!", row.id));
         let last_val_opt = settings.get(String::from(row.id));
-        let last_val;
-        if last_val_opt.is_none() {
-            last_val = String::from(row.default.expect(&format!("No past val for {} and no default!", row.id)));
+        let last_val = if last_val_opt.is_none() {
+            String::from(row.default.expect(&format!("No past val for {} and no default!", row.id)))
         } else {
-            last_val = last_val_opt.unwrap();
-        }
+            last_val_opt.unwrap()
+        };
         if last_val != *cur_val {
             return true
         }

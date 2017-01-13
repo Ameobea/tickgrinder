@@ -11,6 +11,5 @@ pub use self::sma_cross::SmaCross as ActiveStrategy;
 
 // Returns K:V settings to be sent to the broker during initialization
 pub fn get_broker_settings() -> HashMap<String, String> {
-    let mut m = HashMap::new();
-    m
+    HashMap::new() // TODO
 }

@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::ptr::drop_in_place;
 use std::thread;
-use std::mem::{self, transmute};
+use std::mem;
 use std::slice;
 use std::str;
 use std::sync::Mutex;
@@ -81,18 +81,18 @@ fn free(ptr: *mut c_void) {
     unsafe { drop_in_place(ptr) };
 }
 
-/// Processes received messages from the broker server and converts them into BrokerResults that can be fed to the
+/// Processes received messages from the broker server and converts them into `BrokerResult`s that can be fed to the
 /// stream returned by `get_stream`.
 extern fn handle_message(env_ptr: *mut c_void, message: *mut ServerMessage) {
     unsafe {
-        let state: &mut HandlerState = transmute(env_ptr);
-        let mut sender = &mut state.sender;
+        let state = &mut *(env_ptr as *mut helper_objects::HandlerState);
+        let sender = &mut state.sender;
         let res: Option<BrokerResult> = match (*message).response {
             ServerResponse::POSITION_OPENED => {
                 unimplemented!();
             },
             ServerResponse::PONG => {
-                let micros: &u64 = transmute((*message).payload);
+                let micros: &u64 = &*((*message).payload as *const u64);
                 let msg = BrokerMessage::Pong{time_received: *micros};
                 Some(Ok(msg))
             },
@@ -134,7 +134,7 @@ extern fn handle_message(env_ptr: *mut c_void, message: *mut ServerMessage) {
 }
 
 extern fn log_cb(env_ptr: *mut c_void, msg: *mut c_char, severity: CLogLevel) {
-    let mut cs: &mut CommandServer = unsafe { transmute(env_ptr) };
+    let mut cs: &mut CommandServer = unsafe { &mut *(env_ptr as *mut CommandServer) };
     let msg = unsafe { ptr_to_cstring(msg) };
     let loglevel = severity.convert();
 
@@ -147,10 +147,10 @@ extern fn log_cb(env_ptr: *mut c_void, msg: *mut c_char, severity: CLogLevel) {
 }
 
 extern fn tick_cb(env_ptr: *mut c_void, cst: CSymbolTick) {
-    let ts_amtx: &mut Mutex<Tickstream> = unsafe { transmute(env_ptr) };
+    let ts_amtx: &mut Mutex<Tickstream> = unsafe { &mut *(env_ptr as *mut Mutex<helper_objects::Tickstream>) };
     let mut ts = ts_amtx.lock().unwrap();
 
-    for &mut SubbedPair{symbol, ref mut sender, decimals} in ts.subbed_pairs.iter_mut() {
+    for &mut SubbedPair{symbol, ref mut sender, decimals} in &mut ts.subbed_pairs {
         if unsafe { libc::strcmp(symbol, cst.symbol) } == 0 {
             // convert the CSymbolTick to a Tick using the stored decimal precision
             sender.send(cst.to_tick(decimals)).unwrap();
@@ -159,7 +159,7 @@ extern fn tick_cb(env_ptr: *mut c_void, cst: CSymbolTick) {
     }
 }
 
-/// Takes a pointer to a string from C and copies it into a Rust-owned CString.
+/// Takes a pointer to a string from C and copies it into a Rust-owned `CString`.
 unsafe fn ptr_to_cstring(ptr: *mut c_char) -> CString {
     // expect that no strings are longer than 100000 bytes
     let end_ptr = memchr(ptr as *const c_void, 0, 100000);
@@ -184,10 +184,10 @@ impl Broker for FXCMNative {
 
             let boxed_cs = Box::new(cs.clone());
             let env_ptr = Box::into_raw(boxed_cs) as *const _ as *mut c_void;
-            let env_ptr_ship = Spaceship(env_ptr.clone());
+            let env_ptr_ship = Spaceship(env_ptr);
 
             let server_environment: *mut c_void = unsafe { init_server_environment(Some(handle_message), handler_env_ptr, Some(log_cb), env_ptr) };
-            let ship = Spaceship(server_environment.clone());
+            let ship = Spaceship(server_environment);
 
             thread::spawn(move || {
                 match login(env_ptr_ship.0) {
@@ -256,9 +256,9 @@ impl Broker for FXCMNative {
 
     fn get_stream(&mut self) -> Result<UnboundedReceiver<BrokerResult>, BrokerError> {
         if self.raw_rx.is_some() {
-            return Ok(mem::replace::<Option<UnboundedReceiver<BrokerResult>>>(&mut self.raw_rx, None).unwrap())
+            Ok(mem::replace::<Option<UnboundedReceiver<BrokerResult>>>(&mut self.raw_rx, None).unwrap())
         } else {
-            return Err(BrokerError::Message{message: String::from("The stream for this broker has already been taken.")})
+            Err(BrokerError::Message{message: String::from("The stream for this broker has already been taken.")})
         }
     }
 
@@ -345,9 +345,9 @@ fn login(log_env: *mut c_void) -> Result<*mut c_void, String> {
 
     let res = unsafe { fxcm_login(username.as_ptr(), password.as_ptr(), url.as_ptr(), false, Some(log_cb), log_env) };
     if res.is_null() {
-        return Err(String::from("The external login function returned NULL; the FXCM servers are likely down."))
+        Err(String::from("The external login function returned NULL; the FXCM servers are likely down."))
     } else {
-        return Ok(res)
+        Ok(res)
     }
 }
 

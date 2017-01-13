@@ -150,7 +150,7 @@ fn level_to_int(level: LogLevel) -> u8 {
 }
 
 /// Escapes a string so it can be made suitable for insertion into a query
-fn escape(unescaped: &String) -> String {
+fn escape(unescaped: &str) -> String {
     unescaped.replace("'", "''")
 }
 
@@ -158,8 +158,8 @@ fn main() {
     let args = env::args().collect::<Vec<String>>();
     let uuid: Uuid;
 
-    match args.as_slice() {
-        &[_, ref uuid_str] => {
+    match *args.as_slice() {
+        [_, ref uuid_str] => {
             uuid = Uuid::parse_str(uuid_str.as_str())
                 .expect("Unable to parse Uuid from supplied argument");
         },

@@ -30,7 +30,7 @@ impl TickGenerator for PostgresReader {
 
         let _got_mail = got_mail.clone();
         let symbol = self.symbol.clone();
-        let start_time = self.start_time.clone();
+        let start_time = self.start_time;
         let reader_handle = thread::spawn(move || {
             let conn_opt = get_client();
             if conn_opt.is_err() {

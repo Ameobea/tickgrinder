@@ -25,7 +25,7 @@ fn get_chan_message(ps: &redis::PubSub) -> (String, String) {
     (channel, message)
 }
 
-/// Recursively call get_message and send the results over tx
+/// Recursively call `get_message` and send the results over tx
 fn get_message_outer(tx: &mut UnboundedSender<String>, ps: &redis::PubSub) {
     // block until a new message is received
     let res = get_message(ps);
@@ -34,7 +34,7 @@ fn get_message_outer(tx: &mut UnboundedSender<String>, ps: &redis::PubSub) {
     let _ = tx.send(res);
 }
 
-/// Recursively call get_message and send the (channel, message) over tx
+/// Recursively call `get_message` and send the (channel, message) over tx
 fn get_chan_message_outer (tx: &mut UnboundedSender<(String, String)>, ps: &redis::PubSub) {
     // block until a new message is received
     let res = get_chan_message(ps);

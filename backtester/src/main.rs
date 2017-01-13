@@ -47,8 +47,8 @@ fn main() {
     let args = env::args().collect::<Vec<String>>();
     let uuid: Uuid;
 
-    match args.as_slice() {
-        &[_, ref uuid_str] => {
+    match *args.as_slice() {
+        [_, ref uuid_str] => {
             uuid = Uuid::parse_str(uuid_str.as_str())
                 .expect("Unable to parse Uuid from supplied argument");
         },
@@ -118,12 +118,12 @@ impl Backtester {
         let rx = sub_multiple(
             CONF.redis_host, &[CONF.redis_control_channel, self.uuid.hyphenated().to_string().as_str()]
         );
-        let mut redis_client = get_client(CONF.redis_host);
+        let redis_client = get_client(CONF.redis_host);
         let mut copy = self.clone();
 
         // Signal to the platform that we're ready to receive commands
         let _ = send_command(&WrappedCommand::from_command(
-            Command::Ready{instance_type: "Backtester".to_string(), uuid: self.uuid}), &mut redis_client, "control"
+            Command::Ready{instance_type: "Backtester".to_string(), uuid: self.uuid}), &redis_client, "control"
         );
 
         for res in rx.wait() {
@@ -219,7 +219,7 @@ impl Backtester {
             redis::cmd("PUBLISH")
                 .arg(CONF.redis_responses_channel)
                 .arg(res.wrap(wr_cmd.uuid).to_string().unwrap().as_str())
-                .execute(&mut redis_client);
+                .execute(&redis_client);
             // TODO: Test to make sure this actually works
         }
     }
@@ -242,11 +242,11 @@ impl Backtester {
 
         // modify the source tickstream to add delay between the ticks or add some other kind of
         // advanced functionality to the way they're outputted
-        let tickstream: Result<UnboundedReceiver<Tick>, String> = match &definition.backtest_type {
-            &BacktestType::Fast{delay_ms} => src.get(
+        let tickstream: Result<UnboundedReceiver<Tick>, String> = match definition.backtest_type {
+            BacktestType::Fast{delay_ms} => src.get(
                 Box::new(FastMap{delay_ms: delay_ms}), handle_rx
             ),
-            &BacktestType::Live => src.get(Box::new(LiveMap::new()), handle_rx),
+            BacktestType::Live => src.get(Box::new(LiveMap::new()), handle_rx),
         };
 
         if tickstream.is_err() {
@@ -254,13 +254,13 @@ impl Backtester {
         }
 
         // create a TickSink that receives the output of the backtest
-        let dst_opt: Result<Box<TickSink + Send>, Uuid> = match &definition.data_dest {
-            &DataDest::RedisChannel{ref host, ref channel} => {
+        let dst_opt: Result<Box<TickSink + Send>, Uuid> = match definition.data_dest {
+            DataDest::RedisChannel{ref host, ref channel} => {
                 Ok(Box::new(RedisSink::new(definition.symbol.clone(), channel.clone(), host.as_str())))
             },
-            &DataDest::Console => Ok(Box::new(ConsoleSink{})),
-            &DataDest::Null => Ok(Box::new(NullSink{})),
-            &DataDest::SimBroker{uuid} => Err(uuid),
+            DataDest::Console => Ok(Box::new(ConsoleSink{})),
+            DataDest::Null => Ok(Box::new(NullSink{})),
+            DataDest::SimBroker{uuid} => Err(uuid),
         };
 
         let _definition = definition.clone();
@@ -326,18 +326,18 @@ impl Backtester {
     /// Removes a stopped backtest from the internal running backtest list
     pub fn remove_backtest(&mut self, uuid: &Uuid) {
         let mut handles = self.running_backtests.lock().unwrap();
-        handles.remove(&uuid);
+        handles.remove(uuid);
     }
 
     /// Sends a command to a managed backtest
     pub fn send_backtest_cmd(&mut self, uuid: &Uuid, cmd: BacktestCommand) -> Result<(), ()> {
         let handles = self.running_backtests.lock().unwrap();
-        let handle = handles.get(&uuid);
+        let handle = handles.get(uuid);
 
         if handle.is_none() {
             return Err(());
         }
-        let ref sender = handle.unwrap().handle;
+        let sender = &handle.unwrap().handle;
         sender.send(cmd)
             .expect("The receiver corresponding to the sender in the backtest handle seems to have been dropped.");
 
@@ -345,24 +345,24 @@ impl Backtester {
     }
 }
 
-/// Creates a TickGenerator from a DataSource and symbol String
+/// Creates a `TickGenerator` from a `DataSource` and symbol String
 pub fn resolve_data_source(data_source: &DataSource, symbol: String, start_time: Option<usize>) -> Box<TickGenerator> {
-    match data_source {
-        &DataSource::Flatfile => {
+    match *data_source {
+        DataSource::Flatfile => {
             Box::new(FlatfileReader{
                 symbol: symbol.clone(),
                 start_time: start_time,
             }) as Box<TickGenerator>
         },
-        &DataSource::RedisChannel{ref host, ref channel} => {
+        DataSource::RedisChannel{ref host, ref channel} => {
             Box::new(
                 RedisReader::new(symbol.clone(), host.clone(), channel.clone())
             ) as Box<TickGenerator>
         },
-        &DataSource::Random => {
+        DataSource::Random => {
             Box::new(RandomReader::new(symbol.clone())) as Box<TickGenerator>
         },
-        &DataSource::Postgres => {
+        DataSource::Postgres => {
             Box::new(PostgresReader {symbol: symbol, start_time: start_time} )
         },
     }
@@ -372,11 +372,8 @@ pub fn resolve_data_source(data_source: &DataSource, symbol: String, start_time:
 fn check_early_exit (
     t: &Tick, def: &BacktestDefinition, i: usize
 ) -> bool {
-    if def.max_tick_n.is_some() &&
-       def.max_tick_n.unwrap() <= i {
-        return true
-    } else if def.max_timestamp.is_some() &&
-              def.max_timestamp.unwrap() <= t.timestamp {
+    if (def.max_tick_n.is_some() && def.max_tick_n.unwrap() <= i) ||
+            (def.max_timestamp.is_some() && def.max_timestamp.unwrap() <= t.timestamp) {
         return true
     }
 

@@ -62,7 +62,7 @@ fn directory_exit(s: &mut Cursive, settings: Settings) {
     );
 }
 
-/// Returns the content of the EditView with the given ID.
+/// Returns the content of the `EditView` with the given ID.
 fn get_by_id(id: &str, s: &mut Cursive) -> Option<Rc<String>> {
     match s.find_id::<EditView>(id) {
         Some(container) => Some(container.get_content()),
@@ -105,24 +105,23 @@ fn first_time(siv: &mut Cursive) {
 /// Checks if we think libboost is installed and lets the user know.
 fn boost_config(s: &mut Cursive, settings: Settings) {
     s.pop_layer();
-    let content: &str;
-    if libboost_detected() {
-        content = indoc!(
+    let content = if libboost_detected() {
+        indoc!(
             "From what I can see, libboost is installed on this system.  Boost is required for this platform's C++ \
             FFI components.
 
             If it's true that you have it installed (`sudo apt-get install libboost-all-dev`) then \
             you can proceed with the installation.  If not, please install it before continuing."
-        );
+        )
     } else {
-        content = indoc!(
+        indoc!(
             "I was unable to detect the boot library on your computer.  It's possible that it's installed and that I \
             simply can't see it.
 
             However, if you haven't already installed libboost (`sudo apt-get install \
             libboost-all-dev`), please install it before continuing."
-        );
-    }
+        )
+    };
 
     let dialog = Dialog::around(TextView::new(content))
         .button("Proceed", move |s| {
@@ -324,9 +323,7 @@ fn set_data_dir(s: &mut Cursive, settings: Settings) {
 
 /// Runs `which [command]` and returns true if the binary is located.
 fn is_installed(binary: &str) -> bool {
-    let res = which(binary);
-
-    res.len() > 0
+    !which(binary).is_empty()
 }
 
 fn which(binary: &str) -> String {

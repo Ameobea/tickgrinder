@@ -16,23 +16,17 @@ extern crate fxcm;
 
 extern crate tickgrinder_util;
 
-use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
 use std::env;
 
 use uuid::Uuid;
-use futures::Future;
 use futures::stream::Stream;
 
-use tickgrinder_util::trading::broker::Broker;
-use tickgrinder_util::transport::redis::*;
 use tickgrinder_util::transport::commands::*;
+use tickgrinder_util::transport::redis::*;
 use tickgrinder_util::transport::command_server::CommandServer;
-use tickgrinder_util::transport::query_server::QueryServer;
-use tickgrinder_util::strategies::Strategy;
 use tickgrinder_util::conf::CONF;
-use fxcm::FXCMNative;
 
 struct Optimizer {
     cs: CommandServer,
@@ -41,7 +35,7 @@ struct Optimizer {
 
 impl Optimizer {
     pub fn new(uuid: Uuid) -> Optimizer {
-        let cs = CommandServer::new(uuid.clone(), "Optimizer");
+        let cs = CommandServer::new(uuid, "Optimizer");
         Optimizer {
             cs: cs,
             uuid: uuid,
@@ -50,9 +44,9 @@ impl Optimizer {
 
     pub fn init(mut self) {
         // initialize the strategy
-        let query_server = QueryServer::new(CONF.conn_senders);
-        let mut broker = FXCMNative::init(HashMap::new()).wait();
-        let cs = self.cs.clone();
+        // let query_server = QueryServer::new(CONF.conn_senders);
+        // let broker = FXCMNative::init(HashMap::new()).wait();
+        // let cs = self.cs.clone();
         // thread::spawn(move || {
         //     let mut strat = strat::new(cs, query_server, &mut broker);
         //     strat.init();
@@ -83,10 +77,10 @@ impl Optimizer {
     }
 
     fn get_response(&mut self, cmd: &Command) -> Response {
-        match cmd {
-            &Command::Ping => Response::Pong{ args: vec![self.uuid.hyphenated().to_string()] },
-            &Command::Type => Response::Info{ info: "Optimizer".to_string() },
-            &Command::Kill => {
+        match *cmd {
+            Command::Ping => Response::Pong{ args: vec![self.uuid.hyphenated().to_string()] },
+            Command::Type => Response::Info{ info: "Optimizer".to_string() },
+            Command::Kill => {
                 thread::spawn(|| {
                     thread::sleep(Duration::from_secs(3));
                     println!("Optimizer shutting down now.");
@@ -102,8 +96,8 @@ fn main() {
     let args = env::args().collect::<Vec<String>>();
     let uuid: Uuid;
 
-    match args.as_slice() {
-        &[_, ref uuid_str] => {
+    match *args.as_slice() {
+        [_, ref uuid_str] => {
             uuid = Uuid::parse_str(uuid_str.as_str())
                 .expect("Unable to parse Uuid from supplied argument");
         },

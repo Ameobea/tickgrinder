@@ -1,4 +1,4 @@
-//! A TickGenerator that generates random ticks.
+//! A `TickGenerator` that generates random ticks.
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver};
 use tickgrinder_util::trading::tick::Tick;

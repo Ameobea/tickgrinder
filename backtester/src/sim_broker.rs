@@ -22,7 +22,7 @@ pub use tickgrinder_util::trading::broker::*;
 use tickgrinder_util::trading::trading_condition::*;
 use tickgrinder_util::transport::command_server::CommandServer;
 
-/// Contains a stream that yeilds the ticks that power the SimBroker as well as some
+/// Contains a stream that yeilds the ticks that power the `SimBroker` as well as some
 /// metadata about the data source.
 pub struct InputTickstream {
     /// The stream that actually yeilds the ticks
@@ -171,7 +171,7 @@ impl Broker for SimBroker {
 impl SimBroker {
     /// Sends a message over the broker's push channel
     pub fn push_msg(&self, msg: BrokerResult) {
-        let ref sender = self.push_stream_handle;
+        let sender = &self.push_stream_handle;
         sender.send(msg).expect("Unable to push_msg");
     }
 
@@ -206,8 +206,8 @@ impl SimBroker {
 
     /// actually executes an action sent to the SimBroker
     pub fn exec_action(&mut self, cmd: &BrokerAction) -> BrokerResult {
-        match cmd {
-            &BrokerAction::TradingAction{action: TradingAction::MarketOrder{
+        match *cmd {
+            BrokerAction::TradingAction{action: TradingAction::MarketOrder{
                 account, ref symbol, long, size, stop, take_profit, max_range
             }} => {
                 let timestamp = self.get_timestamp();
@@ -231,14 +231,9 @@ impl SimBroker {
             return Err(BrokerError::NoSuchSymbol)
         }
         let (bid, ask) = opt.unwrap();
-        let is_fx = self.tick_receivers.get(symbol).unwrap().is_fx;
+        let is_fx = self.tick_receivers[symbol].is_fx;
 
-        let cur_price;
-        if long {
-            cur_price = ask;
-        } else {
-            cur_price = bid;
-        }
+        let cur_price = if long { ask } else { bid };
 
         let pos = Position {
             creation_time: timestamp,
@@ -254,24 +249,23 @@ impl SimBroker {
             exit_time: None,
         };
 
-        let open_cost;
-        if is_fx {
+        let open_cost = if is_fx {
             let primary_currency = &symbol[0..3];
             let base_rate = try!(self.get_base_rate(primary_currency));
-            open_cost = (size * base_rate) / self.settings.leverage;
+            (size * base_rate) / self.settings.leverage
         } else {
-            open_cost = size / self.settings.leverage;
-        }
+            size / self.settings.leverage
+        };
 
         let mut accounts = self.accounts.lock().unwrap();
         let account_ = accounts.entry(account_id);
         match account_ {
             Entry::Occupied(mut occ) => {
                 let mut account = occ.get_mut();
-                return account.ledger.open_position(pos, open_cost);
+                account.ledger.open_position(pos, open_cost)
             },
             Entry::Vacant(_) => {
-                return Err(BrokerError::NoSuchAccount);
+                Err(BrokerError::NoSuchAccount)
             }
         }
     }
@@ -294,7 +288,7 @@ impl SimBroker {
             });
         }
 
-        let ref base_currency = self.settings.fx_base_currency;
+        let base_currency = &self.settings.fx_base_currency;
         let base_pair = format!("{}{}", symbol, base_currency);
 
         let (bid, ask) = match self.get_price(&base_pair) {
@@ -379,11 +373,11 @@ impl SimBroker {
             let (bid, ask) = (bid_atom.load(Ordering::Relaxed), ask_atom.load(Ordering::Relaxed));
             let mut satisfied_pendings = Vec::new();
 
-            for (pos_id, pos) in acct.ledger.pending_positions.iter() {
+            for (pos_id, pos) in &acct.ledger.pending_positions {
                 let satisfied = pos.is_open_satisfied(bid, ask);
                 // market conditions have changed and this position should be opened
                 if pos.symbol == symbol && satisfied.is_some() {
-                    satisfied_pendings.push( (pos_id.clone(), satisfied) );
+                    satisfied_pendings.push( (*pos_id, satisfied) );
                 }
             }
 
@@ -403,11 +397,11 @@ impl SimBroker {
             }
 
             let mut satisfied_opens = Vec::new();
-            for (pos_id, pos) in acct.ledger.open_positions.iter() {
+            for (pos_id, pos) in &acct.ledger.open_positions {
                 let satisfied = pos.is_close_satisfied(bid, ask);
                 // market conditions have changed and this position should be closed
                 if pos.symbol == symbol && satisfied.is_some() {
-                    satisfied_opens.push( (pos_id.clone(), satisfied) );
+                    satisfied_opens.push( (*pos_id, satisfied) );
                 }
             }
 
@@ -436,9 +430,10 @@ impl SimBroker {
     ) -> Result<(), String> {
         // wire the tickstream so that the broker updates its own prices before sending the
         // price updates off to the client
-        let price_arc = self.prices.entry(symbol.clone()).or_insert(
-            Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)))
-        ).clone();
+        let price_arc = self.prices.entry(symbol.clone())
+            .or_insert_with(|| {
+                Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)))
+            }).clone();
 
         // wire the tickstream so that the broker updates its own prices before sending the
         // price updates off to the client

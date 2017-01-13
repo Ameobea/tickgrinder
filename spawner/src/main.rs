@@ -47,7 +47,7 @@ impl InstanceManager {
     pub fn new() -> InstanceManager {
         let uuid = Uuid::new_v4();
         InstanceManager {
-            uuid: uuid.clone(),
+            uuid: uuid,
             living: Arc::new(Mutex::new(Vec::new())),
             cs: CommandServer::new(uuid, "Spawner"),
         }
@@ -111,7 +111,7 @@ impl InstanceManager {
             // blocks until all instances return their expected responses or time out
             let responses = self.ping_all().wait().ok().unwrap();
 
-            let dead_uuid_outer = self.get_missing_instance(responses);
+            let dead_uuid_outer = self.get_missing_instance(responses.as_slice());
             if dead_uuid_outer.is_some() {
                 let dead_instance = dead_uuid_outer.unwrap();
                 println!("Instance {:?} is unresponseive; attempting respawn", dead_instance);
@@ -148,15 +148,15 @@ impl InstanceManager {
     }
 
     /// Returns the uuid of the first missing instance
-    fn get_missing_instance(&self, responses: Vec<Response>) -> Option<Instance> {
+    fn get_missing_instance(&self, responses: &[Response]) -> Option<Instance> {
         let assumed_living = self.living.lock().unwrap();
 
         // check to make sure that each expected instance is in the responses
-        for inst in (*assumed_living).iter() {
+        for inst in &*assumed_living {
             let mut present = false;
-            for res in responses.iter() {
-                match res {
-                    &Response::Pong{ref args} => {
+            for res in responses {
+                match *res {
+                    Response::Pong{ref args} => {
                         if args.len() < 1 {
                             println!("Malformed Pong received: {:?}", args);
                         } else if inst.uuid.hyphenated().to_string() == args[0] {
@@ -182,7 +182,7 @@ impl InstanceManager {
     /// Starts listening for new commands on the control channel
     pub fn listen(&mut self) {
         let mut dup = self.clone();
-        let own_uuid = self.uuid.clone();
+        let own_uuid = self.uuid;
 
         thread::spawn(move || {
             // sub to spawer control channel and personal commands channel
@@ -195,7 +195,7 @@ impl InstanceManager {
                 CONF.redis_control_channel,
                 own_uuid.hyphenated().to_string().as_str()
             );
-            let mut redis_client = get_client(CONF.redis_host);
+            let redis_client = get_client(CONF.redis_host);
 
             let _ = cmds_rx.for_each(move |message| {
                 let (_, cmd_string) = message;
@@ -205,12 +205,12 @@ impl InstanceManager {
                         let (c, o) = oneshot::<Response>();
                         dup.handle_command(wr_cmd.cmd, c);
 
-                        let uuid = wr_cmd.uuid.clone();
+                        let uuid = wr_cmd.uuid;
                         let _ = o.and_then(|status: Response| {
                             redis::cmd("PUBLISH")
                                 .arg(CONF.redis_responses_channel)
                                 .arg(status.wrap(uuid).to_string().unwrap().as_str())
-                                .execute(&mut redis_client);
+                                .execute(&redis_client);
                             Ok(())
                         }).wait();
                     },
@@ -273,7 +273,7 @@ impl InstanceManager {
         }
 
         let res_string = format!("[{}]", partials.join(", "));
-        return Response::Info{info: res_string};
+        Response::Info{info: res_string}
     }
 
     /// Spawns a new MM server instance and inserts its Uuid into the living instances list
