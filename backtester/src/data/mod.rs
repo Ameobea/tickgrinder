@@ -40,6 +40,8 @@ pub trait TickGenerator {
         -> Result<UnboundedReceiver<Tick>, String>;
 }
 
+// TODO: Implement logging?
+
 /// Handles backtest messages within the backtest's worker thread.  If this returns true,
 /// it means the caller has to die.
 pub fn check_mail(got_mail: &AtomicBool, message: &Mutex<BacktestCommand>) -> bool {
@@ -56,7 +58,8 @@ pub fn check_mail(got_mail: &AtomicBool, message: &Mutex<BacktestCommand>) -> bo
     match cur_command {
         BacktestCommand::Pause => thread::park(),
         BacktestCommand::Stop => return true,
-        _ => println!("Backtest worker can't handle command: {:?}", cur_command),
+        // _ => println!("Backtest worker can't handle command: {:?}", cur_command),
+        _ => (),
     }
 
     got_mail.store(false, Ordering::Relaxed);
@@ -73,7 +76,7 @@ pub fn spawn_listener_thread(
     thread::spawn(move || {
         // block until new backtest command received
         for cmd in cmd_handle.iter() {
-            println!("Received backtest command: {:?}", cmd);
+            // println!("Received backtest command: {:?}", cmd);
             match cmd {
                 BacktestCommand::Stop | BacktestCommand::Pause => {
                     let mut lock = internal_message.lock().unwrap();
@@ -81,7 +84,6 @@ pub fn spawn_listener_thread(
                     got_mail.store(true, Ordering::Relaxed);
                 },
                 BacktestCommand::Resume => reader_handle.unpark(),
-                // _ => println!("Commmand not implemented by Flatfile Reader: {:?}", cmd),
             }
         }
     });

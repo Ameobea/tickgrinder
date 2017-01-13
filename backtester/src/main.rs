@@ -131,7 +131,7 @@ impl Backtester {
             let wr_cmd = match WrappedCommand::from_str(msg.as_str()) {
                 Ok(wr) => wr,
                 Err(e) => {
-                    println!("Unable to parse WrappedCommand from String: {:?}", e);
+                    self.cs.error(Some("CommandProcessing"), &format!("Unable to parse WrappedCommand from String: {:?}", e));
                     return;
                 }
             };
@@ -228,8 +228,8 @@ impl Backtester {
     fn start_backtest(
         &mut self, definition: BacktestDefinition) -> Result<Uuid, String>
     {
-        println!("Starting backtest: ");
-        println!("{:?}", definition);
+        let msg = format!("Starting backtest with definition: {:?}", definition);
+        self.cs.notice(None, &msg);
         // Create the TickGenerator that provides the backtester with data
         let mut src: Box<TickGenerator> = resolve_data_source(
             &definition.data_source, definition.symbol.clone(), definition.start_time
@@ -268,6 +268,7 @@ impl Backtester {
         let uuid = Uuid::new_v4();
 
         // initiate tick flow
+        let mut csc = self.cs.clone();
         if dst_opt.is_ok() {
             let mut dst = dst_opt.unwrap();
             thread::spawn(move || {
@@ -280,12 +281,13 @@ impl Backtester {
                             dst.tick(t);
 
                             if check_early_exit(&t, &_definition, i) {
-                                println!("Backtest exiting early.");
+                                let msg = "Backtest early exit condition true; exiting backtest.";
+                                csc.notice(None, msg);
                                 return Err(())
                             }
                         },
                         Err(_) => {
-                            println!("Stopping backtest because tickstream has ended");
+                            csc.notice(None, "Stopping backtest because tickstream has ended");
                             internal_handle_tx.send(BacktestCommand::Stop)
                                 .expect("Sending through the internal handle failed; tickstream dropped?");
                         }

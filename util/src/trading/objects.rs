@@ -50,16 +50,6 @@ pub enum BrokerMessage {
 }
 
 #[derive(Clone, Debug)]
-pub enum PositionClosureReason {
-    StopLoss,
-    TakeProfit,
-    MarginCall,
-    Expired,
-    FillOrKill,
-    MarketClose,
-}
-
-#[derive(Clone, Debug)]
 pub enum BrokerError {
     Message{message: String},
     Unimplemented{message: String}, // the broker under the wrapper can't do what you asked it
@@ -68,6 +58,17 @@ pub enum BrokerError {
     NoSuchAccount,
     NoSuchSymbol,
     InvalidModificationAmount,
+    NoDataAvailable,
+}
+
+#[derive(Clone, Debug)]
+pub enum PositionClosureReason {
+    StopLoss,
+    TakeProfit,
+    MarginCall,
+    Expired,
+    FillOrKill,
+    MarketClose,
 }
 
 /// The platform's internal representation of the current state of an account.
@@ -93,8 +94,8 @@ impl Ledger {
     /// Opens the supplied position in the ledger.  Returns an error if there are insufficient funds
     /// in the ledger to open the position in units of the base currency.
     ///
-    /// `position_value` is the dollar value of the position.
-    pub fn open_position(&mut self, pos: Position, position_value: usize) -> BrokerResult {
+    /// `margin_requirement` is the dollar value of the position * leverage.
+    pub fn open_position(&mut self, pos: Position, margin_requirement: usize) -> BrokerResult {
         let uuid = Uuid::new_v4();
         // we assume that the supplied execution time is valid here
         let execution_time = pos.execution_time.unwrap();
@@ -104,10 +105,10 @@ impl Ledger {
             })
         }
 
-        if position_value > self.balance {
+        if margin_requirement > self.balance {
             return Err(BrokerError::InsufficientBuyingPower)
         }
-        self.balance -= position_value;
+        self.balance -= margin_requirement;
 
         self.open_positions.insert(uuid, pos.clone());
         Ok(BrokerMessage::PositionOpened{
@@ -157,7 +158,7 @@ impl Ledger {
         }
 
         // everything seems to be in order, so do the modification
-        pos.size = ((pos.size as isize) + units) as u64;
+        pos.size = ((pos.size as isize) + units) as usize;
         self.balance -= modification_cost;
         self.open_positions.insert(uuid, pos.clone());
 
@@ -174,7 +175,7 @@ impl Ledger {
 pub struct Position {
     pub creation_time: u64,
     pub symbol: String,
-    pub size: u64,
+    pub size: usize,
     pub price: Option<usize>,
     pub long: bool,
     pub stop: Option<usize>,
@@ -261,8 +262,8 @@ pub struct SimBrokerSettings {
     pub fx_base_currency: String,
     /// For forex, the amount of units of currency in one lot.
     pub fx_lot_size: usize,
-    /// For forex, if true, calculates accurate position values by converting to the base currency.
-    /// If false, profits are calculated in pips and it is assumed that all
+    /// For forex, if true, calculates accurate position values by dynamically converting to the base
+    /// currency.  If false, the rate must be set before broker initialization.
     pub fx_accurate_pricing: bool,
 }
 

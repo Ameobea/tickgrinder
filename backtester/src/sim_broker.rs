@@ -42,7 +42,7 @@ pub struct SimBroker {
     pub settings: SimBrokerSettings,
     /// Streams that generate the ticks used to power the SimBroker
     /// They usually come from a backtest.
-    tick_receivers: HashMap<String, InputTickstream>,
+    pub tick_receivers: HashMap<String, InputTickstream>,
     /// Broker's view of prices in pips, determined by the `tick_receiver`s
     prices: HashMap<String, Arc<(AtomicUsize, AtomicUsize)>>,
     /// Timestamp of last price update received by broker
@@ -231,6 +231,7 @@ impl SimBroker {
             return Err(BrokerError::NoSuchSymbol)
         }
         let (bid, ask) = opt.unwrap();
+        let is_fx = self.tick_receivers.get(symbol).unwrap().is_fx;
 
         let cur_price;
         if long {
@@ -242,27 +243,35 @@ impl SimBroker {
         let pos = Position {
             creation_time: timestamp,
             symbol: symbol.clone(),
-            size: size as u64,
-            price: Some(cur_price as usize),
+            size: size,
+            price: Some(cur_price),
             long: long,
             stop: stop,
             take_profit: take_profit,
             execution_time: Some(timestamp + self.settings.execution_delay_ns as u64),
-            // TODO: Slippage?
-            execution_price: Some(cur_price as usize),
+            execution_price: Some(cur_price),
             exit_price: None,
             exit_time: None,
         };
+
+        let open_cost;
+        if is_fx {
+            let primary_currency = &symbol[0..3];
+            let base_rate = try!(self.get_base_rate(primary_currency));
+            open_cost = (size * base_rate) / self.settings.leverage;
+        } else {
+            open_cost = size / self.settings.leverage;
+        }
 
         let mut accounts = self.accounts.lock().unwrap();
         let account_ = accounts.entry(account_id);
         match account_ {
             Entry::Occupied(mut occ) => {
                 let mut account = occ.get_mut();
-                return account.ledger.open_position(pos, 0) // TODO: Use real values
+                return account.ledger.open_position(pos, open_cost);
             },
             Entry::Vacant(_) => {
-                return Err(BrokerError::NoSuchAccount)
+                return Err(BrokerError::NoSuchAccount);
             }
         }
     }
@@ -279,12 +288,70 @@ impl SimBroker {
     /// the supplied currency.  If the base currency is USD and AUD is provided, the exchange
     /// rate for AUD/USD will be returned.  Returns Err if we lack the data to do that.
     pub fn get_base_rate(&self, symbol: &str) -> Result<usize, BrokerError> {
-        unimplemented!(); // TODO
+        if !self.settings.fx {
+            return Err(BrokerError::Message{
+                message: String::from("Can only convert to base rate when in FX mode.")
+            });
+        }
+
+        let ref base_currency = self.settings.fx_base_currency;
+        let base_pair = format!("{}{}", symbol, base_currency);
+
+        let (bid, ask) = match self.get_price(&base_pair) {
+            Some(price) => price,
+            None => {
+                return Err(BrokerError::NoDataAvailable);
+            },
+        };
+
+        Ok(ask)
     }
 
     /// Returns the worth of a position in units of base currency.
     pub fn get_position_value(&self, pos: &Position) -> Result<usize, BrokerError> {
         unimplemented!(); // TODO
+    }
+
+    /// Sets the price for a symbol.  If there is no price currently set for that symbol,
+    /// a new entry will be added to the `self.prices` and `self.tick_receivers` HashMaps
+    /// if one does not aready exist.
+    pub fn oneshot_price_set(
+        &mut self, symbol: String, price: (usize, usize), is_fx: bool, decimal_precision: usize,
+    ) {
+        let (bid, ask) = price;
+        if is_fx {
+            assert_eq!(symbol.len(), 6);
+        }
+
+        // insert new entry into `self.prices` or update if one exists
+        match self.prices.entry(symbol.clone()) {
+            Entry::Occupied(o) => {
+                let (ref bid_atom, ref ask_atom) = **o.into_mut();
+                bid_atom.store(bid, Ordering::Relaxed);
+                ask_atom.store(ask, Ordering::Relaxed);
+            },
+            Entry::Vacant(v) => {
+                let bid_atom = AtomicUsize::new(bid);
+                let ask_atom = AtomicUsize::new(ask);
+                let atom_tuple = (bid_atom, ask_atom);
+
+                v.insert(Arc::new(atom_tuple));
+            }
+        }
+
+        // insert new entry into `self.tick_receivers` if one doesn't exist
+        match self.tick_receivers.entry(symbol) {
+            Entry::Occupied(o) => (),
+            Entry::Vacant(v) => {
+                let (dummy_tx, dummy_rx) = unbounded();
+                let ts = InputTickstream {
+                    stream: dummy_rx.boxed(),
+                    is_fx: is_fx,
+                    decimal_precision: decimal_precision,
+                };
+                v.insert(ts);
+            }
+        }
     }
 
     /// Returns a clone of an account or an error if it doesn't exist.
@@ -458,23 +525,6 @@ fn send_push_message(b: &mut test::Bencher) {
     })
 }
 
-// TODO
-
-// #[bench]
-// fn tick_positions(b: &mut test::Bencher) {
-//     use data::random_reader::RandomReader;
-
-//     let settings = SimBrokerSettings::default();
-//     let mut sim_b = SimBroker::new(settings, CommandServer::new(Uuid::new_v4(), "SimBroker Test"));
-//     let receiver = sim_b.get_stream();
-//     let symbol = "TEST".to_string();
-
-//     let tick_src = RandomReader::new(symbol);
-//     b.iter(|| {
-//         // TODO
-//     })
-// }
-
 /// Ticks sent to the SimBroker should be re-broadcast to the client.
 #[test]
 fn tick_retransmission() {
@@ -497,7 +547,7 @@ fn tick_retransmission() {
     let map = Box::new(FastMap {delay_ms: 1});
     let (tx, rx) = mpsc::sync_channel(5);
     let tick_stream = gen.get(map, rx);
-    let res = sim_b.register_tickstream(symbol.clone(), tick_stream.unwrap());
+    let res = sim_b.register_tickstream(symbol.clone(), tick_stream.unwrap(), false, 0);
     assert!(res.is_ok());
 
     // subscribe to ticks from the SimBroker for the test pair
@@ -518,4 +568,46 @@ fn tick_retransmission() {
     // block until we've received all awaited ticks
     let res = o.wait().unwrap();
     assert_eq!(res.len(), 10);
+}
+
+#[test]
+fn position_opening_closing_modification() {
+    use futures::Future;
+
+    let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
+    let mut sim = SimBroker::init(HashMap::new()).wait().unwrap().unwrap();
+
+    let price = (0999, 1001);
+    sim.oneshot_price_set(String::from("TEST"), price, false, 4);
+}
+
+#[test]
+fn dynamic_base_rate_conversion() {
+    use std::default::Default;
+    let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
+    let mut settings = SimBrokerSettings::default();
+    settings.fx_accurate_pricing = true;
+
+    let mut sim = SimBroker::new(settings, cs);
+}
+
+#[test]
+fn oneshot_price_setting() {
+    use futures::Future;
+
+    let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
+    let mut sim = SimBroker::init(HashMap::new()).wait().unwrap().unwrap();
+
+    let price = (0999, 1001);
+    let sym = String::from("TEST");
+    sim.oneshot_price_set(sym.clone(), price, false, 4);
+    assert_eq!(price, sim.get_price(&sym).unwrap());
+}
+
+#[test]
+fn oneshot_base_rate_conversion() {
+    use futures::Future;
+
+    let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
+    let mut sim = SimBroker::init(HashMap::new()).wait().unwrap().unwrap();
 }
