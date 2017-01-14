@@ -1,11 +1,12 @@
 //! Simulated broker used for backtests.  Contains facilities for simulating trades,
 //! managing balances, and reporting on statistics from previous trades.
-
-// TODO: Write about how SimBroker is 100% event-based and only accepts actions in
-// response to ticks.
+//!
+//! See README.md for more information about the specifics of the SimBroker implementation
+//! and a description of its functionality.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::BinaryHeap;
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -34,6 +35,33 @@ pub struct InputTickstream {
     pub decimal_precision: usize,
 }
 
+/// A unit of execution or the internal timestamp-ordered event loop.
+#[derive(PartialEq, Eq)]
+enum WorkUnit {
+    Tick,
+    Command,
+    Response,
+}
+
+/// A timestamped unit of data for the priority queue.
+#[derive(PartialEq, Eq)]
+struct QueueItem {
+    timestamp: usize,
+    unit: WorkUnit,
+}
+
+impl PartialOrd for QueueItem {
+    fn partial_cmp(&self, other: &QueueItem) -> Option<::std::cmp::Ordering> {
+        Some(self.timestamp.cmp(&other.timestamp))
+    }
+}
+
+impl Ord for QueueItem {
+    fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+        self.timestamp.cmp(&other.timestamp)
+    }
+}
+
 /// A simulated broker that is used as the endpoint for trading activity in backtests.
 pub struct SimBroker {
     /// Contains all the accounts simulated by the simbroker
@@ -45,6 +73,8 @@ pub struct SimBroker {
     pub tick_receivers: HashMap<String, InputTickstream>,
     /// Broker's view of prices in pips, determined by the `tick_receiver`s
     prices: HashMap<String, Arc<(AtomicUsize, AtomicUsize)>>,
+    /// Priority queue that maintains that forms the basis of the internal ordered event loop.
+    pq: BinaryHeap<QueueItem>,
     /// Timestamp of last price update received by broker
     timestamp: Arc<AtomicUsize>,
     /// A handle to the sender for the channel through which push messages are sent
@@ -71,6 +101,7 @@ impl SimBroker {
             settings: settings,
             tick_receivers: HashMap::new(),
             prices: HashMap::new(),
+            pq: BinaryHeap::new(),
             timestamp: Arc::new(AtomicUsize::new(0)),
             push_stream_handle: tx,
             push_stream_recv: Some(rx),
@@ -291,6 +322,8 @@ impl SimBroker {
         let base_currency = &self.settings.fx_base_currency;
         let base_pair = format!("{}{}", symbol, base_currency);
 
+        // TODO: handle reverses (USDEUR)
+
         let (bid, ask) = match self.get_price(&base_pair) {
             Some(price) => price,
             None => {
@@ -478,6 +511,7 @@ fn wire_tickstream(
         // convert the tick's prices to pips and store
         bid_atom.store(t.bid, Ordering::Relaxed);
         ask_atom.store(t.ask, Ordering::Relaxed);
+        println!("Prices successfully wired into atomics");
         // store timestamp
         (*timestamp_atom).store(t.timestamp as usize, Ordering::Relaxed);
 
@@ -574,16 +608,39 @@ fn position_opening_closing_modification() {
 
     let price = (0999, 1001);
     sim.oneshot_price_set(String::from("TEST"), price, false, 4);
+    // TODO
 }
 
 #[test]
 fn dynamic_base_rate_conversion() {
     use std::default::Default;
+
     let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
     let mut settings = SimBrokerSettings::default();
     settings.fx_accurate_pricing = true;
-
     let mut sim = SimBroker::new(settings, cs);
+
+    // wire tickstreams into the broker
+    let (base_tx, base_rx) = unbounded::<Tick>();
+    let base_pair    = String::from("EURUSD");
+    let (foreign_tx, foreign_rx) = unbounded::<Tick>();
+    let foreign_pair = String::from("EURJPY");
+    sim.register_tickstream(base_pair.clone(), base_rx, true, 4);
+    sim.register_tickstream(foreign_pair.clone(), foreign_rx, true, 4);
+
+    base_tx.send(Tick {
+        timestamp: 1,
+        bid: 106143,
+        ask: 106147
+    });
+    foreign_tx.send(Tick {
+        timestamp: 2,
+        bid: 1219879,
+        ask: 1219891,
+    });
+    assert_eq!((106141, 106147), sim.get_price(&base_pair).unwrap());
+    assert_eq!((1219879, 1219891), sim.get_price(&foreign_pair).unwrap());
+    // TODO: Test reverses (EURUSD and USDEUR)
 }
 
 #[test]
@@ -605,4 +662,13 @@ fn oneshot_base_rate_conversion() {
 
     let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
     let mut sim = SimBroker::init(HashMap::new()).wait().unwrap().unwrap();
+    // TODO
+}
+
+#[bench]
+fn mutex_lock_unlock(b: &mut test::Bencher) {
+    let amtx = Arc::new(Mutex::new(0));
+    b.iter(move || {
+        let _ = amtx.lock();
+    })
 }

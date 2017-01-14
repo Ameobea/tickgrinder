@@ -32,7 +32,7 @@ pub trait Broker {
     /// Returns a stream of messages pushed from the broker that do not originate from an
     /// action sent to the broker.  These can be things like notifications of closed positions,
     /// orders being filled, etc.
-    fn get_stream(&mut self) -> Result<UnboundedReceiver<BrokerResult>, BrokerError>;
+    fn get_stream(&mut self) -> Result<Box<Stream<Item=BrokerResult, Error=()> + Send>, BrokerError>;
 
     /// Returns a stream of live ticks for a symbol.
     fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()> + Send>, BrokerError>;
