@@ -15,7 +15,7 @@ use test;
 
 use futures::{oneshot, Oneshot};
 use futures::stream::{BoxStream, Stream};
-use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, Sender};
 use uuid::Uuid;
 
 use tickgrinder_util::trading::tick::*;
@@ -23,11 +23,9 @@ pub use tickgrinder_util::trading::broker::*;
 use tickgrinder_util::trading::trading_condition::*;
 use tickgrinder_util::transport::command_server::CommandServer;
 
-/// Contains a stream that yeilds the ticks that power the `SimBroker` as well as some
-/// metadata about the data source.
-pub struct InputTickstream {
-    /// The stream that actually yeilds the ticks
-    pub stream: BoxStream<Tick, ()>,
+/// Contains metadata about a particular tickstream and the symbol of the ticks
+/// that it holds
+pub struct SymbolData {
     /// `true` if the ticks are an exchange rate
     /// The symbol must be six characters like "EURUSD"
     pub is_fx: bool,
@@ -35,12 +33,28 @@ pub struct InputTickstream {
     pub decimal_precision: usize,
 }
 
+/// Represents a BrokerAction submitted by a client that's waiting to be processed by
+/// the SimBroker due to simulated network latency or some other simulated delay.
+struct PendingAction {
+    pub future: Oneshot<BrokerResult>,
+    pub action: BrokerAction,
+}
+
+impl PartialEq for PendingAction {
+    fn eq(&self, other: &PendingAction) -> bool {
+        self.action == other.action
+    }
+}
+
+impl Eq for PendingAction {}
+
 /// A unit of execution or the internal timestamp-ordered event loop.
 #[derive(PartialEq, Eq)]
 enum WorkUnit {
-    Tick,
-    Command,
-    Response,
+    // allocating Strings for each tick would be way too expensive; create indexes of managed ticks instead.
+    Tick(usize, Tick),
+    PendingAction(PendingAction),
+    Response(BrokerResult),
 }
 
 /// A timestamped unit of data for the priority queue.
@@ -62,17 +76,49 @@ impl Ord for QueueItem {
     }
 }
 
+struct Symbol {
+    /// The input stream that yields the ticks.  This is consumed internally and its `Tick`s
+    /// consumed into the priority queue.
+    pub input_stream: Option<BoxStream<Tick, ()>>,
+    /// the stream that is mapped into that which is handed off to the client.  Only yields
+    /// `Tick`s when the order of events dictates it inside the internal simulation loop.
+    pub client_stream: Option<Sender<Tick>>,
+    /// Contains some information about the symbol that the ticks represent
+    pub metadata: SymbolData,
+    /// Broker's view of prices in pips, determined by the `tick_receiver`s
+    pub price: Arc<(AtomicUsize, AtomicUsize)>,
+}
+
+impl Symbol {
+    /// Constructs a new Symbol with a statically set price
+    pub fn new_oneshot(
+        symbol: String, price: Arc<(AtomicUsize, AtomicUsize)>, is_fx: bool, decimals: usize
+    ) -> Symbol {
+        Symbol {
+            input_stream: None,
+            client_stream: None,
+            metadata: SymbolData {
+                is_fx: is_fx,
+                decimal_precision: decimals,
+            },
+            price: price,
+        }
+    }
+
+    pub fn is_fx(&self) -> bool {
+        self.metadata.is_fx
+    }
+}
+
 /// A simulated broker that is used as the endpoint for trading activity in backtests.
 pub struct SimBroker {
     /// Contains all the accounts simulated by the simbroker
     pub accounts: Arc<Mutex<HashMap<Uuid, Account>>>,
     /// A copy of the settings generated from the input HashMap
     pub settings: SimBrokerSettings,
-    /// Streams that generate the ticks used to power the SimBroker
-    /// They usually come from a backtest.
-    pub tick_receivers: HashMap<String, InputTickstream>,
-    /// Broker's view of prices in pips, determined by the `tick_receiver`s
-    prices: HashMap<String, Arc<(AtomicUsize, AtomicUsize)>>,
+    /// Contains the streams that yield `Tick`s for the SimBroker as well as data about
+    /// the symbols and other metadata.
+    symbols: HashMap<String, Symbol>,
     /// Priority queue that maintains that forms the basis of the internal ordered event loop.
     pq: BinaryHeap<QueueItem>,
     /// Timestamp of last price update received by broker
@@ -83,31 +129,6 @@ pub struct SimBroker {
     push_stream_recv: Option<UnboundedReceiver<BrokerResult>>,
     /// The CommandServer used for logging
     pub cs: CommandServer,
-}
-
-impl SimBroker {
-    pub fn new(settings: SimBrokerSettings, cs: CommandServer) -> SimBroker {
-        let mut accounts = HashMap::new();
-        let account = Account {
-            uuid: Uuid::new_v4(),
-            ledger: Ledger::new(settings.starting_balance),
-            live: false,
-        };
-        accounts.insert(Uuid::new_v4(), account);
-        let (tx, rx) = unbounded::<BrokerResult>();
-
-        SimBroker {
-            accounts: Arc::new(Mutex::new(accounts)),
-            settings: settings,
-            tick_receivers: HashMap::new(),
-            prices: HashMap::new(),
-            pq: BinaryHeap::new(),
-            timestamp: Arc::new(AtomicUsize::new(0)),
-            push_stream_handle: tx,
-            push_stream_recv: Some(rx),
-            cs: cs,
-        }
-    }
 }
 
 impl Broker for SimBroker {
@@ -142,7 +163,6 @@ impl Broker for SimBroker {
         oneshot
     }
 
-    #[allow(unreachable_code)]
     fn execute(&mut self, action: BrokerAction) -> PendingResult {
         let (complete, oneshot) = oneshot::<BrokerResult>();
 
@@ -170,12 +190,13 @@ impl Broker for SimBroker {
                     }
                 }
             },
+            BrokerAction::Disconnect => unimplemented!(),
         };
 
         oneshot
     }
 
-    fn get_stream(&mut self) -> Result<UnboundedReceiver<BrokerResult>, BrokerError> {
+    fn get_stream(&mut self) -> Result<Box<Stream<Item=BrokerResult, Error=()> + Send>, BrokerError> {
         if self.push_stream_recv.is_none() {
             // TODO: Enable multiple handles to be taken?
             return Err(BrokerError::Message{
@@ -183,31 +204,70 @@ impl Broker for SimBroker {
             })
         }
 
-        Ok(self.push_stream_recv.take().unwrap())
+        Ok(self.push_stream_recv.take().unwrap().boxed())
     }
 
     fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()> + Send>, BrokerError> {
-        let opt = self.tick_receivers.remove(&symbol);
-        if opt.is_none() {
-            return Err(BrokerError::Message{
-                message: "No data source available for that symbol or \
-                a stream to that symbol has already been opened.".to_string()
-            })
-        }
-        let tickstream = opt.unwrap();
-        Ok(tickstream.stream)
+        unimplemented!();
     }
 }
 
 impl SimBroker {
-    /// Sends a message over the broker's push channel
-    pub fn push_msg(&self, msg: BrokerResult) {
+    pub fn new(settings: SimBrokerSettings, cs: CommandServer) -> SimBroker {
+        let mut accounts = HashMap::new();
+        // create with one account with the starting balance.
+        let account = Account {
+            uuid: Uuid::new_v4(),
+            ledger: Ledger::new(settings.starting_balance),
+            live: false,
+        };
+        accounts.insert(Uuid::new_v4(), account);
+        let (tx, rx) = unbounded::<BrokerResult>();
+
+        SimBroker {
+            accounts: Arc::new(Mutex::new(accounts)),
+            settings: settings,
+            symbols: HashMap::new(),
+            pq: BinaryHeap::new(),
+            timestamp: Arc::new(AtomicUsize::new(0)),
+            push_stream_handle: tx,
+            push_stream_recv: Some(rx),
+            cs: cs,
+        }
+    }
+
+    /// Starts the simulation process.  Ticks are read in from the inputs and processed internally into
+    /// priority queue.  The source of blocking here is determined by the client.  The `Stream`s of `Tick`s
+    /// that are handed off have a capacity of 1 so that the `Sender` will block until it is consumed by
+    /// the client.
+    ///
+    /// The assumption is that the client will do all its processing and have a chance to
+    /// submit `BrokerActions` to the SimBroker before more processing more ticks, thus preserving the
+    /// strict ordering by timestamp of events and fully simulating asynchronous operation.
+    fn init_sim_loop(&mut self) {
+        // continue looping while the priority queue has new events to simulate
+        while let Some(item) = self.pq.pop() {
+            match item.unit {
+                WorkUnit::Tick(symtick) => {
+                    unimplemented!();
+                }
+            }
+        }
+
+        // if we reach here, that means we've run out of ticks to simulate from the input streams.
+        self.cs.warning(None, "All input tickstreams have ran out of ticks; internal simulation loop stopped.");
+    }
+
+    /// Immediately sends a message over the broker's push channel.  Should only be called from within
+    /// the SimBroker's internal event handling loop since it immediately sends the message.
+    fn push_msg(&self, msg: BrokerResult) {
         let sender = &self.push_stream_handle;
         sender.send(msg).expect("Unable to push_msg");
     }
 
-    /// Returns a handle with which to send push messages
-    pub fn get_push_handle(&self) ->UnboundedSender<Result<BrokerMessage, BrokerError>> {
+    /// Returns a handle with which to send push messages.  The returned handle will immediately send
+    /// messages to the client so should only be used from within the internal event handling loop.
+    fn get_push_handle(&self) ->UnboundedSender<Result<BrokerMessage, BrokerError>> {
         self.push_stream_handle.clone()
     }
 
@@ -235,8 +295,9 @@ impl SimBroker {
         (mpsc_s, f_r)
     }
 
-    /// actually executes an action sent to the SimBroker
-    pub fn exec_action(&mut self, cmd: &BrokerAction) -> BrokerResult {
+    /// Actually executes an action sent to the SimBroker.  Should only be called from within the
+    /// internal event handling loop since it is sensitive to strict ordering requirements.
+    fn exec_action(&mut self, cmd: &BrokerAction) -> BrokerResult {
         match *cmd {
             BrokerAction::TradingAction{action: TradingAction::MarketOrder{
                 account, ref symbol, long, size, stop, take_profit, max_range
@@ -251,8 +312,7 @@ impl SimBroker {
         }
     }
 
-    /// Opens a position at the current market price with options for settings stop
-    /// loss, take profit.
+    /// Opens a position at the current market price with options for settings stop loss, or take profit.
     fn market_open(
         &mut self, account_id: Uuid, symbol: &String, long: bool, size: usize, stop: Option<usize>,
         take_profit: Option<usize>, max_range: Option<f64>, timestamp: u64
@@ -262,7 +322,7 @@ impl SimBroker {
             return Err(BrokerError::NoSuchSymbol)
         }
         let (bid, ask) = opt.unwrap();
-        let is_fx = self.tick_receivers[symbol].is_fx;
+        let is_fx = self.symbols[symbol].is_fx();
 
         let cur_price = if long { ask } else { bid };
 
@@ -302,7 +362,7 @@ impl SimBroker {
     }
 
     /// Dumps the SimBroker state to a file that can be resumed later.
-    pub fn dump_to_file(&mut self, filename: &str) {
+    fn dump_to_file(&mut self, filename: &str) {
         unimplemented!(); // TODO
     }
 
@@ -312,7 +372,7 @@ impl SimBroker {
     /// Gets the conversion rate (in pips) between the base currency of the simbroker and
     /// the supplied currency.  If the base currency is USD and AUD is provided, the exchange
     /// rate for AUD/USD will be returned.  Returns Err if we lack the data to do that.
-    pub fn get_base_rate(&self, symbol: &str) -> Result<usize, BrokerError> {
+    fn get_base_rate(&self, symbol: &str) -> Result<usize, BrokerError> {
         if !self.settings.fx {
             return Err(BrokerError::Message{
                 message: String::from("Can only convert to base rate when in FX mode.")
@@ -335,14 +395,13 @@ impl SimBroker {
     }
 
     /// Returns the worth of a position in units of base currency.
-    pub fn get_position_value(&self, pos: &Position) -> Result<usize, BrokerError> {
+    fn get_position_value(&self, pos: &Position) -> Result<usize, BrokerError> {
         unimplemented!(); // TODO
     }
 
-    /// Sets the price for a symbol.  If there is no price currently set for that symbol,
-    /// a new entry will be added to the `self.prices` and `self.tick_receivers` HashMaps
-    /// if one does not aready exist.
-    pub fn oneshot_price_set(
+    /// Sets the price for a symbol.  If no Symbol currently exists with that designation, a new one
+    /// will be initialized with a static price.
+    fn oneshot_price_set(
         &mut self, symbol: String, price: (usize, usize), is_fx: bool, decimal_precision: usize,
     ) {
         let (bid, ask) = price;
@@ -351,9 +410,9 @@ impl SimBroker {
         }
 
         // insert new entry into `self.prices` or update if one exists
-        match self.prices.entry(symbol.clone()) {
+        match self.symbols.entry(symbol.clone()) {
             Entry::Occupied(o) => {
-                let (ref bid_atom, ref ask_atom) = **o.into_mut();
+                let (ref bid_atom, ref ask_atom) = *o.into_mut().price;
                 bid_atom.store(bid, Ordering::Relaxed);
                 ask_atom.store(ask, Ordering::Relaxed);
             },
@@ -362,29 +421,16 @@ impl SimBroker {
                 let ask_atom = AtomicUsize::new(ask);
                 let atom_tuple = (bid_atom, ask_atom);
 
-                v.insert(Arc::new(atom_tuple));
-            }
-        }
-
-        // insert new entry into `self.tick_receivers` if one doesn't exist
-        match self.tick_receivers.entry(symbol) {
-            Entry::Occupied(o) => (),
-            Entry::Vacant(v) => {
-                let (dummy_tx, dummy_rx) = unbounded();
-                let ts = InputTickstream {
-                    stream: dummy_rx.boxed(),
-                    is_fx: is_fx,
-                    decimal_precision: decimal_precision,
-                };
-                v.insert(ts);
+                let sym = Symbol::new_oneshot(symbol, Arc::new(atom_tuple), is_fx, decimal_precision);
+                v.insert(sym);
             }
         }
     }
 
-    /// Returns a clone of an account or an error if it doesn't exist.
-    pub fn get_ledger_clone(&mut self, uuid: Uuid) -> Result<Ledger, BrokerError> {
+    /// Returns a clone of an account's ledger or an error if it doesn't exist.
+    pub fn get_ledger_clone(&mut self, account_uuid: Uuid) -> Result<Ledger, BrokerError> {
         let accounts = self.accounts.lock().unwrap();
-        match accounts.get(&uuid) {
+        match accounts.get(&account_uuid) {
             Some(acct) => Ok(acct.ledger.clone()),
             None => Err(BrokerError::Message{
                 message: "No account exists with that UUID.".to_string()
@@ -393,7 +439,7 @@ impl SimBroker {
     }
 
     /// Called each tick to check if any pending positions need opening or closing.
-    pub fn tick_positions(
+    fn tick_positions(
         symbol: String,
         sender_handle: &UnboundedSender<Result<BrokerMessage, BrokerError>>,
         accounts_mutex: Arc<Mutex<HashMap<Uuid, Account>>>,
@@ -461,33 +507,33 @@ impl SimBroker {
     pub fn register_tickstream(
         &mut self, symbol: String, raw_tickstream: UnboundedReceiver<Tick>, is_fx: bool, decimal_precision: usize
     ) -> Result<(), String> {
-        // wire the tickstream so that the broker updates its own prices before sending the
-        // price updates off to the client
-        let price_arc = self.prices.entry(symbol.clone())
-            .or_insert_with(|| {
-                Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)))
-            }).clone();
+        unimplemented!();
+        // // wire the tickstream into the SimBroker internals
+        // let price_arc = self.prices.entry(symbol.clone())
+        //     .or_insert_with(|| {
+        //         Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)))
+        //     }).clone();
 
-        // wire the tickstream so that the broker updates its own prices before sending the
-        // price updates off to the client
-        let accounts_clone = self.accounts.clone();
-        let push_handle = self.get_push_handle();
-        let timestamp_atom = self.timestamp.clone();
-        let wired_tickstream = wire_tickstream(
-            is_fx, decimal_precision, price_arc, symbol.clone(), raw_tickstream, accounts_clone, timestamp_atom, push_handle
-        );
-        self.tick_receivers.insert(symbol, wired_tickstream);
-        Ok(())
+        // // wire the tickstream so that the broker updates its own prices before sending the
+        // // price updates off to the client
+        // let accounts_clone = self.accounts.clone();
+        // let push_handle = self.get_push_handle();
+        // let timestamp_atom = self.timestamp.clone();
+        // let wired_tickstream = wire_tickstream(
+        //     symbol.clone(), raw_tickstream, accounts_clone, timestamp_atom, push_handle
+        // );
+        // self.tick_receivers.insert(symbol, wired_tickstream);
+        // Ok(())
     }
 
     /// Returns the current price for a given symbol or None if the SimBroker
     /// doensn't have a price.
     pub fn get_price(&self, symbol: &String) -> Option<(usize, usize)> {
-        let opt = self.prices.get(symbol);
+        let opt = self.symbols.get(symbol);
         if opt.is_none() {
             return None
         }
-        let (ref atom_bid, ref atom_ask) = **opt.unwrap();
+        let (ref atom_bid, ref atom_ask) = *opt.unwrap().price;
         Some((atom_bid.load(Ordering::Relaxed), atom_ask.load(Ordering::Relaxed)))
     }
 
@@ -496,36 +542,36 @@ impl SimBroker {
     }
 }
 
-/// Called during broker initialization.  Takes a stream of live ticks from the backtester
-/// and uses it to power its own prices, returning a Stream that can be passed off to
-/// a client to serve as its price feed.
-fn wire_tickstream(
-    is_fx: bool, decimal_precision: usize,
-    price_arc: Arc<(AtomicUsize, AtomicUsize)>, symbol: String, tickstream: UnboundedReceiver<Tick>,
-    accounts: Arc<Mutex<HashMap<Uuid, Account>>>, timestamp_atom: Arc<AtomicUsize>,
-    push_stream_handle: UnboundedSender<Result<BrokerMessage, BrokerError>>
-) -> InputTickstream {
-    let wired_stream = tickstream.map(move |t| {
-        let (ref bid_atom, ref ask_atom) = *price_arc;
+// /// Called during broker initialization.  Takes a stream of live ticks from the backtester
+// /// and uses it to power its own prices, returning a Stream that can be passed off to
+// /// a client to serve as its price feed.
+// fn wire_tickstream(
+//     is_fx: bool, decimal_precision: usize,
+//     price_arc: Arc<(AtomicUsize, AtomicUsize)>, symbol: String, tickstream: UnboundedReceiver<Tick>,
+//     accounts: Arc<Mutex<HashMap<Uuid, Account>>>, timestamp_atom: Arc<AtomicUsize>,
+//     push_stream_handle: UnboundedSender<Result<BrokerMessage, BrokerError>>
+// ) -> InputTickstream {
+//     let wired_stream = tickstream.map(move |t| {
+//         let (ref bid_atom, ref ask_atom) = *price_arc;
 
-        // convert the tick's prices to pips and store
-        bid_atom.store(t.bid, Ordering::Relaxed);
-        ask_atom.store(t.ask, Ordering::Relaxed);
-        println!("Prices successfully wired into atomics");
-        // store timestamp
-        (*timestamp_atom).store(t.timestamp as usize, Ordering::Relaxed);
+//         // convert the tick's prices to pips and store
+//         bid_atom.store(t.bid, Ordering::Relaxed);
+//         ask_atom.store(t.ask, Ordering::Relaxed);
+//         println!("Prices successfully wired into atomics");
+//         // store timestamp
+//         (*timestamp_atom).store(t.timestamp as usize, Ordering::Relaxed);
 
-        // check if any positions need to be opened/closed due to this tick
-        SimBroker::tick_positions(symbol.clone(), &push_stream_handle, accounts.clone(), price_arc.clone(), t.timestamp as u64);
-        t
-    }).boxed();
+//         // check if any positions need to be opened/closed due to this tick
+//         SimBroker::tick_positions(symbol.clone(), &push_stream_handle, accounts.clone(), price_arc.clone(), t.timestamp as u64);
+//         t
+//     }).boxed();
 
-    InputTickstream {
-        stream: wired_stream,
-        is_fx: is_fx,
-        decimal_precision: decimal_precision,
-    }
-}
+//     InputTickstream {
+//         stream: wired_stream,
+//         is_fx: is_fx,
+//         decimal_precision: decimal_precision,
+//     }
+// }
 
 /// It should be an error to try to subscribe to a symbol that the SimBroker doesn't keep track of.
 #[test]
@@ -671,4 +717,17 @@ fn mutex_lock_unlock(b: &mut test::Bencher) {
     b.iter(move || {
         let _ = amtx.lock();
     })
+}
+
+#[bench]
+fn small_string_hashmap_lookup(b: &mut test::Bencher) {
+    let mut hm = HashMap::new();
+    hm.insert(String::from("key1"), String::from("val1"));
+    hm.insert(String::from("key2"), String::from("val2"));
+    hm.insert(String::from("key3"), String::from("val3"));
+    hm.insert(String::from("key4"), String::from("val4"));
+    hm.insert(String::from("key5"), String::from("val5"));
+
+    let lookup_key = String::from("key4");
+    b.iter(|| hm.get(&lookup_key))
 }

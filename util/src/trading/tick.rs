@@ -8,7 +8,7 @@ use test;
 
 use transport::query_server::QueryServer;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tick {
     pub bid: usize,
     pub ask: usize,

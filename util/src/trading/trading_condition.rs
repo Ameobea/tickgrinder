@@ -10,7 +10,7 @@ pub trait TradingCondition {
     fn eval(&mut self, t: &Tick) -> Option<TradingAction>;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TradingAction {
     /// Opens an order at market price +-max_range pips.
     MarketOrder {

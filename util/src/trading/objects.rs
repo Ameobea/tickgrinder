@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
-use trading::trading_condition::*;
+use trading::trading_condition::{TradingAction};
 use trading::broker::*;
 
 /// An account
@@ -17,15 +17,16 @@ pub struct Account {
 }
 
 /// Any action that the platform can take using the broker
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum BrokerAction {
     TradingAction{ action: TradingAction },
     /// Returns a Pong with the timestamp the broker received the message
     Ping,
+    Disconnect,
 }
 
 /// A response from a broker indicating the result of an action.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BrokerMessage {
     Success,
     Failure,
@@ -49,7 +50,7 @@ pub enum BrokerMessage {
     Pong{time_received: u64},
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BrokerError {
     Message{message: String},
     Unimplemented{message: String}, // the broker under the wrapper can't do what you asked it
@@ -61,7 +62,7 @@ pub enum BrokerError {
     NoDataAvailable,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PositionClosureReason {
     StopLoss,
     TakeProfit,
@@ -171,7 +172,7 @@ impl Ledger {
 }
 
 /// Represents an opened, closed, or pending position on a broker.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Position {
     pub creation_time: u64,
     pub symbol: String,

@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use uuid::Uuid;
 use futures::sync::oneshot::Receiver;
 use futures::stream::Stream;
-use futures::sync::mpsc::UnboundedReceiver;
 
 use trading::tick::Tick;
 pub use trading::objects::*;
