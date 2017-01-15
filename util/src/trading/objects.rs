@@ -19,7 +19,7 @@ pub struct Account {
 /// Any action that the platform can take using the broker
 #[derive(Clone, Debug, PartialEq)]
 pub enum BrokerAction {
-    TradingAction{ action: TradingAction },
+    TradingAction{ account_uuid: Uuid, action: TradingAction },
     /// Returns a Pong with the timestamp the broker received the message
     Ping,
     Disconnect,
@@ -122,14 +122,14 @@ impl Ledger {
     /// Completely closes the specified condition at the given price, crediting the account the
     /// funds yielded.  Timestamp is the time the order was submitted + any simulated delays.
     pub fn close_position(&mut self, uuid: Uuid, position_value: usize, timestamp: u64) -> BrokerResult {
-        let pos = self.open_positions.remove(&uuid);
-        if pos.is_none() {
+        let pos_opt = self.open_positions.remove(&uuid);
+        if pos_opt.is_none() {
             return Err(BrokerError::NoSuchPosition)
         }
         self.balance += position_value;
 
         Ok(BrokerMessage::PositionClosed{
-            position: pos.unwrap(),
+            position: pos_opt.unwrap(),
             position_id: uuid,
             reason: PositionClosureReason::MarketClose,
             timestamp: timestamp,
@@ -139,13 +139,9 @@ impl Ledger {
     /// Increases or decreases the size of the specified position by the given amount.  Returns errors
     /// if the account doesn't have enough buying power to execute the action or if a position with
     /// the specified UUID doesn't exist.
-    pub fn modify_position(&mut self, uuid: Uuid, units: isize, modification_cost: usize, timestamp: u64) -> BrokerResult {
-        let mut pos = match self.open_positions.remove(&uuid) {
-            Some(p) => p,
-            None => {
-                return Err(BrokerError::NoSuchPosition);
-            },
-        };
+    pub fn resize_position(&mut self, uuid: Uuid, units: isize, modification_cost: usize, timestamp: u64) -> BrokerResult {
+        let mut pos = self.open_positions.remove(&uuid)
+            .expect("No position found with that UUID; should have caught this earlier.");
 
         let unit_diff = units + (pos.size as isize);
         if unit_diff < 0 {
@@ -168,6 +164,23 @@ impl Ledger {
             position_id: uuid,
             timestamp: timestamp,
         })
+    }
+
+    pub fn modify_position(&mut self, pos_uuid: Uuid, sl: Option<usize>, tp: Option<usize>, timestamp: u64) -> BrokerResult {
+        match self.open_positions.get_mut(&pos_uuid) {
+            Some(pos) => {
+                pos.stop = sl;
+                pos.take_profit = tp;
+                Ok(BrokerMessage::PositionModified{
+                    position: pos.clone(),
+                    position_id: pos_uuid,
+                    timestamp: timestamp,
+                })
+            },
+            None => {
+                Err(BrokerError::NoSuchPosition)
+            },
+        }
     }
 }
 

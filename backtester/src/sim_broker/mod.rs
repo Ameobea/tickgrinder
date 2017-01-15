@@ -56,7 +56,10 @@ impl Broker for SimBroker {
         // TODO: convert FromHashmap to return a Result<SimbrokerSettings>
         let broker_settings = SimBrokerSettings::from_hashmap(settings);
         let cs = CommandServer::new(Uuid::new_v4(), "Simbroker");
-        c.complete(Ok(SimBroker::new(broker_settings, cs)));
+        let mut sim = SimBroker::new(broker_settings, cs);
+        // TODO: Multithread the SimBroker
+        sim.init_sim_loop();
+        c.complete(Ok(sim));
 
         o
     }
@@ -163,6 +166,7 @@ impl SimBroker {
                     // process the message and re-insert the response into the queue
                     let res = self.exec_action(&action, item.timestamp);
                     // calculate when the response would be recieved by the client
+                    // then re-insert the response into the queue
                     let execution_delay = self.settings.get_delay(&action);
                     let res_time = item.timestamp + self.settings.ping_ns + execution_delay;
                     let item = QueueItem {
@@ -172,6 +176,8 @@ impl SimBroker {
                     self.pq.push(item);
                 },
                 WorkUnit::Response(future, res) => {
+                    // fulfill the future with the result
+                    future.complete(res.clone());
                     // send the push message through the channel, blocking until it's consumed by the client.
                     self.push_msg(res);
                 }
@@ -179,7 +185,11 @@ impl SimBroker {
         }
 
         // if we reach here, that means we've run out of ticks to simulate from the input streams.
-        self.cs.notice(None, "All input tickstreams have ran out of ticks; internal simulation loop stopped.");
+        let ts_string = self.get_timestamp().to_string();
+        self.cs.notice(
+            Some(&ts_string),
+            "All input tickstreams have ran out of ticks; internal simulation loop stopped."
+        );
     }
 
     /// Immediately sends a message over the broker's push channel.  Should only be called from within
@@ -234,13 +244,13 @@ impl SimBroker {
             &BrokerAction::Ping => {
                 Ok(BrokerMessage::Pong{time_received: timestamp})
             },
-            &BrokerAction::TradingAction{ref action} => {
+            &BrokerAction::TradingAction{account_uuid, ref action} => {
                 match action {
-                    &TradingAction::MarketOrder{account, ref symbol, long, size, stop, take_profit, max_range} => {
-                        unimplemented!(); // TODO
+                    &TradingAction::MarketOrder{ref symbol, long, size, stop, take_profit, max_range} => {
+                        self.market_open(account_uuid, symbol, long, size, stop, take_profit, max_range, timestamp)
                     },
                     &TradingAction::MarketClose{uuid, size} => {
-                        unimplemented!(); // TODO
+                        self.market_close(account_uuid, uuid, size)
                     }
                     &TradingAction::LimitOrder{account, ref symbol, long, size, stop, take_profit, entry_price} => {
                         unimplemented!(); // TODO
@@ -248,8 +258,9 @@ impl SimBroker {
                     &TradingAction::LimitClose{uuid, size, exit_price} => {
                         unimplemented!(); // TODO
                     },
+                    // TODO: Change this to only work with open positions
                     &TradingAction::ModifyPosition{uuid, stop, take_profit, entry_price} => {
-                        unimplemented!(); // TODO
+                        self.modify_position(account_uuid, uuid, stop, take_profit)
                     }
                 }
             },
@@ -257,7 +268,7 @@ impl SimBroker {
         }
     }
 
-    /// Opens a position at the current market price with options for settings stop loss, or take profit.
+    /// Attempts to open a position at the current market price with options for settings stop loss, or take profit.
     fn market_open(
         &mut self, account_id: Uuid, symbol: &String, long: bool, size: usize, stop: Option<usize>,
         take_profit: Option<usize>, max_range: Option<f64>, timestamp: u64
@@ -267,7 +278,6 @@ impl SimBroker {
             return Err(BrokerError::NoSuchSymbol)
         }
         let (bid, ask) = opt.unwrap();
-        let is_fx = self.symbols[symbol].is_fx();
 
         let cur_price = if long { ask } else { bid };
 
@@ -285,13 +295,7 @@ impl SimBroker {
             exit_time: None,
         };
 
-        let open_cost = if is_fx {
-            let primary_currency = &symbol[0..3];
-            let base_rate = try!(self.get_base_rate(primary_currency));
-            (size * base_rate) / self.settings.leverage
-        } else {
-            size / self.settings.leverage
-        };
+        let open_cost = self.get_position_value(&pos)?;
 
         let mut accounts = self.accounts.lock().unwrap();
         let account_ = accounts.entry(account_id);
@@ -306,6 +310,51 @@ impl SimBroker {
         }
     }
 
+    /// Attempts to close part of a position at market price.
+    fn market_close(&mut self, account_id: Uuid, position_uuid: Uuid, size: usize) -> BrokerResult {
+        if size == 0 {
+            let ts_string = self.get_timestamp().to_string();
+            self.cs.warning(
+                Some(&ts_string),
+                &format!("Warning: Attempted to close 0 units of position with uuid {}", position_uuid)
+            );
+            // TODO: Add configuration setting to optionally return an error
+        }
+
+        let mut accounts = self.accounts.lock().unwrap();
+        let account = match accounts.entry(account_id) {
+            Entry::Occupied(o) => o.into_mut(),
+            Entry::Vacant(_) => {
+                return Err(BrokerError::NoSuchAccount);
+            },
+        };
+        let modification_cost = match account.ledger.open_positions.entry(position_uuid) {
+            Entry::Occupied(o) => {
+                let pos = o.get();
+                let pos_value = self.get_position_value(pos)?;
+                (pos_value / pos.size) * size
+            },
+            Entry::Vacant(_) => {
+                return Err(BrokerError::NoSuchPosition);
+            }
+        };
+        account.ledger.resize_position(position_uuid, (-1 * size as isize), modification_cost, self.get_timestamp())
+    }
+
+    /// Modifies the stop loss or take profit of a position.
+    fn modify_position(
+        &mut self, account_id: Uuid, position_uuid: Uuid, sl: Option<usize>, tp: Option<usize>
+    ) -> BrokerResult {
+        let mut accounts = self.accounts.lock().unwrap();
+        let account = match accounts.entry(account_id) {
+            Entry::Occupied(o) => o.into_mut(),
+            Entry::Vacant(_) => {
+                return Err(BrokerError::NoSuchAccount);
+            },
+        };
+        account.ledger.modify_position(position_uuid, sl, tp, self.get_timestamp())
+    }
+
     /// Dumps the SimBroker state to a file that can be resumed later.
     fn dump_to_file(&mut self, filename: &str) {
         unimplemented!(); // TODO
@@ -313,6 +362,7 @@ impl SimBroker {
 
     /// Used for Forex exchange rate conversions.  The cost to open a position is determined
     /// by the exchange rate between the base currency and the primary currency of the pair.
+    /// A decimal precision of 10 is used for all returned results.
     ///
     /// Gets the conversion rate (in pips) between the base currency of the simbroker and
     /// the supplied currency.  If the base currency is USD and AUD is provided, the exchange
@@ -327,16 +377,19 @@ impl SimBroker {
         let base_currency = &self.settings.fx_base_currency;
         let base_pair = format!("{}{}", symbol, base_currency);
 
-        // TODO: handle reverses (USDEUR)
-
-        let (bid, ask) = match self.get_price(&base_pair) {
-            Some(price) => price,
-            None => {
+        let (_, ask, decimals) = if !self.symbols.contains(&base_pair) {
+            // try reversing the order or the pairs
+            let base_pair_reverse = format!("{}{}", base_currency, symbol);
+            if !self.symbols.contains(&base_pair_reverse) {
                 return Err(BrokerError::NoDataAvailable);
-            },
+            } else {
+                self.symbols[&base_pair_reverse].get_price()
+            }
+        } else {
+            self.symbols[&base_pair].get_price()
         };
 
-        Ok(ask)
+        Ok(convert_decimals(ask, decimals, 10))
     }
 
     /// Returns the worth of a position in units of base currency.

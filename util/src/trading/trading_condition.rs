@@ -14,7 +14,7 @@ pub trait TradingCondition {
 pub enum TradingAction {
     /// Opens an order at market price +-max_range pips.
     MarketOrder {
-        account: Uuid, symbol: String, long: bool, size: usize, stop: Option<usize>,
+        symbol: String, long: bool, size: usize, stop: Option<usize>,
         take_profit: Option<usize>, max_range: Option<f64>,
     },
     /// Opens an order at a price equal or better to `entry_price` as soon as possible.

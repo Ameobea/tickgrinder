@@ -1,6 +1,8 @@
 //! Contains all the helper objects and functions for the SimBroker.  Helpers inlclude objects to hold
 //! data about the SimBroker's state and their corresponding functions and trait implementations.
 
+use std::intrinsics::unlikely;
+
 use super::*;
 
 /// Contains metadata about a particular tickstream and the symbol of the ticks
@@ -137,6 +139,12 @@ impl Symbol {
         let new_sender = sender.send(t).wait().unwrap();
         mem::replace(&mut self.client_sender, Some(new_sender));
     }
+
+    /// Returns the price as a (bid, ask, decimals) tuple.
+    pub fn get_price(&self) -> (usize, usize, usize) {
+        let (ref bid_atom, ref ask_atom) = *self.price;
+        (bid_atom.load(Ordering::Relaxed), ask_atom.load(Ordering::Relaxed), self.metadata.decimal_precision)
+    }
 }
 
 /// A container that holds all data about prices and symbols.  Contains helper functions for
@@ -204,4 +212,27 @@ impl Symbols {
         let ix = self.data.len() - 1;
         self.hm.insert(name, ix);
     }
+}
+
+/// Given a price with a specified decimal precision, converts the price to one with
+/// a different decimal precision, rounding if necessary.
+pub fn convert_decimals(in_price: usize, in_decimals: usize, out_decimals: usize) -> usize {
+    if in_decimals > out_decimals {
+        in_price / (10usize.pow((in_decimals - out_decimals) as u32))
+    } else if out_decimals > in_decimals {
+        in_price * (10usize.pow((out_decimals - in_decimals) as u32))
+    } else if unsafe{ unlikely(out_decimals == in_decimals) } {
+        in_price
+    } else {
+        unreachable!()
+    }
+}
+
+#[test]
+fn decimal_conversion() {
+    assert_eq!(1000, convert_decimals(0100, 2, 3));
+    assert_eq!(0999, convert_decimals(9991, 4, 3));
+    assert_eq!(0010, convert_decimals(1000, 3, 1));
+    assert_eq!(0000, convert_decimals(0000, 8, 2));
+    assert_eq!(0001, convert_decimals(0001, 3, 3));
 }
