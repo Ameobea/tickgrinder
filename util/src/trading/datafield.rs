@@ -28,12 +28,16 @@ impl<T> DataField<T> {
     pub fn len(&self) -> usize {
         self.data.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
 }
 
 impl<T> Index<usize> for DataField<T> {
     type Output = T;
 
-    fn index(&self, _index: usize) -> &T {
-        &self.data[_index]
+    fn index(&self, index: usize) -> &T {
+        &self.data[index]
     }
 }

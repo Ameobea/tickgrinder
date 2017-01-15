@@ -58,9 +58,9 @@ fn tick_table_inner(table_name: &str, client: &Connection, pg_user: &str) -> Res
     "ALTER TABLE {}
       OWNER TO {};", table_name, pg_user);
     client.execute(&query1, &[])
-        .map_err(|_| return "Error while querying postgres to set up tick table" );
+        .map_err(|_| "Error while querying postgres to set up tick table" );
     client.execute(&query2, &[])
-        .map_err(|_| return "Error while querying postgres to set up tick table" );
+        .map_err(|_| "Error while querying postgres to set up tick table" );
 
     Ok(())
 }

@@ -79,7 +79,7 @@ impl QueryServer {
         let temp_lock_res = self.conn_queue.lock().unwrap().is_empty();
         // Force the guard locking conn_queue to go out of scope
         // this prevents the lock from being held through the entire if/else
-        let copy_res = temp_lock_res.clone();
+        let copy_res = temp_lock_res;
         if copy_res {
             // push query to the query queue
             self.query_queue.lock().unwrap().push_back(query);

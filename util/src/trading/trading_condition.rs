@@ -1,5 +1,5 @@
 //! Trading conditions are expressions that the Tick Processor evaluates for every received tick.
-//! If the condition returns a TradingAction when evaluated, that action is executed.
+//! If the condition returns a `TradingAction` when evaluated, that action is executed.
 
 use uuid::Uuid;
 

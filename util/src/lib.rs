@@ -2,6 +2,10 @@
 
 #![feature(rustc_attrs, plugin, conservative_impl_trait, test)]
 
+#![allow(unknown_lints)]
+#![cfg_attr(feature="clippy", feature(plugin))]
+#![cfg_attr(feature="clippy", plugin(clippy))]
+
 extern crate redis;
 extern crate futures;
 extern crate uuid;

@@ -97,7 +97,7 @@ impl Tick {
         Tick {
             timestamp: usize::from_str_radix(spl[0], 10).unwrap(),
             bid: usize::from_str_radix(spl[1], 10).unwrap(),
-            ask: usize::from_str_radix(spl[2].split("\n").collect::<Vec<_>>()[0], 10).unwrap()
+            ask: usize::from_str_radix(spl[2].split('\n').collect::<Vec<_>>()[0], 10).unwrap()
         }
     }
 }

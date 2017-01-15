@@ -200,21 +200,18 @@ impl Position {
         // only meant for limit/entry orders
         assert!(self.price.is_some());
 
-        if self.long {
-            if ask <= self.price.unwrap() {
-                return Some(ask)
-            };
-        } else {
-            if bid >= self.price.unwrap() {
-                return Some(bid)
-            };
-        };
+        if self.long && ask <= self.price.unwrap() {
+            return Some(ask);
+        } else if bid >= self.price.unwrap() {
+            return Some(bid);
+        }
 
         None
     }
 
     /// Returns the price the position would execute at if the position meets
     /// the conditions for closure and the reason for its closure, else returns None.
+    #[allow(collapsible_if)]
     pub fn is_close_satisfied(&self, bid: usize, ask: usize) -> Option<(usize, PositionClosureReason)> {
         // only meant to be used for open positions
         assert!(self.execution_price.is_some());
@@ -238,7 +235,7 @@ impl Position {
     }
 }
 
-/// Returns a struct given the struct's field:value pairs in a HashMap.  If the provided HashMap
+/// Returns a struct given the struct's field:value pairs in a `HashMap`.  If the provided `HashMap`
 /// doesn't contain a field, then the default is used.
 pub trait FromHashmap<T> : Default {
     fn from_hashmap(hm: HashMap<String, String>) -> T;

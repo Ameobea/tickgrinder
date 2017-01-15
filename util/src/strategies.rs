@@ -5,12 +5,14 @@
 //!
 //! Strategies are "black boxes" inasmuch as all of their mechanisms for generating
 //! trading signals are entirely self-contained.  However, they are configurable
-//! manually through the use of Commands sent from the MMI or some other source.
+//! manually through the use of `Command`s sent from the MMI or some other source.
 //! The main methods through which strategies interact with the world are listed:
-//! 1. Commands sent through the optimizer's CommandServer to the Tick Processors
+//! 1. Commands sent through the optimizer's `CommandServer` to the Tick Processors
 //! 2. Direction interaction with the database
 //! 3. Live data brodacast over redis channels to which the strategy manually subscribes
 //! 4. Ticks inserted into the strategy by the optimizer as they are received live
+//!
+//! TODO: Update this descrition
 
 use futures;
 

@@ -1,6 +1,8 @@
 //! Contains the definitions of all commands in the Command intermodular communication
 //! system as well as helper functions for Serialization/Deserialization and unwrapping.
 
+use std::str::FromStr;
+
 use serde_json;
 use redis;
 use uuid::Uuid;
@@ -63,10 +65,6 @@ pub enum Response {
 }
 
 impl Command {
-    pub fn from_str(raw: &str) -> Result<Command, ()> {
-        serde_json::from_str(raw).map_err(|_| () )
-    }
-
     pub fn to_string(&self) -> Result<String, ()> {
         serde_json::to_string(self).map_err(|_| () )
     }
@@ -77,6 +75,14 @@ impl Command {
             uuid: Uuid::new_v4(),
             cmd: self.clone()
         }
+    }
+}
+
+impl FromStr for Command {
+    type Err = ();
+
+    fn from_str(raw: &str) -> Result<Command, ()> {
+        serde_json::from_str(raw).map_err(|_| () )
     }
 }
 
@@ -116,7 +122,7 @@ pub enum LogLevel {
     Critical,
 }
 
-/// C-format LogLevel enum for use in FFI
+/// C-format `LogLevel` enum for use in FFI
 #[repr(C)]
 #[allow(dead_code)]
 pub enum CLogLevel {
@@ -149,10 +155,6 @@ pub struct WrappedCommand {
 }
 
 impl WrappedCommand {
-    pub fn from_str(raw: &str) -> Result<WrappedCommand, ()> {
-        serde_json::from_str(raw).map_err(|_| { () } )
-    }
-
     pub fn to_string(&self) -> Result<String, ()> {
         serde_json::to_string(self).map_err(|_| { () } )
     }
@@ -166,21 +168,26 @@ impl WrappedCommand {
     }
 }
 
-/// Converts a String into a WrappedCommand
+impl FromStr for WrappedCommand{
+    type Err = ();
+
+    fn from_str(raw: &str) -> Result<WrappedCommand, ()> {
+        serde_json::from_str(raw).map_err(|_| { () } )
+    }
+}
+
+#[allow(doc_markdown)]
+/// Converts a String into a `WrappedCommand`
 /// JSON Format: {"uuid": "xxxx-xxxx", "cmd": {"CommandName":{"arg": "val"}}}
 pub fn parse_wrapped_command(raw: String) -> WrappedCommand {
     let res = serde_json::from_str::<WrappedCommand>(&raw);
     match res {
-        Ok(wr_cmd) => return wr_cmd,
+        Ok(wr_cmd) => wr_cmd,
         Err(_) => panic!("Unable to parse WrappedCommand from String: {}", raw)
     }
 }
 
 impl Response {
-    pub fn from_str(raw: &str) -> Result<Response, ()> {
-        serde_json::from_str(raw).map_err(|_| { () } )
-    }
-
     pub fn to_string(&self) -> Result<String, ()> {
         serde_json::to_string(self).map_err(|_| { () } )
     }
@@ -194,6 +201,14 @@ impl Response {
     }
 }
 
+impl FromStr for Response {
+    type Err = ();
+
+    fn from_str(raw: &str) -> Result<Response, ()> {
+        serde_json::from_str(raw).map_err(|_| { () } )
+    }
+}
+
 /// A Response bound to a UUID
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct WrappedResponse {
@@ -202,10 +217,6 @@ pub struct WrappedResponse {
 }
 
 impl WrappedResponse {
-    pub fn from_str(raw: &str) -> Result<WrappedResponse, ()> {
-        serde_json::from_str(raw).map_err(|_| { () } )
-    }
-
     pub fn to_string(&self) -> Result<String, ()> {
         serde_json::to_string(self).map_err(|_| { () } )
     }
@@ -216,6 +227,14 @@ impl WrappedResponse {
             uuid: uuid,
             res: res
         }
+    }
+}
+
+impl FromStr for WrappedResponse {
+    type Err = ();
+
+    fn from_str(raw: &str) -> Result<WrappedResponse, ()> {
+        serde_json::from_str(raw).map_err(|_| { () } )
     }
 }
 
@@ -233,16 +252,16 @@ pub fn send_command(cmd: &WrappedCommand, client: &redis::Client, commands_chann
 pub fn send_response(res: &WrappedResponse, client: &redis::Client, channel: &str) -> Result<(), serde_json::Error> {
     let ser = try!(serde_json::to_string(res));
     let res_str = &ser;
-    let _ = redis::cmd("PUBLISH")
+    redis::cmd("PUBLISH")
         .arg(channel)
         .arg(res_str)
         .execute(client);
     Ok(())
 }
 
-/// Parses a String into a WrappedResponse
+/// Parses a String into a `WrappedWResponse`
 ///
-/// Left in for backwards compatability
+/// Left in for backwards compatability; use `WrappedResponse::from_str()` instead.
 pub fn parse_wrapped_response(raw_res: String) -> WrappedResponse {
     serde_json::from_str::<WrappedResponse>(&raw_res)
         .expect("Unable to parse WrappedResponse from String")

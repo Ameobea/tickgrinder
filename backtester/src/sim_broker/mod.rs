@@ -25,195 +25,9 @@ pub use tickgrinder_util::trading::broker::*;
 use tickgrinder_util::trading::trading_condition::*;
 use tickgrinder_util::transport::command_server::CommandServer;
 
-/// Contains metadata about a particular tickstream and the symbol of the ticks
-/// that it holds
-pub struct SymbolData {
-    /// `true` if the ticks are an exchange rate
-    /// The symbol must be six characters like "EURUSD"
-    pub is_fx: bool,
-    /// Decimal precision of the input ticks
-    pub decimal_precision: usize,
-}
-
-/// Represents a BrokerAction submitted by a client that's waiting to be processed by
-/// the SimBroker due to simulated network latency or some other simulated delay.
-struct PendingAction {
-    pub future: Complete<BrokerResult>,
-    pub action: BrokerAction,
-}
-
-impl PartialEq for PendingAction {
-    fn eq(&self, other: &PendingAction) -> bool {
-        self.action == other.action
-    }
-}
-
-impl Eq for PendingAction {}
-
-/// A unit of execution or the internal timestamp-ordered event loop.
-enum WorkUnit {
-    /// Simulates trading events triggering a new Tick for a particular symbol.
-    /// Allocating Strings for each tick would be way too expensive, so indexes of
-    /// managed ticks are used instead.
-    Tick(usize, Tick),
-    /// Simulates an action being received from a client.
-    PendingAction(Complete<BrokerResult>, BrokerAction),
-    /// Simulates a message from the broker being received by a client.
-    Response(Complete<BrokerResult>, BrokerResult),
-}
-
-impl PartialEq for WorkUnit {
-    fn eq(&self, other: &WorkUnit) -> bool {
-        match *self {
-            WorkUnit::Tick(self_ix, self_tick) => {
-                match *other {
-                    WorkUnit::Tick(other_ix, other_tick) => {
-                        self_ix == other_ix && self_tick == other_tick
-                    },
-                    _ => false,
-                }
-            },
-            WorkUnit::PendingAction(_, ref self_action) => {
-                match *other {
-                    WorkUnit::PendingAction(_, ref other_action) => {
-                        self_action == other_action
-                    },
-                    _ => false,
-                }
-            },
-            WorkUnit::Response(_, ref self_res) => {
-                match *other {
-                    WorkUnit::Response(_, ref other_res) => {
-                        self_res == other_res
-                    },
-                    _ => false,
-                }
-            }
-        }
-    }
-}
-
-impl Eq for WorkUnit {}
-
-/// A timestamped unit of data for the priority queue.
-#[derive(PartialEq, Eq)]
-struct QueueItem {
-    timestamp: u64,
-    unit: WorkUnit,
-}
-
-impl PartialOrd for QueueItem {
-    fn partial_cmp(&self, other: &QueueItem) -> Option<::std::cmp::Ordering> {
-        Some(self.timestamp.cmp(&other.timestamp))
-    }
-}
-
-impl Ord for QueueItem {
-    fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
-        self.timestamp.cmp(&other.timestamp)
-    }
-}
-
-pub struct Symbol {
-    /// The input stream that yields the ticks.  This is consumed internally and its `Tick`s
-    /// consumed into the priority queue.
-    pub input_stream: Option<BoxStream<Tick, ()>>,
-    /// the stream that is mapped into that which is handed off to the client.  Only yields
-    /// `Tick`s when the order of events dictates it inside the internal simulation loop.
-    pub client_stream: Option<Sender<Tick>>,
-    /// Contains some information about the symbol that the ticks represent
-    pub metadata: SymbolData,
-    /// Broker's view of prices in pips, determined by the `tick_receiver`s
-    pub price: Arc<(AtomicUsize, AtomicUsize)>,
-}
-
-impl Symbol {
-    /// Constructs a new Symbol with a statically set price
-    pub fn new_oneshot(
-        price: Arc<(AtomicUsize, AtomicUsize)>, is_fx: bool, decimals: usize
-    ) -> Symbol {
-        Symbol {
-            input_stream: None,
-            client_stream: None,
-            metadata: SymbolData {
-                is_fx: is_fx,
-                decimal_precision: decimals,
-            },
-            price: price,
-        }
-    }
-
-    /// Returns `true` if this symbol is an exchange rate.
-    pub fn is_fx(&self) -> bool {
-        self.metadata.is_fx
-    }
-
-    /// Sends a `Tick` through the client stream.  This will block until the client consumes
-    /// the tick.
-    pub fn send_client(&mut self, t: Tick) {
-        let sender = mem::replace(&mut self.client_stream, None)
-            .expect("No client stream has been initialized for this symbol!");
-        let new_sender = sender.send(t).wait().unwrap();
-        mem::replace(&mut self.client_stream, Some(new_sender));
-    }
-}
-
-/// A container that holds all data about prices and symbols.  Contains helper functions for
-/// easily extracting data out and indexing efficiently.
-pub struct Symbols {
-    /// Holds the actual symbol data in a Vector.
-    data: Vec<Symbol>,
-    /// Matches the data's symbols to their index in the vector
-    hm: HashMap<String, usize>,
-}
-
-/// Allow immutable indexing of the inner data Vector for high-speed internal data access
-impl Index<usize> for Symbols {
-    type Output = Symbol;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        self.data.get(index).unwrap()
-    }
-}
-
-/// Allow mutable indexing of the inner data Vector for high-speed internal data access
-impl IndexMut<usize> for Symbols {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        self.data.get_mut(index).unwrap()
-    }
-}
-
-/// Allow indexing the inner data `Vec` by `String` via looking up through the internal `HashMap`.
-impl<'a> Index<&'a String> for Symbols {
-    type Output = Symbol;
-
-    fn index(&self, index: &'a String) -> &Self::Output {
-        match self.hm.get(index) {
-            Some(ix) => self.data.get(*ix).unwrap(),
-            None => panic!("Attempted to get {} by String but can't find a match!", index),
-        }
-    }
-}
-
-impl Symbols {
-    pub fn new() -> Symbols {
-        Symbols {
-            data: Vec::new(),
-            hm: HashMap::new(),
-        }
-    }
-
-    pub fn contains(&self, name: &String) -> bool {
-        self.hm.contains_key(name)
-    }
-
-    pub fn add(&mut self, name: String, symbol: Symbol) {
-        assert!(!self.contains(&name));
-        self.data.push(symbol);
-        let ix = self.data.len() - 1;
-        self.hm.insert(name, ix);
-    }
-}
+mod tests;
+mod helpers;
+use self::helpers::*;
 
 /// A simulated broker that is used as the endpoint for trading activity in backtests.
 pub struct SimBroker {
@@ -221,8 +35,7 @@ pub struct SimBroker {
     pub accounts: Arc<Mutex<HashMap<Uuid, Account>>>,
     /// A copy of the settings generated from the input HashMap
     pub settings: SimBrokerSettings,
-    /// Contains the streams that yield `Tick`s for the SimBroker as well as data about
-    /// the symbols and other metadata.
+    /// Contains the streams that yield `Tick`s for the SimBroker as well as data about the symbols and other metadata.
     symbols: Symbols,
     /// Priority queue that maintains that forms the basis of the internal ordered event loop.
     pq: BinaryHeap<QueueItem>,
@@ -288,7 +101,18 @@ impl Broker for SimBroker {
     }
 
     fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()> + Send>, BrokerError> {
-        unimplemented!();
+        if !self.symbols.contains(&symbol) {
+            return Err(BrokerError::NoSuchSymbol);
+        }
+
+        let mut sym = &mut self.symbols[&symbol];
+        if sym.client_receiver.is_some() {
+            Ok(Box::new(mem::replace(&mut sym.client_receiver, None).unwrap()))
+        } else {
+            return Err(BrokerError::Message{
+                message: "You already took a handle to the tick stream for that symbol and can't take another.".to_string()
+            })
+        }
     }
 }
 
@@ -517,7 +341,18 @@ impl SimBroker {
 
     /// Returns the worth of a position in units of base currency.
     fn get_position_value(&self, pos: &Position) -> Result<usize, BrokerError> {
-        unimplemented!(); // TODO
+        let name = &pos.symbol;
+        if !self.symbols.contains(name) {
+            return Err(BrokerError::NoSuchSymbol);
+        }
+
+        let sym = &self.symbols[name];
+        if sym.is_fx() {
+            let base_rate = self.get_base_rate(&name)?;
+            Ok(pos.size * base_rate * self.settings.fx_lot_size)
+        } else {
+            Ok(pos.size)
+        }
     }
 
     /// Sets the price for a symbol.  If no Symbol currently exists with that designation, a new one
@@ -690,162 +525,3 @@ impl SimBroker {
 //         decimal_precision: decimal_precision,
 //     }
 // }
-
-/// It should be an error to try to subscribe to a symbol that the SimBroker doesn't keep track of.
-#[test]
-fn sub_ticks_err() {
-    let settings = SimBrokerSettings::default();
-
-    let mut sim_b = SimBroker::new(settings, CommandServer::new(Uuid::new_v4(), "SimBroker Test"));
-    let stream = sim_b.sub_ticks("TEST".to_string());
-    assert!(stream.is_err());
-}
-
-/// How long it takes to unwrap the sender, send a message, and re-store the sender.
-#[bench]
-fn send_push_message(b: &mut test::Bencher) {
-    let settings = SimBrokerSettings::default();
-    let mut sim_b = SimBroker::new(settings, CommandServer::new(Uuid::new_v4(), "SimBroker Test"));
-    let receiver = sim_b.get_stream().unwrap();
-    thread::spawn(move ||{
-        for _ in receiver.wait() {
-
-        }
-    });
-
-    b.iter(|| {
-        sim_b.push_msg(Ok(BrokerMessage::Success))
-    })
-}
-
-/// Ticks sent to the SimBroker should be re-broadcast to the client.
-#[test]
-fn tick_retransmission() {
-    use std::sync::mpsc;
-
-    use futures::Future;
-
-    use data::random_reader::RandomReader;
-    use data::TickGenerator;
-    use backtest::{FastMap, BacktestCommand};
-
-    // create the SimBroker
-    let symbol = "TEST".to_string();
-    let settings = SimBrokerSettings::default();
-    let mut sim_b = SimBroker::new(settings, CommandServer::new(Uuid::new_v4(), "SimBroker Test"));
-    let msg_stream = sim_b.get_stream();
-
-    // create a random tickstream and register it to the SimBroker
-    let mut gen = RandomReader::new(symbol.clone());
-    let map = Box::new(FastMap {delay_ms: 1});
-    let (tx, rx) = mpsc::sync_channel(5);
-    let tick_stream = gen.get(map, rx);
-    let res = sim_b.register_tickstream(symbol.clone(), tick_stream.unwrap(), false, 0);
-    assert!(res.is_ok());
-
-    // subscribe to ticks from the SimBroker for the test pair
-    let subbed_ticks = sim_b.sub_ticks(symbol).unwrap();
-    let (c, o) = oneshot::<Vec<Tick>>();
-    thread::spawn(move || {
-        let res = subbed_ticks
-            .wait()
-            .take(10)
-            .map(|t| t.unwrap() )
-            .collect();
-        // signal once we've received all the ticks
-        c.complete(res);
-    });
-
-    // start the random tick generator
-    let _ = tx.send(BacktestCommand::Resume);
-    // block until we've received all awaited ticks
-    let res = o.wait().unwrap();
-    assert_eq!(res.len(), 10);
-}
-
-#[test]
-fn position_opening_closing_modification() {
-    use futures::Future;
-
-    let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
-    let mut sim = SimBroker::init(HashMap::new()).wait().unwrap().unwrap();
-
-    let price = (0999, 1001);
-    sim.oneshot_price_set(String::from("TEST"), price, false, 4);
-    // TODO
-}
-
-#[test]
-fn dynamic_base_rate_conversion() {
-    use std::default::Default;
-
-    let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
-    let mut settings = SimBrokerSettings::default();
-    settings.fx_accurate_pricing = true;
-    let mut sim = SimBroker::new(settings, cs);
-
-    // wire tickstreams into the broker
-    let (base_tx, base_rx) = unbounded::<Tick>();
-    let base_pair    = String::from("EURUSD");
-    let (foreign_tx, foreign_rx) = unbounded::<Tick>();
-    let foreign_pair = String::from("EURJPY");
-    sim.register_tickstream(base_pair.clone(), base_rx, true, 4);
-    sim.register_tickstream(foreign_pair.clone(), foreign_rx, true, 4);
-
-    base_tx.send(Tick {
-        timestamp: 1,
-        bid: 106143,
-        ask: 106147
-    });
-    foreign_tx.send(Tick {
-        timestamp: 2,
-        bid: 1219879,
-        ask: 1219891,
-    });
-    assert_eq!((106141, 106147), sim.get_price(&base_pair).unwrap());
-    assert_eq!((1219879, 1219891), sim.get_price(&foreign_pair).unwrap());
-    // TODO: Test reverses (EURUSD and USDEUR)
-}
-
-#[test]
-fn oneshot_price_setting() {
-    use futures::Future;
-
-    let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
-    let mut sim = SimBroker::init(HashMap::new()).wait().unwrap().unwrap();
-
-    let price = (0999, 1001);
-    let sym = String::from("TEST");
-    sim.oneshot_price_set(sym.clone(), price, false, 4);
-    assert_eq!(price, sim.get_price(&sym).unwrap());
-}
-
-#[test]
-fn oneshot_base_rate_conversion() {
-    use futures::Future;
-
-    let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
-    let mut sim = SimBroker::init(HashMap::new()).wait().unwrap().unwrap();
-    // TODO
-}
-
-#[bench]
-fn mutex_lock_unlock(b: &mut test::Bencher) {
-    let amtx = Arc::new(Mutex::new(0));
-    b.iter(move || {
-        let _ = amtx.lock();
-    })
-}
-
-#[bench]
-fn small_string_hashmap_lookup(b: &mut test::Bencher) {
-    let mut hm = HashMap::new();
-    hm.insert(String::from("key1"), String::from("val1"));
-    hm.insert(String::from("key2"), String::from("val2"));
-    hm.insert(String::from("key3"), String::from("val3"));
-    hm.insert(String::from("key4"), String::from("val4"));
-    hm.insert(String::from("key5"), String::from("val5"));
-
-    let lookup_key = String::from("key4");
-    b.iter(|| hm.get(&lookup_key))
-}

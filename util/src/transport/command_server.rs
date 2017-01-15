@@ -38,19 +38,19 @@ struct CommandRequest {
     future: Sender<Result<Response, String>>,
     channel: String,
 }
-/// Contains a CommandRequest for a worker and a Sender that resolves when the worker
+/// Contains a `CommandRequest` for a worker and a Sender that resolves when the worker
 /// becomes idle.
 type WorkerTask = (CommandRequest, Sender<()>);
-/// Threadsafe queue containing handles to idle command-UnboundedSender threads in the form of UnboundedSenders
+/// Threadsafe queue containing handles to idle command-sender threads in the form of `UnboundedSender`s
 type UnboundedSenderQueue = Arc<Mutex<VecDeque<UnboundedSender<WorkerTask>>>>;
 /// Threadsafe queue containing commands waiting to be sent
 type CommandQueue = Arc<Mutex<VecDeque<CommandRequest>>>;
-/// A Vec containing a UUID of a Response that's expected and a UnboundedSender to send the
+/// A `Vec` containing a `Uuid` of a `Response` that's expected and a `UnboundedSender` to send the
 /// response through once it arrives
 type RegisteredList = Vec<(Uuid, UnboundedSender<Result<Response, ()>>)>;
-/// A message to be sent to the Timeout thread containing how long to time out for,
+/// A message to be sent to the timeout thread containing how long to time out for,
 /// a oneshot that resolves to a handle to the Timeout's thread as soon as the timeout begins,
-/// and a oneshot that resolves to Err(()) if the timeout completes.
+/// and a oneshot that resolves to `Err(())` if the timeout completes.
 ///
 /// The thread handle can be used to end the timeout early to make the timeout thread
 /// useable again.
@@ -60,8 +60,8 @@ struct TimeoutRequest {
     timeout_future: Sender<Result<Response, ()>>,
 }
 
-/// A list of UnboundedSenders over which Results from the Tick Processor will be sent if they
-/// match the ID of the request the command UnboundedSender thread sent.
+/// A list of `UnboundedSender`s over which Results from the Tick Processor will be sent if they
+/// match the ID of the request the command `UnboundedSender` thread sent.
 struct AlertList {
     // Vec to hold the ids of responses we're waiting for and `Sender`s
     // to send the result back to the worker thread
@@ -72,12 +72,9 @@ struct AlertList {
 /// Send out the Response to a worker that is registered interest to its Uuid
 fn send_messages(res: WrappedResponse, al: &Mutex<AlertList>) {
     let mut al_inner = al.lock().expect("Unable to unlock al n send_messages");
-    let pos_opt: Option<&mut (_, UnboundedSender<Result<Response, ()>>)> = al_inner.list.iter_mut().find(|ref x| x.0 == res.uuid );
-    match pos_opt {
-        Some( &mut (_, ref mut sender) ) => {
-            sender.send( Ok(res.res) ).expect("Unable to send through subscribed future");
-        },
-        None => (),
+    let pos_opt: Option<&mut (_, UnboundedSender<Result<Response, ()>>)> = al_inner.list.iter_mut().find(|x| x.0 == res.uuid );
+    if pos_opt.is_some() {
+        pos_opt.unwrap().1.send( Ok(res.res) ).expect("Unable to send through subscribed future");
     }
 }
 
@@ -99,10 +96,10 @@ impl AlertList {
     /// Deregisters a listener if a timeout in the case of a timeout occuring
     pub fn deregister(&mut self, uuid: &Uuid) {
         let pos_opt = self.list.iter().position(|x| &x.0 == uuid );
-        let _ = match pos_opt {
+        match pos_opt {
             Some(pos) => { self.list.remove(pos); },
             None => println!("Error deregistering element from interest list; it's not in it"),
-        };
+        }
     }
 }
 
@@ -115,7 +112,7 @@ pub struct CommandServer {
     instance: Instance, // The instance that owns this CommandServer
 }
 
-/// Locks the CommandQueue and returns a queued command, if there are any.
+/// Locks the `CommandQueue` and returns a queued command, if there are any.
 fn try_get_new_command(command_queue: CommandQueue) -> Option<CommandRequest> {
     let mut qq_inner = command_queue.lock()
         .expect("Unable to unlock qq_inner in try_get_new_command");
@@ -275,7 +272,7 @@ impl CommandServer {
             conn_queue.push_back(tx);
         }
 
-        let client = get_client(CONF.redis_host.clone());
+        let client = get_client(CONF.redis_host);
 
         CommandServer {
             al: al,
@@ -294,7 +291,7 @@ impl CommandServer {
         let temp_lock_res = self.conn_queue.lock().unwrap().is_empty();
         // Force the guard locking conn_queue to go out of scope
         // this prevents the lock from being held through the entire if/else
-        let copy_res = temp_lock_res.clone();
+        let copy_res = temp_lock_res;
         // future for handing back to the caller that resolves to Response/Error
         let (res_c, res_o) = oneshot::<Result<Response, String>>();
         // future for notifying main thread when command is done and worker is idle
@@ -385,7 +382,7 @@ impl CommandServer {
         thread::spawn(move || init_sleeper(sleeper_rx) ); // timer thread
 
         // actually send the Command
-        let _ = send_command(&wr_cmd, &mut self.client, commands_channel.as_str());
+        let _ = send_command(&wr_cmd, &self.client, commands_channel.as_str());
 
         let timeout_msg = TimeoutRequest {
             dur: dur,
