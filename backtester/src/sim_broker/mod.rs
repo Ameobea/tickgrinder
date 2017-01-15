@@ -10,12 +10,14 @@ use std::collections::BinaryHeap;
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
+use std::ops::{Index, IndexMut};
+use std::mem;
 #[allow(unused_imports)]
 use test;
 
-use futures::{oneshot, Oneshot};
+use futures::{Future, Sink, oneshot, Oneshot, Complete};
 use futures::stream::{BoxStream, Stream};
-use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, Sender};
+use futures::sync::mpsc::{unbounded, channel, UnboundedReceiver, UnboundedSender, Sender, Receiver};
 use uuid::Uuid;
 
 use tickgrinder_util::trading::tick::*;
@@ -36,7 +38,7 @@ pub struct SymbolData {
 /// Represents a BrokerAction submitted by a client that's waiting to be processed by
 /// the SimBroker due to simulated network latency or some other simulated delay.
 struct PendingAction {
-    pub future: Oneshot<BrokerResult>,
+    pub future: Complete<BrokerResult>,
     pub action: BrokerAction,
 }
 
@@ -49,18 +51,54 @@ impl PartialEq for PendingAction {
 impl Eq for PendingAction {}
 
 /// A unit of execution or the internal timestamp-ordered event loop.
-#[derive(PartialEq, Eq)]
 enum WorkUnit {
-    // allocating Strings for each tick would be way too expensive; create indexes of managed ticks instead.
+    /// Simulates trading events triggering a new Tick for a particular symbol.
+    /// Allocating Strings for each tick would be way too expensive, so indexes of
+    /// managed ticks are used instead.
     Tick(usize, Tick),
-    PendingAction(PendingAction),
-    Response(BrokerResult),
+    /// Simulates an action being received from a client.
+    PendingAction(Complete<BrokerResult>, BrokerAction),
+    /// Simulates a message from the broker being received by a client.
+    Response(Complete<BrokerResult>, BrokerResult),
 }
+
+impl PartialEq for WorkUnit {
+    fn eq(&self, other: &WorkUnit) -> bool {
+        match *self {
+            WorkUnit::Tick(self_ix, self_tick) => {
+                match *other {
+                    WorkUnit::Tick(other_ix, other_tick) => {
+                        self_ix == other_ix && self_tick == other_tick
+                    },
+                    _ => false,
+                }
+            },
+            WorkUnit::PendingAction(_, ref self_action) => {
+                match *other {
+                    WorkUnit::PendingAction(_, ref other_action) => {
+                        self_action == other_action
+                    },
+                    _ => false,
+                }
+            },
+            WorkUnit::Response(_, ref self_res) => {
+                match *other {
+                    WorkUnit::Response(_, ref other_res) => {
+                        self_res == other_res
+                    },
+                    _ => false,
+                }
+            }
+        }
+    }
+}
+
+impl Eq for WorkUnit {}
 
 /// A timestamped unit of data for the priority queue.
 #[derive(PartialEq, Eq)]
 struct QueueItem {
-    timestamp: usize,
+    timestamp: u64,
     unit: WorkUnit,
 }
 
@@ -76,7 +114,7 @@ impl Ord for QueueItem {
     }
 }
 
-struct Symbol {
+pub struct Symbol {
     /// The input stream that yields the ticks.  This is consumed internally and its `Tick`s
     /// consumed into the priority queue.
     pub input_stream: Option<BoxStream<Tick, ()>>,
@@ -92,7 +130,7 @@ struct Symbol {
 impl Symbol {
     /// Constructs a new Symbol with a statically set price
     pub fn new_oneshot(
-        symbol: String, price: Arc<(AtomicUsize, AtomicUsize)>, is_fx: bool, decimals: usize
+        price: Arc<(AtomicUsize, AtomicUsize)>, is_fx: bool, decimals: usize
     ) -> Symbol {
         Symbol {
             input_stream: None,
@@ -105,28 +143,95 @@ impl Symbol {
         }
     }
 
+    /// Returns `true` if this symbol is an exchange rate.
     pub fn is_fx(&self) -> bool {
         self.metadata.is_fx
+    }
+
+    /// Sends a `Tick` through the client stream.  This will block until the client consumes
+    /// the tick.
+    pub fn send_client(&mut self, t: Tick) {
+        let sender = mem::replace(&mut self.client_stream, None)
+            .expect("No client stream has been initialized for this symbol!");
+        let new_sender = sender.send(t).wait().unwrap();
+        mem::replace(&mut self.client_stream, Some(new_sender));
+    }
+}
+
+/// A container that holds all data about prices and symbols.  Contains helper functions for
+/// easily extracting data out and indexing efficiently.
+pub struct Symbols {
+    /// Holds the actual symbol data in a Vector.
+    data: Vec<Symbol>,
+    /// Matches the data's symbols to their index in the vector
+    hm: HashMap<String, usize>,
+}
+
+/// Allow immutable indexing of the inner data Vector for high-speed internal data access
+impl Index<usize> for Symbols {
+    type Output = Symbol;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        self.data.get(index).unwrap()
+    }
+}
+
+/// Allow mutable indexing of the inner data Vector for high-speed internal data access
+impl IndexMut<usize> for Symbols {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        self.data.get_mut(index).unwrap()
+    }
+}
+
+/// Allow indexing the inner data `Vec` by `String` via looking up through the internal `HashMap`.
+impl<'a> Index<&'a String> for Symbols {
+    type Output = Symbol;
+
+    fn index(&self, index: &'a String) -> &Self::Output {
+        match self.hm.get(index) {
+            Some(ix) => self.data.get(*ix).unwrap(),
+            None => panic!("Attempted to get {} by String but can't find a match!", index),
+        }
+    }
+}
+
+impl Symbols {
+    pub fn new() -> Symbols {
+        Symbols {
+            data: Vec::new(),
+            hm: HashMap::new(),
+        }
+    }
+
+    pub fn contains(&self, name: &String) -> bool {
+        self.hm.contains_key(name)
+    }
+
+    pub fn add(&mut self, name: String, symbol: Symbol) {
+        assert!(!self.contains(&name));
+        self.data.push(symbol);
+        let ix = self.data.len() - 1;
+        self.hm.insert(name, ix);
     }
 }
 
 /// A simulated broker that is used as the endpoint for trading activity in backtests.
 pub struct SimBroker {
-    /// Contains all the accounts simulated by the simbroker
+    /// Contains all the accounts simulated by the SimBroker
     pub accounts: Arc<Mutex<HashMap<Uuid, Account>>>,
     /// A copy of the settings generated from the input HashMap
     pub settings: SimBrokerSettings,
     /// Contains the streams that yield `Tick`s for the SimBroker as well as data about
     /// the symbols and other metadata.
-    symbols: HashMap<String, Symbol>,
+    symbols: Symbols,
     /// Priority queue that maintains that forms the basis of the internal ordered event loop.
     pq: BinaryHeap<QueueItem>,
     /// Timestamp of last price update received by broker
     timestamp: Arc<AtomicUsize>,
     /// A handle to the sender for the channel through which push messages are sent
-    push_stream_handle: UnboundedSender<BrokerResult>,
+    push_stream_handle: Option<Sender<BrokerResult>>,
     /// A handle to the receiver for the channel throgh which push messages are received
-    push_stream_recv: Option<UnboundedReceiver<BrokerResult>>,
+    push_stream_recv: Option<Receiver<BrokerResult>>,
     /// The CommandServer used for logging
     pub cs: CommandServer,
 }
@@ -167,31 +272,6 @@ impl Broker for SimBroker {
         let (complete, oneshot) = oneshot::<BrokerResult>();
 
         // TODO
-        let reply: BrokerResult = match action {
-            BrokerAction::Ping => {
-                unimplemented!(); // TODO
-            },
-            BrokerAction::TradingAction{action} => {
-                match action {
-                    TradingAction::MarketOrder{account, symbol, long, size, stop, take_profit, max_range} => {
-                        unimplemented!(); // TODO
-                    },
-                    TradingAction::MarketClose{uuid, size} => {
-                        unimplemented!(); // TODO
-                    }
-                    TradingAction::LimitOrder{account, symbol, long, size, stop, take_profit, entry_price} => {
-                        unimplemented!(); // TODO
-                    },
-                    TradingAction::LimitClose{uuid, size, exit_price} => {
-                        unimplemented!(); // TODO
-                    },
-                    TradingAction::ModifyPosition{uuid, stop, take_profit, entry_price} => {
-                        unimplemented!(); // TODO
-                    }
-                }
-            },
-            BrokerAction::Disconnect => unimplemented!(),
-        };
 
         oneshot
     }
@@ -222,15 +302,16 @@ impl SimBroker {
             live: false,
         };
         accounts.insert(Uuid::new_v4(), account);
-        let (tx, rx) = unbounded::<BrokerResult>();
+        // TODO: Make sure that 0 is the right buffer size for this channel
+        let (tx, rx) = channel::<BrokerResult>(0);
 
         SimBroker {
             accounts: Arc::new(Mutex::new(accounts)),
             settings: settings,
-            symbols: HashMap::new(),
+            symbols: Symbols::new(),
             pq: BinaryHeap::new(),
             timestamp: Arc::new(AtomicUsize::new(0)),
-            push_stream_handle: tx,
+            push_stream_handle: Some(tx),
             push_stream_recv: Some(rx),
             cs: cs,
         }
@@ -248,33 +329,55 @@ impl SimBroker {
         // continue looping while the priority queue has new events to simulate
         while let Some(item) = self.pq.pop() {
             match item.unit {
-                WorkUnit::Tick(symtick) => {
-                    unimplemented!();
+                WorkUnit::Tick(symbol_id, tick) => {
+                    // TODO: Check to see if this does a copy and if it does, fine a way to eliminate it
+                    let mut inner_symbol = &mut self.symbols[symbol_id];
+                    // send the tick through the client stream, blocking until it is consumed by the client.
+                    inner_symbol.send_client(tick);
+                },
+                WorkUnit::PendingAction(future, action) => {
+                    // process the message and re-insert the response into the queue
+                    let res = self.exec_action(&action, item.timestamp);
+                    // calculate when the response would be recieved by the client
+                    let execution_delay = self.settings.get_delay(&action);
+                    let res_time = item.timestamp + self.settings.ping_ns + execution_delay;
+                    let item = QueueItem {
+                        timestamp: res_time,
+                        unit: WorkUnit::Response(future, res),
+                    };
+                    self.pq.push(item);
+                },
+                WorkUnit::Response(future, res) => {
+                    // send the push message through the channel, blocking until it's consumed by the client.
+                    self.push_msg(res);
                 }
             }
         }
 
         // if we reach here, that means we've run out of ticks to simulate from the input streams.
-        self.cs.warning(None, "All input tickstreams have ran out of ticks; internal simulation loop stopped.");
+        self.cs.notice(None, "All input tickstreams have ran out of ticks; internal simulation loop stopped.");
     }
 
     /// Immediately sends a message over the broker's push channel.  Should only be called from within
     /// the SimBroker's internal event handling loop since it immediately sends the message.
-    fn push_msg(&self, msg: BrokerResult) {
-        let sender = &self.push_stream_handle;
-        sender.send(msg).expect("Unable to push_msg");
+    fn push_msg(&mut self, msg: BrokerResult) {
+        let sender = mem::replace(&mut self.push_stream_handle, None).unwrap();
+        let new_sender = sender.send(msg).wait().expect("Unable to push_msg");
+        mem::replace(&mut self.push_stream_handle, Some(new_sender));
     }
 
     /// Returns a handle with which to send push messages.  The returned handle will immediately send
     /// messages to the client so should only be used from within the internal event handling loop.
-    fn get_push_handle(&self) ->UnboundedSender<Result<BrokerMessage, BrokerError>> {
-        self.push_stream_handle.clone()
+    fn get_push_handle(&self) -> Sender<Result<BrokerMessage, BrokerError>> {
+        self.push_stream_handle.clone().unwrap()
     }
 
     /// Initializes the push stream by creating internal messengers
     fn init_stream() -> (mpsc::Sender<Result<BrokerMessage, BrokerError>>, UnboundedReceiver<BrokerResult>) {
         let (mpsc_s, mpsc_r) = mpsc::channel::<Result<BrokerMessage, BrokerError>>();
-        let (f_s, f_r) = unbounded::<BrokerResult>();
+        let tup = unbounded::<BrokerResult>();
+        // wrap the sender in options so we can `mem::replace` them in the loop.
+        let (mut f_s, f_r) = (Some(tup.0), tup.1);
 
         thread::spawn(move || {
             // block until message received over a mpsc sender
@@ -282,10 +385,14 @@ impl SimBroker {
             for message in mpsc_r.iter() {
                 match message {
                     Ok(message) => {
-                        f_s.send(Ok(message)).unwrap();
+                        let temp_f_s = mem::replace(&mut f_s, None).unwrap();
+                        let new_f_s = temp_f_s.send(Ok(message)).wait().unwrap();
+                        mem::replace(&mut f_s, Some(new_f_s));
                     },
                     Err(err_msg) => {
-                        f_s.send(Err(err_msg)).unwrap();
+                        let temp_f_s = mem::replace(&mut f_s, None).unwrap();
+                        let new_f_s = temp_f_s.send(Err(err_msg)).wait().unwrap();
+                        mem::replace(&mut f_s, Some(new_f_s));
                     },
                 }
             }
@@ -295,20 +402,34 @@ impl SimBroker {
         (mpsc_s, f_r)
     }
 
-    /// Actually executes an action sent to the SimBroker.  Should only be called from within the
-    /// internal event handling loop since it is sensitive to strict ordering requirements.
-    fn exec_action(&mut self, cmd: &BrokerAction) -> BrokerResult {
-        match *cmd {
-            BrokerAction::TradingAction{action: TradingAction::MarketOrder{
-                account, ref symbol, long, size, stop, take_profit, max_range
-            }} => {
-                let timestamp = self.get_timestamp();
-                assert!(timestamp != 0);
-                self.market_open(account, symbol, long, size, stop, take_profit, max_range, timestamp)
+    /// Actually carries out the action of the supplied BrokerAction (simulates it being received and processed)
+    /// by a remote broker) and returns the result of the action.  The provided timestamp is that of
+    /// when it was received by the broker (after delays and simulated lag).
+    fn exec_action(&mut self, cmd: &BrokerAction, timestamp: u64) -> BrokerResult {
+        match cmd {
+            &BrokerAction::Ping => {
+                Ok(BrokerMessage::Pong{time_received: timestamp})
             },
-            _ => Err(BrokerError::Unimplemented{
-                message: "SimBroker doesn't support that action.".to_string()
-            })
+            &BrokerAction::TradingAction{ref action} => {
+                match action {
+                    &TradingAction::MarketOrder{account, ref symbol, long, size, stop, take_profit, max_range} => {
+                        unimplemented!(); // TODO
+                    },
+                    &TradingAction::MarketClose{uuid, size} => {
+                        unimplemented!(); // TODO
+                    }
+                    &TradingAction::LimitOrder{account, ref symbol, long, size, stop, take_profit, entry_price} => {
+                        unimplemented!(); // TODO
+                    },
+                    &TradingAction::LimitClose{uuid, size, exit_price} => {
+                        unimplemented!(); // TODO
+                    },
+                    &TradingAction::ModifyPosition{uuid, stop, take_profit, entry_price} => {
+                        unimplemented!(); // TODO
+                    }
+                }
+            },
+            &BrokerAction::Disconnect => unimplemented!(),
         }
     }
 
@@ -402,28 +523,25 @@ impl SimBroker {
     /// Sets the price for a symbol.  If no Symbol currently exists with that designation, a new one
     /// will be initialized with a static price.
     fn oneshot_price_set(
-        &mut self, symbol: String, price: (usize, usize), is_fx: bool, decimal_precision: usize,
+        &mut self, name: String, price: (usize, usize), is_fx: bool, decimal_precision: usize,
     ) {
         let (bid, ask) = price;
         if is_fx {
-            assert_eq!(symbol.len(), 6);
+            assert_eq!(name.len(), 6);
         }
 
         // insert new entry into `self.prices` or update if one exists
-        match self.symbols.entry(symbol.clone()) {
-            Entry::Occupied(o) => {
-                let (ref bid_atom, ref ask_atom) = *o.into_mut().price;
-                bid_atom.store(bid, Ordering::Relaxed);
-                ask_atom.store(ask, Ordering::Relaxed);
-            },
-            Entry::Vacant(v) => {
-                let bid_atom = AtomicUsize::new(bid);
-                let ask_atom = AtomicUsize::new(ask);
-                let atom_tuple = (bid_atom, ask_atom);
+        if self.symbols.contains(&name) {
+            let (ref bid_atom, ref ask_atom) = *self.symbols[&name].price;
+            bid_atom.store(bid, Ordering::Relaxed);
+            ask_atom.store(ask, Ordering::Relaxed);
+        } else {
+            let bid_atom = AtomicUsize::new(bid);
+            let ask_atom = AtomicUsize::new(ask);
+            let atom_tuple = (bid_atom, ask_atom);
 
-                let sym = Symbol::new_oneshot(symbol, Arc::new(atom_tuple), is_fx, decimal_precision);
-                v.insert(sym);
-            }
+            let symbol = Symbol::new_oneshot(Arc::new(atom_tuple), is_fx, decimal_precision);
+            self.symbols.add(name, symbol);
         }
     }
 
@@ -528,12 +646,12 @@ impl SimBroker {
 
     /// Returns the current price for a given symbol or None if the SimBroker
     /// doensn't have a price.
-    pub fn get_price(&self, symbol: &String) -> Option<(usize, usize)> {
-        let opt = self.symbols.get(symbol);
-        if opt.is_none() {
-            return None
+    pub fn get_price(&self, name: &String) -> Option<(usize, usize)> {
+        if !self.symbols.contains(name) {
+            return None;
         }
-        let (ref atom_bid, ref atom_ask) = *opt.unwrap().price;
+
+        let (ref atom_bid, ref atom_ask) = *self.symbols[name].price;
         Some((atom_bid.load(Ordering::Relaxed), atom_ask.load(Ordering::Relaxed)))
     }
 

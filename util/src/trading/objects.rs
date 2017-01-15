@@ -251,9 +251,9 @@ pub trait FromHashmap<T> : Default {
 pub struct SimBrokerSettings {
     pub starting_balance: usize,
     /// How many nanoseconds ahead the broker is to the client
-    pub ping_ns: usize,
+    pub ping_ns: u64,
     /// How many nanoseconds between when the broker receives an order and executes it
-    pub execution_delay_ns: usize,
+    pub execution_delay_ns: u64,
     /// Buying power is leverage * balance
     pub leverage: usize,
     /// `true` if this simbroker is simulating a forex borker
@@ -273,13 +273,21 @@ impl Default for SimBrokerSettings {
         SimBrokerSettings {
             starting_balance: 50 * 1000 * 100, // $50,000
             ping_ns: 0,
-            execution_delay_ns: 0usize,
+            execution_delay_ns: 0,
             leverage: 50,
             fx: true,
             fx_base_currency: String::from("USD"),
             fx_lot_size: 1000,
             fx_accurate_pricing: false,
         }
+    }
+}
+
+impl SimBrokerSettings {
+    /// Returns the delay in ns for executing a particular `BrokerAction`.
+    pub fn get_delay(&self, action: &BrokerAction) -> u64 {
+        // TODO: implement delays for each of the `BrokerAction`s
+        self.execution_delay_ns
     }
 }
 
