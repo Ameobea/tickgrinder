@@ -39,8 +39,8 @@ pub enum WorkUnit {
     NewTick(usize, Tick),
     /// Simulates a Tick arriving at the client
     ClientTick(usize, Tick),
-    /// Simulates an action being received from a client.
-    PendingAction(Complete<BrokerResult>, BrokerAction),
+    /// Simulates an action being processed by the Broker (after processing time).
+    ActionComplete(Complete<BrokerResult>, BrokerAction),
     /// Simulates a message from the broker being received by a client.
     Response(Complete<BrokerResult>, BrokerResult),
 }
@@ -64,9 +64,9 @@ impl PartialEq for WorkUnit {
                     _ => false,
                 }
             },
-            WorkUnit::PendingAction(_, ref self_action) => {
+            WorkUnit::ActionComplete(_, ref self_action) => {
                 match *other {
-                    WorkUnit::PendingAction(_, ref other_action) => {
+                    WorkUnit::ActionComplete(_, ref other_action) => {
                         self_action == other_action
                     },
                     _ => false,
@@ -252,11 +252,18 @@ impl Symbols {
         self.data.len()
     }
 
-    pub fn add(&mut self, name: String, symbol: Symbol) {
-        assert!(!self.contains(&name));
+    /// Attempts to add a `Symbol` to the list of managed symbols.
+    pub fn add(&mut self, name: String, symbol: Symbol) -> BrokerResult {
+        if self.contains(&name) {
+            return Err(BrokerError::Message{
+                message: String::from("A tickstream already exists for that symbol!"),
+            });
+        }
+
         self.data.push(symbol);
         let ix = self.data.len() - 1;
         self.hm.insert(name, ix);
+        Ok(BrokerMessage::Success)
     }
 
     pub fn iter(&self) -> Iter<Symbol> {
@@ -294,20 +301,6 @@ impl Symbols {
         self.data[mindex2].next_tick = next_future_opt;
 
         mtick2.map(|t_ref| (mindex2, t_ref))
-    }
-}
-
-/// Given a price with a specified decimal precision, converts the price to one with
-/// a different decimal precision, rounding if necessary.
-pub fn convert_decimals(in_price: usize, in_decimals: usize, out_decimals: usize) -> usize {
-    if in_decimals > out_decimals {
-        in_price / (10usize.pow((in_decimals - out_decimals) as u32))
-    } else if out_decimals > in_decimals {
-        in_price * (10usize.pow((out_decimals - in_decimals) as u32))
-    } else if unsafe{ unlikely(out_decimals == in_decimals) } {
-        in_price
-    } else {
-        unreachable!()
     }
 }
 
@@ -360,6 +353,20 @@ impl SimulationQueue {
     }
 }
 
+/// Given a price with a specified decimal precision, converts the price to one with
+/// a different decimal precision, rounding if necessary.
+pub fn convert_decimals(in_price: usize, in_decimals: usize, out_decimals: usize) -> usize {
+    if in_decimals > out_decimals {
+        in_price / (10usize.pow((in_decimals - out_decimals) as u32))
+    } else if out_decimals > in_decimals {
+        in_price * (10usize.pow((out_decimals - in_decimals) as u32))
+    } else if unsafe{ unlikely(out_decimals == in_decimals) } {
+        in_price
+    } else {
+        unreachable!()
+    }
+}
+
 #[test]
 fn decimal_conversion() {
     assert_eq!(1000, convert_decimals(0100, 2, 3));
@@ -374,11 +381,11 @@ fn decimal_conversion() {
 fn reverse_event_ordering() {
     let item1 = QueueItem {
         timestamp: 5,
-        unit: WorkUnit::Tick(0, Tick::null()),
+        unit: WorkUnit::NewTick(0, Tick::null()),
     };
     let item2 = QueueItem {
         timestamp: 6,
-        unit: WorkUnit::Tick(0, Tick::null()),
+        unit: WorkUnit::NewTick(0, Tick::null()),
     };
 
     assert!(item2 < item1);

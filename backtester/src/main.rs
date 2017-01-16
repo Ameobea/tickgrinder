@@ -4,7 +4,7 @@
 //! account as well as statistics and data about the results of the strategy.
 
 #![feature(core_intrinsics, conservative_impl_trait, associated_consts, custom_derive, test, slice_patterns)]
-#![allow(unused_variables, dead_code,)]
+// #![allow(unused_variables, dead_code,)]
 
 extern crate tickgrinder_util;
 extern crate rand;

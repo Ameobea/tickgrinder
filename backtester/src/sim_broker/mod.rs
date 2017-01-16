@@ -16,7 +16,7 @@ use std::mem;
 use test;
 
 use futures::{Future, Sink, oneshot, Oneshot, Complete};
-use futures::stream::{BoxStream, Stream};
+use futures::stream::Stream;
 use futures::sync::mpsc::{unbounded, channel, UnboundedReceiver, UnboundedSender, Sender, Receiver};
 use uuid::Uuid;
 
@@ -57,8 +57,6 @@ impl Broker for SimBroker {
         let broker_settings = SimBrokerSettings::from_hashmap(settings);
         let cs = CommandServer::new(Uuid::new_v4(), "Simbroker");
         let mut sim = SimBroker::new(broker_settings, cs);
-        // TODO: Multithread the SimBroker
-        sim.init_sim_loop();
         c.complete(Ok(sim));
 
         o
@@ -87,7 +85,15 @@ impl Broker for SimBroker {
     fn execute(&mut self, action: BrokerAction) -> PendingResult {
         let (complete, oneshot) = oneshot::<BrokerResult>();
 
-        // TODO
+        // how long it takes the broker to process this message internally
+        let execution_delay = self.settings.get_delay(&action);
+
+        // insert this message into the internal queue adding on processing time
+        let qi = QueueItem {
+            timestamp: self.get_timestamp() + execution_delay,
+            unit: WorkUnit::ActionComplete(complete, action),
+        };
+        self.pq.push(qi);
 
         oneshot
     }
@@ -153,10 +159,15 @@ impl SimBroker {
     /// submit `BrokerActions` to the SimBroker before more processing more ticks, thus preserving the
     /// strict ordering by timestamp of events and fully simulating asynchronous operation.
     fn init_sim_loop(&mut self) {
+        // initialize the internal queue with values from attached tickstreams
+        // all tickstreams should be added by this point
+        self.pq.init(&mut self.symbols);
+        self.cs.debug(None, "Internal simulation queue has been initialized.");
+
         // continue looping while the priority queue has new events to simulate
         while let Some(item) = self.pq.pop() {
             match item.unit {
-                // a Tick arriving at the broker.  The client doesn't get to know until after network delay.
+                // A tick arriving at the broker.  The client doesn't get to know until after network delay.
                 WorkUnit::NewTick(symbol_ix, tick) => {
                     // update the price for the popped tick's symbol
                     let price = (tick.bid, tick.ask);
@@ -166,36 +177,43 @@ impl SimBroker {
                         timestamp: tick.timestamp as u64 + self.settings.ping_ns,
                         unit: WorkUnit::ClientTick(symbol_ix, tick),
                     });
+                    // check to see if we have any actions to take on open positions and take them if we do
+                    // self.tick_positions(); // TODO
                     // push the next future tick into the queue
                     self.pq.push_next_tick(&mut self.symbols);
                 },
-                // a Tick arriving at the client.  We now send it down the Client's channels and block
+                // A tick arriving at the client.  We now send it down the Client's channels and block
                 // until it is consumed.
                 WorkUnit::ClientTick(symbol_ix, tick) => {
                     // TODO: Check to see if this does a copy and if it does, fine a way to eliminate it
                     let mut inner_symbol = &mut self.symbols[symbol_ix];
+                    if tick.timestamp % 100000 == 0 {
+                        println!("{}", tick.timestamp);
+                    }
                     // send the tick through the client stream, blocking until it is consumed by the client.
                     inner_symbol.send_client(tick);
-                }
-                WorkUnit::PendingAction(future, action) => {
+                },
+                // The moment the broker finishes processing an action and the action takes place.
+                // Begins the network delay for the trip back to the client..
+                WorkUnit::ActionComplete(future, action) => {
                     // process the message and re-insert the response into the queue
                     let res = self.exec_action(&action, item.timestamp);
                     // calculate when the response would be recieved by the client
                     // then re-insert the response into the queue
-                    let execution_delay = self.settings.get_delay(&action);
-                    let res_time = item.timestamp + self.settings.ping_ns + execution_delay;
+                    let res_time = item.timestamp + self.settings.ping_ns;
                     let item = QueueItem {
                         timestamp: res_time,
                         unit: WorkUnit::Response(future, res),
                     };
                     self.pq.push(item);
                 },
+                // The moment a response reaches the client.
                 WorkUnit::Response(future, res) => {
                     // fulfill the future with the result
                     future.complete(res.clone());
                     // send the push message through the channel, blocking until it's consumed by the client.
                     self.push_msg(res);
-                }
+                },
             }
         }
 
@@ -438,7 +456,7 @@ impl SimBroker {
             self.symbols[&name].price = price;
         } else {
             let symbol = Symbol::new_oneshot(price, is_fx, decimal_precision);
-            self.symbols.add(name, symbol);
+            self.symbols.add(name, symbol).expect("Unable to set oneshot price for new symbol");
         }
     }
 
@@ -454,91 +472,83 @@ impl SimBroker {
     }
 
     /// Called each tick to check if any pending positions need opening or closing.
-    fn tick_positions(
-        symbol: String,
-        sender_handle: &UnboundedSender<Result<BrokerMessage, BrokerError>>,
-        accounts_mutex: Arc<Mutex<HashMap<Uuid, Account>>>,
-        price_arc: Arc<(AtomicUsize, AtomicUsize)>,
-        timestamp: u64
-    ) {
-        let mut accounts = accounts_mutex.lock().unwrap();
-        for (acct_id, mut acct) in accounts.iter_mut() {
-            let (ref bid_atom, ref ask_atom) = *price_arc;
-            let (bid, ask) = (bid_atom.load(Ordering::Relaxed), ask_atom.load(Ordering::Relaxed));
-            let mut satisfied_pendings = Vec::new();
+    // fn tick_positions(
+    //     symbol: String,
+    //     sender_handle: &UnboundedSender<Result<BrokerMessage, BrokerError>>,
+    //     accounts_mutex: Arc<Mutex<HashMap<Uuid, Account>>>,
+    //     price_arc: Arc<(AtomicUsize, AtomicUsize)>,
+    //     timestamp: u64
+    // ) {
+        // TODO: implement in a better way.  Create conditions to check that can be
+        // verified without locking Accounts; and about that see if we even have to lock
+        // accounts at all!
+        // let mut accounts = accounts_mutex.lock().unwrap();
+        // for (acct_id, mut acct) in accounts.iter_mut() {
+        //     let (ref bid_atom, ref ask_atom) = *price_arc;
+        //     let (bid, ask) = (bid_atom.load(Ordering::Relaxed), ask_atom.load(Ordering::Relaxed));
+        //     let mut satisfied_pendings = Vec::new();
 
-            for (pos_id, pos) in &acct.ledger.pending_positions {
-                let satisfied = pos.is_open_satisfied(bid, ask);
-                // market conditions have changed and this position should be opened
-                if pos.symbol == symbol && satisfied.is_some() {
-                    satisfied_pendings.push( (*pos_id, satisfied) );
-                }
-            }
+        //     for (pos_id, pos) in &acct.ledger.pending_positions {
+        //         let satisfied = pos.is_open_satisfied(bid, ask);
+        //         // market conditions have changed and this position should be opened
+        //         if pos.symbol == symbol && satisfied.is_some() {
+        //             satisfied_pendings.push( (*pos_id, satisfied) );
+        //         }
+        //     }
 
-            // fill all the satisfied pending positions
-            for (pos_id, price_opt) in satisfied_pendings {
-                let mut pos = acct.ledger.pending_positions.remove(&pos_id).unwrap();
-                pos.execution_time = Some(timestamp);
-                pos.execution_price = price_opt;
-                // TODO: Adjust account balance and stats
-                acct.ledger.open_positions.insert(pos_id, pos.clone());
-                // send push message with notification of fill
-                let _ = sender_handle.send(
-                    Ok(BrokerMessage::PositionOpened{
-                        position_id: pos_id, position: pos, timestamp: timestamp
-                    })
-                );
-            }
+        //     // fill all the satisfied pending positions
+        //     for (pos_id, price_opt) in satisfied_pendings {
+        //         let mut pos = acct.ledger.pending_positions.remove(&pos_id).unwrap();
+        //         pos.execution_time = Some(timestamp);
+        //         pos.execution_price = price_opt;
+        //         // TODO: Adjust account balance and stats
+        //         acct.ledger.open_positions.insert(pos_id, pos.clone());
+        //         // send push message with notification of fill
+        //         let _ = sender_handle.send(
+        //             Ok(BrokerMessage::PositionOpened{
+        //                 position_id: pos_id, position: pos, timestamp: timestamp
+        //             })
+        //         );
+        //     }
 
-            let mut satisfied_opens = Vec::new();
-            for (pos_id, pos) in &acct.ledger.open_positions {
-                let satisfied = pos.is_close_satisfied(bid, ask);
-                // market conditions have changed and this position should be closed
-                if pos.symbol == symbol && satisfied.is_some() {
-                    satisfied_opens.push( (*pos_id, satisfied) );
-                }
-            }
+        //     let mut satisfied_opens = Vec::new();
+        //     for (pos_id, pos) in &acct.ledger.open_positions {
+        //         let satisfied = pos.is_close_satisfied(bid, ask);
+        //         // market conditions have changed and this position should be closed
+        //         if pos.symbol == symbol && satisfied.is_some() {
+        //             satisfied_opens.push( (*pos_id, satisfied) );
+        //         }
+        //     }
 
-            // close all the satisfied open positions
-            for (pos_id, closure) in satisfied_opens {
-                let (close_price, closure_reason) = closure.unwrap();
-                let mut pos = acct.ledger.pending_positions.remove(&pos_id).unwrap();
-                pos.exit_time = Some(timestamp);
-                pos.exit_price = Some(close_price);
-                // TODO: Adjust account balance and stats
-                acct.ledger.closed_positions.insert(pos_id, pos.clone());
-                // send push message with notification of close
-                let _ = sender_handle.send(
-                    Ok(BrokerMessage::PositionClosed{
-                        position_id: pos_id, position: pos, reason: closure_reason, timestamp: timestamp
-                    })
-                );
-            }
-        }
-    }
+        //     // close all the satisfied open positions
+        //     for (pos_id, closure) in satisfied_opens {
+        //         let (close_price, closure_reason) = closure.unwrap();
+        //         let mut pos = acct.ledger.pending_positions.remove(&pos_id).unwrap();
+        //         pos.exit_time = Some(timestamp);
+        //         pos.exit_price = Some(close_price);
+        //         // TODO: Adjust account balance and stats
+        //         acct.ledger.closed_positions.insert(pos_id, pos.clone());
+        //         // send push message with notification of close
+        //         let _ = sender_handle.send(
+        //             Ok(BrokerMessage::PositionClosed{
+        //                 position_id: pos_id, position: pos, reason: closure_reason, timestamp: timestamp
+        //             })
+        //         );
+        //     }
+        // }
+    // }
 
     /// Registers a data source into the SimBroker.  Ticks from the supplied generator will be
     /// used to upate the SimBroker's internal prices and transmitted to connected clients.
     pub fn register_tickstream(
-        &mut self, symbol: String, raw_tickstream: UnboundedReceiver<Tick>, is_fx: bool, decimal_precision: usize
-    ) -> Result<(), String> {
-        unimplemented!();
-        // // wire the tickstream into the SimBroker internals
-        // let price_arc = self.prices.entry(symbol.clone())
-        //     .or_insert_with(|| {
-        //         Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)))
-        //     }).clone();
-
-        // // wire the tickstream so that the broker updates its own prices before sending the
-        // // price updates off to the client
-        // let accounts_clone = self.accounts.clone();
-        // let push_handle = self.get_push_handle();
-        // let timestamp_atom = self.timestamp.clone();
-        // let wired_tickstream = wire_tickstream(
-        //     symbol.clone(), raw_tickstream, accounts_clone, timestamp_atom, push_handle
-        // );
-        // self.tick_receivers.insert(symbol, wired_tickstream);
-        // Ok(())
+        &mut self, name: String, raw_tickstream: UnboundedReceiver<Tick>, is_fx: bool, decimal_precision: usize
+    ) -> BrokerResult {
+        let mut sym = Symbol::new_from_stream(raw_tickstream.boxed(), is_fx, decimal_precision);
+        // get the first element out of the tickstream and set the next tick equal to it
+        let first_tick = sym.next().unwrap().unwrap();
+        self.cs.debug(None, &format!("Set first tick for tickstream {}: {:?}", name, &first_tick));
+        sym.next_tick = Some(first_tick);
+        self.symbols.add(name, sym)
     }
 
     /// Returns the current price for a given symbol or None if the SimBroker
@@ -555,34 +565,3 @@ impl SimBroker {
         self.timestamp.load(Ordering::Relaxed) as u64
     }
 }
-
-// /// Called during broker initialization.  Takes a stream of live ticks from the backtester
-// /// and uses it to power its own prices, returning a Stream that can be passed off to
-// /// a client to serve as its price feed.
-// fn wire_tickstream(
-//     is_fx: bool, decimal_precision: usize,
-//     price_arc: Arc<(AtomicUsize, AtomicUsize)>, symbol: String, tickstream: UnboundedReceiver<Tick>,
-//     accounts: Arc<Mutex<HashMap<Uuid, Account>>>, timestamp_atom: Arc<AtomicUsize>,
-//     push_stream_handle: UnboundedSender<Result<BrokerMessage, BrokerError>>
-// ) -> InputTickstream {
-//     let wired_stream = tickstream.map(move |t| {
-//         let (ref bid_atom, ref ask_atom) = *price_arc;
-
-//         // convert the tick's prices to pips and store
-//         bid_atom.store(t.bid, Ordering::Relaxed);
-//         ask_atom.store(t.ask, Ordering::Relaxed);
-//         println!("Prices successfully wired into atomics");
-//         // store timestamp
-//         (*timestamp_atom).store(t.timestamp as usize, Ordering::Relaxed);
-
-//         // check if any positions need to be opened/closed due to this tick
-//         SimBroker::tick_positions(symbol.clone(), &push_stream_handle, accounts.clone(), price_arc.clone(), t.timestamp as u64);
-//         t
-//     }).boxed();
-
-//     InputTickstream {
-//         stream: wired_stream,
-//         is_fx: is_fx,
-//         decimal_precision: decimal_precision,
-//     }
-// }

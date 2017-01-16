@@ -35,41 +35,57 @@ fn send_push_message(b: &mut test::Bencher) {
 fn tick_retransmission() {
     use std::sync::mpsc;
 
-    use futures::Future;
+    use futures::{Future, oneshot};
 
     use data::random_reader::RandomReader;
     use data::TickGenerator;
-    use backtest::{FastMap, BacktestCommand};
+    use backtest::{NullMap, BacktestCommand};
 
-    // create the SimBroker
-    let symbol = "TEST".to_string();
-    let settings = SimBrokerSettings::default();
-    let mut sim_b = SimBroker::new(settings, CommandServer::new(Uuid::new_v4(), "SimBroker Test"));
-    let msg_stream = sim_b.get_stream();
+    // oneshot with which to receive the tick sub channel
+    let (channel_complete, channel_oneshot) = oneshot();
 
-    // create a random tickstream and register it to the SimBroker
-    let mut gen = RandomReader::new(symbol.clone());
-    let map = Box::new(FastMap {delay_ms: 1});
-    let (tx, rx) = mpsc::sync_channel(5);
-    let tick_stream = gen.get(map, rx);
-    let res = sim_b.register_tickstream(symbol.clone(), tick_stream.unwrap(), false, 0);
-    assert!(res.is_ok());
-
-    // subscribe to ticks from the SimBroker for the test pair
-    let subbed_ticks = sim_b.sub_ticks(symbol).unwrap();
-    let (c, o) = oneshot::<Vec<Tick>>();
     thread::spawn(move || {
-        let res = subbed_ticks
-            .wait()
-            .take(10)
-            .map(|t| t.unwrap() )
-            .collect();
-        // signal once we've received all the ticks
-        c.complete(res);
+        // create the SimBroker
+        let symbol = "TEST".to_string();
+        let settings = SimBrokerSettings::default();
+        let mut sim_b = SimBroker::new(settings, CommandServer::new(Uuid::new_v4(), "SimBroker Test"));
+        let msg_stream = sim_b.get_stream();
+
+        // create a random tickstream and register it to the SimBroker
+        let mut gen = RandomReader::new(symbol.clone());
+        let map = Box::new(NullMap {});
+        let (tx, rx) = mpsc::sync_channel(5);
+        let tick_stream = gen.get(map, rx);
+        // start the random tick generator
+        let _ = tx.send(BacktestCommand::Resume);
+
+        // register the tickstream with the simbroker
+        let res = sim_b.register_tickstream(symbol.clone(), tick_stream.unwrap(), false, 0);
+        assert!(res.is_ok());
+
+        // subscribe to ticks from the SimBroker for the test pair
+        let subbed_ticks = sim_b.sub_ticks(symbol).unwrap();
+        channel_complete.complete(subbed_ticks);
+
+        // block this thread on the simbroker's simulation loop
+        sim_b.init_sim_loop();
     });
 
-    // start the random tick generator
-    let _ = tx.send(BacktestCommand::Resume);
+    let subbed_ticks = channel_oneshot.wait().unwrap();
+    let (c, o) = oneshot::<Vec<Tick>>();
+    thread::spawn(move || {
+        let res: Vec<Result<Tick, ()>> = subbed_ticks
+            .wait().collect();
+            // .take(10)
+            // .map(|t| {
+            //     println!("Received tick: {:?}", t);
+            //     t.unwrap()
+            // })
+            // .collect();
+        // signal once we've received all the ticks
+        // c.complete(res);
+    });
+
     // block until we've received all awaited ticks
     let res = o.wait().unwrap();
     assert_eq!(res.len(), 10);
