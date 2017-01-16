@@ -38,7 +38,7 @@ pub struct SimBroker {
     /// Contains the streams that yield `Tick`s for the SimBroker as well as data about the symbols and other metadata.
     symbols: Symbols,
     /// Priority queue that maintains that forms the basis of the internal ordered event loop.
-    pq: BinaryHeap<QueueItem>,
+    pq: SimulationQueue,
     /// Timestamp of last price update received by broker
     timestamp: Arc<AtomicUsize>,
     /// A handle to the sender for the channel through which push messages are sent
@@ -135,8 +135,8 @@ impl SimBroker {
         SimBroker {
             accounts: Arc::new(Mutex::new(accounts)),
             settings: settings,
-            symbols: Symbols::new(),
-            pq: BinaryHeap::new(),
+            symbols: Symbols::new(cs.clone()),
+            pq: SimulationQueue::new(),
             timestamp: Arc::new(AtomicUsize::new(0)),
             push_stream_handle: Some(tx),
             push_stream_recv: Some(rx),
@@ -156,12 +156,27 @@ impl SimBroker {
         // continue looping while the priority queue has new events to simulate
         while let Some(item) = self.pq.pop() {
             match item.unit {
-                WorkUnit::Tick(symbol_id, tick) => {
+                // a Tick arriving at the broker.  The client doesn't get to know until after network delay.
+                WorkUnit::NewTick(symbol_ix, tick) => {
+                    // update the price for the popped tick's symbol
+                    let price = (tick.bid, tick.ask);
+                    self.symbols[symbol_ix].price = price;
+                    // push the ClientTick event back into the queue + network delay
+                    self.pq.push(QueueItem {
+                        timestamp: tick.timestamp as u64 + self.settings.ping_ns,
+                        unit: WorkUnit::ClientTick(symbol_ix, tick),
+                    });
+                    // push the next future tick into the queue
+                    self.pq.push_next_tick(&mut self.symbols);
+                },
+                // a Tick arriving at the client.  We now send it down the Client's channels and block
+                // until it is consumed.
+                WorkUnit::ClientTick(symbol_ix, tick) => {
                     // TODO: Check to see if this does a copy and if it does, fine a way to eliminate it
-                    let mut inner_symbol = &mut self.symbols[symbol_id];
+                    let mut inner_symbol = &mut self.symbols[symbol_ix];
                     // send the tick through the client stream, blocking until it is consumed by the client.
                     inner_symbol.send_client(tick);
-                },
+                }
                 WorkUnit::PendingAction(future, action) => {
                     // process the message and re-insert the response into the queue
                     let res = self.exec_action(&action, item.timestamp);
@@ -420,15 +435,9 @@ impl SimBroker {
 
         // insert new entry into `self.prices` or update if one exists
         if self.symbols.contains(&name) {
-            let (ref bid_atom, ref ask_atom) = *self.symbols[&name].price;
-            bid_atom.store(bid, Ordering::Relaxed);
-            ask_atom.store(ask, Ordering::Relaxed);
+            self.symbols[&name].price = price;
         } else {
-            let bid_atom = AtomicUsize::new(bid);
-            let ask_atom = AtomicUsize::new(ask);
-            let atom_tuple = (bid_atom, ask_atom);
-
-            let symbol = Symbol::new_oneshot(Arc::new(atom_tuple), is_fx, decimal_precision);
+            let symbol = Symbol::new_oneshot(price, is_fx, decimal_precision);
             self.symbols.add(name, symbol);
         }
     }
@@ -539,8 +548,7 @@ impl SimBroker {
             return None;
         }
 
-        let (ref atom_bid, ref atom_ask) = *self.symbols[name].price;
-        Some((atom_bid.load(Ordering::Relaxed), atom_ask.load(Ordering::Relaxed)))
+        Some(self.symbols[name].price)
     }
 
     pub fn get_timestamp(&self) -> u64 {
