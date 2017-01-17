@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use libc::{c_char, c_void, uint64_t, c_double, c_int};
-use futures::sync::mpsc::{UnboundedSender, UnboundedReceiver};
+use futures::sync::mpsc::UnboundedSender;
+use futures::Stream;
 
 use tickgrinder_util::transport::command_server::CommandServer;
 use tickgrinder_util::trading::broker::*;
@@ -65,7 +66,7 @@ pub struct ClientMessage {
 pub struct FXCMNative {
     pub settings_hash: HashMap<String, String>,
     pub server_environment: *mut c_void,
-    pub raw_rx: Option<UnboundedReceiver<BrokerResult>>,
+    pub raw_rx: Option<Box<Stream<Error=(), Item=Result<BrokerMessage, BrokerError>> + Send + 'static>>,
     pub tickstream_obj: Mutex<Tickstream>,
 }
 
@@ -97,7 +98,7 @@ impl CSymbolTick {
         let ask_pips = self.ask * multiplier;
 
         Tick {
-            timestamp: self.timestamp as usize,
+            timestamp: self.timestamp,
             bid: bid_pips as usize,
             ask: ask_pips as usize,
         }

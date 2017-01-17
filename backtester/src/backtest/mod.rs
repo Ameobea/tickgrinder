@@ -53,9 +53,9 @@ impl SerializableBacktestHandle {
 /// Contains all the information necessary to start a backtest
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BacktestDefinition {
-    pub start_time: Option<usize>,
+    pub start_time: Option<u64>,
     /// Stop backtest after timestamp reached or None
-    pub max_timestamp: Option<usize>,
+    pub max_timestamp: Option<u64>,
     /// Stop backtest after `max_tick_n` ticks have been processed or None
     pub max_tick_n: Option<usize>,
     pub symbol: String,
@@ -85,7 +85,7 @@ impl BacktestMap for FastMap {
 
 /// Plays ticks back at the rate that they were recorded.
 pub struct LiveMap {
-    pub last_tick_timestamp: usize
+    pub last_tick_timestamp: u64
 }
 
 impl BacktestMap for LiveMap {

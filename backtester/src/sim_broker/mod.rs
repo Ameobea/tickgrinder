@@ -7,8 +7,7 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::collections::BinaryHeap;
-use std::sync::atomic::{Ordering, AtomicUsize};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::mpsc;
 use std::thread;
 use std::ops::{Index, IndexMut};
 use std::mem;
@@ -16,7 +15,7 @@ use std::mem;
 use test;
 
 use futures::{Future, Sink, oneshot, Oneshot, Complete};
-use futures::stream::Stream;
+use futures::stream::{self, Stream, Wait};
 use futures::sync::mpsc::{unbounded, channel, UnboundedReceiver, UnboundedSender, Sender, Receiver};
 use uuid::Uuid;
 
@@ -27,12 +26,15 @@ use tickgrinder_util::transport::command_server::CommandServer;
 
 mod tests;
 mod helpers;
-use self::helpers::*;
+pub use self::helpers::*;
+mod client;
+pub use self::client::*;
 
-/// A simulated broker that is used as the endpoint for trading activity in backtests.
+/// A simulated broker that is used as the endpoint for trading activity in backtests.  This is the broker backend
+/// that creates/ingests streams that interact with the client.
 pub struct SimBroker {
     /// Contains all the accounts simulated by the SimBroker
-    pub accounts: Arc<Mutex<HashMap<Uuid, Account>>>,
+    pub accounts: Accounts,
     /// A copy of the settings generated from the input HashMap
     pub settings: SimBrokerSettings,
     /// Contains the streams that yield `Tick`s for the SimBroker as well as data about the symbols and other metadata.
@@ -40,7 +42,9 @@ pub struct SimBroker {
     /// Priority queue that maintains that forms the basis of the internal ordered event loop.
     pq: SimulationQueue,
     /// Timestamp of last price update received by broker
-    timestamp: Arc<AtomicUsize>,
+    timestamp: u64,
+    /// Receiving end of the channel over which the `SimBrokerClient` sends messages
+    client_rx: Option<mpsc::Receiver<(BrokerAction, Complete<BrokerResult>)>>,
     /// A handle to the sender for the channel through which push messages are sent
     push_stream_handle: Option<Sender<BrokerResult>>,
     /// A handle to the receiver for the channel throgh which push messages are received
@@ -49,85 +53,14 @@ pub struct SimBroker {
     pub cs: CommandServer,
 }
 
-impl Broker for SimBroker {
-    fn init(settings: HashMap<String, String>) -> Oneshot<Result<Self, BrokerError>> {
-        let (c, o) = oneshot::<Result<Self, BrokerError>>();
-        // this currently panics if you give it bad values...
-        // TODO: convert FromHashmap to return a Result<SimbrokerSettings>
-        let broker_settings = SimBrokerSettings::from_hashmap(settings);
-        let cs = CommandServer::new(Uuid::new_v4(), "Simbroker");
-        let mut sim = SimBroker::new(broker_settings, cs);
-        c.complete(Ok(sim));
-
-        o
-    }
-
-    fn get_ledger(&mut self, account_id: Uuid) -> Oneshot<Result<Ledger, BrokerError>> {
-        let (complete, oneshot) = oneshot::<Result<Ledger, BrokerError>>();
-        let account = self.get_ledger_clone(account_id);
-        complete.complete(account);
-
-        oneshot
-    }
-
-    fn list_accounts(&mut self) -> Oneshot<Result<HashMap<Uuid, Account>, BrokerError>> {
-        let (complete, oneshot) = oneshot::<Result<HashMap<Uuid, Account>, BrokerError>>();
-        let accounts;
-        {
-            let _accounts = self.accounts.lock().unwrap();
-            accounts = _accounts.clone();
-        }
-        complete.complete(Ok(accounts));
-
-        oneshot
-    }
-
-    fn execute(&mut self, action: BrokerAction) -> PendingResult {
-        let (complete, oneshot) = oneshot::<BrokerResult>();
-
-        // how long it takes the broker to process this message internally
-        let execution_delay = self.settings.get_delay(&action);
-
-        // insert this message into the internal queue adding on processing time
-        let qi = QueueItem {
-            timestamp: self.get_timestamp() + execution_delay,
-            unit: WorkUnit::ActionComplete(complete, action),
-        };
-        self.pq.push(qi);
-
-        oneshot
-    }
-
-    fn get_stream(&mut self) -> Result<Box<Stream<Item=BrokerResult, Error=()> + Send>, BrokerError> {
-        if self.push_stream_recv.is_none() {
-            // TODO: Enable multiple handles to be taken?
-            return Err(BrokerError::Message{
-                message: "You already took a handle to the push stream and can't take another.".to_string()
-            })
-        }
-
-        Ok(self.push_stream_recv.take().unwrap().boxed())
-    }
-
-    fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()> + Send>, BrokerError> {
-        if !self.symbols.contains(&symbol) {
-            return Err(BrokerError::NoSuchSymbol);
-        }
-
-        let mut sym = &mut self.symbols[&symbol];
-        if sym.client_receiver.is_some() {
-            Ok(Box::new(mem::replace(&mut sym.client_receiver, None).unwrap()))
-        } else {
-            return Err(BrokerError::Message{
-                message: "You already took a handle to the tick stream for that symbol and can't take another.".to_string()
-            })
-        }
-    }
-}
+// .-.
+unsafe impl Send for SimBroker {}
 
 impl SimBroker {
-    pub fn new(settings: SimBrokerSettings, cs: CommandServer) -> SimBroker {
-        let mut accounts = HashMap::new();
+    pub fn new(
+        settings: SimBrokerSettings, cs: CommandServer, client_rx: UnboundedReceiver<(BrokerAction, Complete<BrokerResult>)>
+    ) -> SimBroker {
+        let mut accounts = Accounts::new();
         // create with one account with the starting balance.
         let account = Account {
             uuid: Uuid::new_v4(),
@@ -136,16 +69,26 @@ impl SimBroker {
         };
         accounts.insert(Uuid::new_v4(), account);
         // TODO: Make sure that 0 is the right buffer size for this channel
-        let (tx, rx) = channel::<BrokerResult>(0);
+        let (client_push_tx, client_push_rx) = channel::<BrokerResult>(0);
+        let (mpsc_tx, mpsc_rx) = mpsc::sync_channel(0);
+
+        // spawn a thread to block on the `client_rx` and map it into the mpsc so we can conditionally check for new values.
+        // Eventually, we'll want to use a threadsafe binary heap to avoid this behind-the-scenes involved with this.
+        thread::spawn(move || {
+            for msg in client_rx.wait() {
+                mpsc_tx.send(msg.unwrap());
+            }
+        });
 
         SimBroker {
-            accounts: Arc::new(Mutex::new(accounts)),
+            accounts: accounts,
             settings: settings,
             symbols: Symbols::new(cs.clone()),
             pq: SimulationQueue::new(),
-            timestamp: Arc::new(AtomicUsize::new(0)),
-            push_stream_handle: Some(tx),
-            push_stream_recv: Some(rx),
+            timestamp: 0,
+            client_rx: Some(mpsc_rx),
+            push_stream_handle: Some(client_push_tx),
+            push_stream_recv: Some(client_push_rx),
             cs: cs,
         }
     }
@@ -158,7 +101,7 @@ impl SimBroker {
     /// The assumption is that the client will do all its processing and have a chance to
     /// submit `BrokerActions` to the SimBroker before more processing more ticks, thus preserving the
     /// strict ordering by timestamp of events and fully simulating asynchronous operation.
-    fn init_sim_loop(&mut self) {
+    pub fn init_sim_loop(mut self) {
         // initialize the internal queue with values from attached tickstreams
         // all tickstreams should be added by this point
         self.pq.init(&mut self.symbols);
@@ -166,6 +109,20 @@ impl SimBroker {
 
         // continue looping while the priority queue has new events to simulate
         while let Some(item) = self.pq.pop() {
+            self.timestamp = item.timestamp;
+            // first check if we have any messages from the client to process into the queue
+            while let Ok((action, complete,)) = self.client_rx.as_mut().unwrap().try_recv() {
+                // determine how long it takes the broker to process this message internally
+                let execution_delay = self.settings.get_delay(&action);
+                // insert this message into the internal queue adding on processing time
+                let qi = QueueItem {
+                    timestamp: self.timestamp + execution_delay,
+                    unit: WorkUnit::ActionComplete(complete, action),
+                };
+                self.pq.push(qi);
+            }
+
+            // then process the new item we took out of the queue
             match item.unit {
                 // A tick arriving at the broker.  The client doesn't get to know until after network delay.
                 WorkUnit::NewTick(symbol_ix, tick) => {
@@ -178,7 +135,7 @@ impl SimBroker {
                         unit: WorkUnit::ClientTick(symbol_ix, tick),
                     });
                     // check to see if we have any actions to take on open positions and take them if we do
-                    // self.tick_positions(); // TODO
+                    self.tick_positions(symbol_ix, (tick.bid, tick.ask,));
                     // push the next future tick into the queue
                     self.pq.push_next_tick(&mut self.symbols);
                 },
@@ -218,7 +175,7 @@ impl SimBroker {
         }
 
         // if we reach here, that means we've run out of ticks to simulate from the input streams.
-        let ts_string = self.get_timestamp().to_string();
+        let ts_string = self.timestamp.to_string();
         self.cs.notice(
             Some(&ts_string),
             "All input tickstreams have ran out of ticks; internal simulation loop stopped."
@@ -330,8 +287,7 @@ impl SimBroker {
 
         let open_cost = self.get_position_value(&pos)?;
 
-        let mut accounts = self.accounts.lock().unwrap();
-        let account_ = accounts.entry(account_id);
+        let account_ = self.accounts.entry(account_id);
         match account_ {
             Entry::Occupied(mut occ) => {
                 let mut account = occ.get_mut();
@@ -346,7 +302,7 @@ impl SimBroker {
     /// Attempts to close part of a position at market price.
     fn market_close(&mut self, account_id: Uuid, position_uuid: Uuid, size: usize) -> BrokerResult {
         if size == 0 {
-            let ts_string = self.get_timestamp().to_string();
+            let ts_string = self.timestamp.to_string();
             self.cs.warning(
                 Some(&ts_string),
                 &format!("Warning: Attempted to close 0 units of position with uuid {}", position_uuid)
@@ -354,8 +310,7 @@ impl SimBroker {
             // TODO: Add configuration setting to optionally return an error
         }
 
-        let mut accounts = self.accounts.lock().unwrap();
-        let account = match accounts.entry(account_id) {
+        let account = match self.accounts.entry(account_id) {
             Entry::Occupied(o) => o.into_mut(),
             Entry::Vacant(_) => {
                 return Err(BrokerError::NoSuchAccount);
@@ -371,21 +326,20 @@ impl SimBroker {
                 return Err(BrokerError::NoSuchPosition);
             }
         };
-        account.ledger.resize_position(position_uuid, (-1 * size as isize), modification_cost, self.get_timestamp())
+        account.ledger.resize_position(position_uuid, (-1 * size as isize), modification_cost, self.timestamp)
     }
 
     /// Modifies the stop loss or take profit of a position.
     fn modify_position(
         &mut self, account_id: Uuid, position_uuid: Uuid, sl: Option<usize>, tp: Option<usize>
     ) -> BrokerResult {
-        let mut accounts = self.accounts.lock().unwrap();
-        let account = match accounts.entry(account_id) {
+        let account = match self.accounts.entry(account_id) {
             Entry::Occupied(o) => o.into_mut(),
             Entry::Vacant(_) => {
                 return Err(BrokerError::NoSuchAccount);
             },
         };
-        account.ledger.modify_position(position_uuid, sl, tp, self.get_timestamp())
+        account.ledger.modify_position(position_uuid, sl, tp, self.timestamp)
     }
 
     /// Dumps the SimBroker state to a file that can be resumed later.
@@ -462,8 +416,7 @@ impl SimBroker {
 
     /// Returns a clone of an account's ledger or an error if it doesn't exist.
     pub fn get_ledger_clone(&mut self, account_uuid: Uuid) -> Result<Ledger, BrokerError> {
-        let accounts = self.accounts.lock().unwrap();
-        match accounts.get(&account_uuid) {
+        match self.accounts.get(&account_uuid) {
             Some(acct) => Ok(acct.ledger.clone()),
             None => Err(BrokerError::Message{
                 message: "No account exists with that UUID.".to_string()
@@ -471,78 +424,69 @@ impl SimBroker {
         }
     }
 
-    /// Called each tick to check if any pending positions need opening or closing.
-    // fn tick_positions(
-    //     symbol: String,
-    //     sender_handle: &UnboundedSender<Result<BrokerMessage, BrokerError>>,
-    //     accounts_mutex: Arc<Mutex<HashMap<Uuid, Account>>>,
-    //     price_arc: Arc<(AtomicUsize, AtomicUsize)>,
-    //     timestamp: u64
-    // ) {
-        // TODO: implement in a better way.  Create conditions to check that can be
-        // verified without locking Accounts; and about that see if we even have to lock
-        // accounts at all!
-        // let mut accounts = accounts_mutex.lock().unwrap();
-        // for (acct_id, mut acct) in accounts.iter_mut() {
-        //     let (ref bid_atom, ref ask_atom) = *price_arc;
-        //     let (bid, ask) = (bid_atom.load(Ordering::Relaxed), ask_atom.load(Ordering::Relaxed));
-        //     let mut satisfied_pendings = Vec::new();
+    /// Called each received tick to check if any pending positions need opening or closing.
+    fn tick_positions(&mut self, symbol_ix: usize, price: (usize, usize)) {
+        for (acct_id, mut acct) in self.accounts.data.iter_mut() {
+            let (bid, ask) = self.symbols[symbol_ix].price;
+            let mut satisfied_pendings = Vec::new();
 
-        //     for (pos_id, pos) in &acct.ledger.pending_positions {
-        //         let satisfied = pos.is_open_satisfied(bid, ask);
-        //         // market conditions have changed and this position should be opened
-        //         if pos.symbol == symbol && satisfied.is_some() {
-        //             satisfied_pendings.push( (*pos_id, satisfied) );
-        //         }
-        //     }
+            for (pos_id, pos) in &acct.ledger.pending_positions {
+                let satisfied = pos.is_open_satisfied(bid, ask);
+                // market conditions have changed and this position should be opened
+                if pos.symbol_id == symbol_ix && satisfied.is_some() {
+                    satisfied_pendings.push( (*pos_id, satisfied) );
+                }
+            }
 
-        //     // fill all the satisfied pending positions
-        //     for (pos_id, price_opt) in satisfied_pendings {
-        //         let mut pos = acct.ledger.pending_positions.remove(&pos_id).unwrap();
-        //         pos.execution_time = Some(timestamp);
-        //         pos.execution_price = price_opt;
-        //         // TODO: Adjust account balance and stats
-        //         acct.ledger.open_positions.insert(pos_id, pos.clone());
-        //         // send push message with notification of fill
-        //         let _ = sender_handle.send(
-        //             Ok(BrokerMessage::PositionOpened{
-        //                 position_id: pos_id, position: pos, timestamp: timestamp
-        //             })
-        //         );
-        //     }
+            // fill all the satisfied pending positions
+            for (pos_id, price_opt) in satisfied_pendings {
+                let mut pos = acct.ledger.pending_positions.remove(&pos_id).unwrap();
+                pos.execution_time = Some(self.timestamp);
+                pos.execution_price = price_opt;
+                // TODO: Adjust account balance and stats
+                acct.ledger.open_positions.insert(pos_id, pos.clone());
+                // send push message with notification of fill
+                let _ = self.push_handle_tx.send(
+                    Ok(BrokerMessage::PositionOpened{
+                        position_id: pos_id, position: pos, timestamp: self.timestamp
+                    })
+                );
+            }
 
-        //     let mut satisfied_opens = Vec::new();
-        //     for (pos_id, pos) in &acct.ledger.open_positions {
-        //         let satisfied = pos.is_close_satisfied(bid, ask);
-        //         // market conditions have changed and this position should be closed
-        //         if pos.symbol == symbol && satisfied.is_some() {
-        //             satisfied_opens.push( (*pos_id, satisfied) );
-        //         }
-        //     }
+            let mut satisfied_opens = Vec::new();
+            for (pos_id, pos) in &acct.ledger.open_positions {
+                let satisfied = pos.is_close_satisfied(bid, ask);
+                // market conditions have changed and this position should be closed
+                if pos.symbol == symbol && satisfied.is_some() {
+                    satisfied_opens.push( (*pos_id, satisfied) );
+                }
+            }
 
-        //     // close all the satisfied open positions
-        //     for (pos_id, closure) in satisfied_opens {
-        //         let (close_price, closure_reason) = closure.unwrap();
-        //         let mut pos = acct.ledger.pending_positions.remove(&pos_id).unwrap();
-        //         pos.exit_time = Some(timestamp);
-        //         pos.exit_price = Some(close_price);
-        //         // TODO: Adjust account balance and stats
-        //         acct.ledger.closed_positions.insert(pos_id, pos.clone());
-        //         // send push message with notification of close
-        //         let _ = sender_handle.send(
-        //             Ok(BrokerMessage::PositionClosed{
-        //                 position_id: pos_id, position: pos, reason: closure_reason, timestamp: timestamp
-        //             })
-        //         );
-        //     }
-        // }
-    // }
+            // close all the satisfied open positions
+            for (pos_id, closure) in satisfied_opens {
+                let (close_price, closure_reason) = closure.unwrap();
+                let mut pos = acct.ledger.pending_positions.remove(&pos_id).unwrap();
+                pos.exit_time = Some(timestamp);
+                pos.exit_price = Some(close_price);
+                // TODO: Adjust account balance and stats
+                acct.ledger.closed_positions.insert(pos_id, pos.clone());
+                // send push message with notification of close
+                let _ = sender_handle.send(
+                    Ok(BrokerMessage::PositionClosed{
+                        position_id: pos_id, position: pos, reason: closure_reason, timestamp: timestamp
+                    })
+                );
+            }
+        }
+    }
 
     /// Registers a data source into the SimBroker.  Ticks from the supplied generator will be
     /// used to upate the SimBroker's internal prices and transmitted to connected clients.
     pub fn register_tickstream(
         &mut self, name: String, raw_tickstream: UnboundedReceiver<Tick>, is_fx: bool, decimal_precision: usize
     ) -> BrokerResult {
+        // allocate space for open positions of the new symbol in `Accounts`
+        self.accounts.add_symbol();
         let mut sym = Symbol::new_from_stream(raw_tickstream.boxed(), is_fx, decimal_precision);
         // get the first element out of the tickstream and set the next tick equal to it
         let first_tick = sym.next().unwrap().unwrap();
@@ -559,9 +503,5 @@ impl SimBroker {
         }
 
         Some(self.symbols[name].price)
-    }
-
-    pub fn get_timestamp(&self) -> u64 {
-        self.timestamp.load(Ordering::Relaxed) as u64
     }
 }

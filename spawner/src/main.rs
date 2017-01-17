@@ -19,6 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::process;
+use std::str::FromStr;
 
 use uuid::Uuid;
 use futures::{Future, oneshot, Complete};

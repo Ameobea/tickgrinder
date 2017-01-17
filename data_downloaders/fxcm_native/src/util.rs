@@ -115,7 +115,7 @@ impl HistTickGen for PostgresReader {
 
         for (i, row) in rows.iter().enumerate() {
             let t = Tick {
-                timestamp: row.get::<usize, i64>(0) as usize,
+                timestamp: row.get::<usize, i64>(0) as u64,
                 bid: row.get::<usize, i64>(1) as usize,
                 ask: row.get::<usize, i64>(2) as usize,
             };

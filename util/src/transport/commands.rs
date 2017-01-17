@@ -9,7 +9,7 @@ use uuid::Uuid;
 #[allow(unused_imports)]
 use test;
 
-use trading::broker::SimBrokerSettings;
+use std::collections::HashMap;
 
 /// Represents a Command that can be serde'd and sent over Redis.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -43,7 +43,7 @@ pub enum Command {
     StopBacktest{uuid: Uuid},
     ListBacktests,
     ListSimbrokers,
-    SpawnSimbroker{settings: SimBrokerSettings},
+    SpawnSimbroker{settings: HashMap<String, String>},
     // Data Downloader Commands
     DownloadTicks{start_time: String, end_time: String, symbol: String, dst: HistTickDst},
     ListRunningDownloads,

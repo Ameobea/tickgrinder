@@ -16,7 +16,7 @@ use backtest::{BacktestCommand, BacktestMap};
 
 pub struct FlatfileReader {
     pub symbol: String,
-    pub start_time: Option<usize>,
+    pub start_time: Option<u64>,
 }
 
 impl TickGenerator for FlatfileReader {

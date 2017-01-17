@@ -189,6 +189,7 @@ impl Ledger {
 pub struct Position {
     pub creation_time: u64,
     pub symbol: String,
+    pub symbol_id: usize, // TEMP: used in a SimBroker performance hack
     pub size: usize,
     pub price: Option<usize>,
     pub long: bool,
@@ -246,65 +247,4 @@ impl Position {
 
         None
     }
-}
-
-/// Returns a struct given the struct's field:value pairs in a `HashMap`.  If the provided `HashMap`
-/// doesn't contain a field, then the default is used.
-pub trait FromHashmap<T> : Default {
-    fn from_hashmap(hm: HashMap<String, String>) -> T;
-}
-
-/// Settings for the simulated broker that determine things like trade fees,estimated slippage, etc.
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-// procedural macro is defined in the `from_hashmap` crate found in the util directory's root.
-#[derive(FromHashmap)]
-pub struct SimBrokerSettings {
-    pub starting_balance: usize,
-    /// How many nanoseconds ahead the broker is to the client
-    pub ping_ns: u64,
-    /// How many nanoseconds between when the broker receives an order and executes it
-    pub execution_delay_ns: u64,
-    /// Buying power is leverage * balance
-    pub leverage: usize,
-    /// `true` if this simbroker is simulating a forex borker
-    pub fx: bool,
-    /// Base currency in which the SimBroker is funded.  Should be in the lowest division of that
-    /// currency available (e.g. cents).
-    pub fx_base_currency: String,
-    /// For forex, the amount of units of currency in one lot.
-    pub fx_lot_size: usize,
-    /// For forex, if true, calculates accurate position values by dynamically converting to the base
-    /// currency.  If false, the rate must be set before broker initialization.
-    pub fx_accurate_pricing: bool,
-}
-
-impl Default for SimBrokerSettings {
-    fn default() -> SimBrokerSettings {
-        SimBrokerSettings {
-            starting_balance: 50 * 1000 * 100, // $50,000
-            ping_ns: 0,
-            execution_delay_ns: 0,
-            leverage: 50,
-            fx: true,
-            fx_base_currency: String::from("USD"),
-            fx_lot_size: 1000,
-            fx_accurate_pricing: false,
-        }
-    }
-}
-
-impl SimBrokerSettings {
-    /// Returns the delay in ns for executing a particular `BrokerAction`.
-    pub fn get_delay(&self, action: &BrokerAction) -> u64 {
-        // TODO: implement delays for each of the `BrokerAction`s
-        self.execution_delay_ns
-    }
-}
-
-#[test]
-fn simbroker_settings_hashmap_population() {
-    let mut hm = HashMap::new();
-    hm.insert(String::from("ping_ns"), String::from("2000"));
-    let settings = SimBrokerSettings::from_hashmap(hm);
-    assert_eq!(settings.ping_ns, 2000);
 }

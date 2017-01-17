@@ -15,14 +15,14 @@ use tickgrinder_util::transport::postgres::*;
 /// Alteration of a simple moving average using ticks as input where the prices in a time frame
 /// are weighted by the time the price stayed at that level before changing.
 pub struct Sma {
-    pub period: usize,
+    pub period: u64,
     pub ticks: VecDeque<Tick>,
     // indicates if an out-of-range tick exists in the front element
     ref_tick: Tick,
 }
 
 impl Sma {
-    pub fn new(period: usize) -> Sma {
+    pub fn new(period: u64) -> Sma {
         Sma {
             period: period,
             ticks: VecDeque::new(),
@@ -51,7 +51,7 @@ impl Sma {
         // loop over ticks, oldest to newest
         for t in iter {
             let t_diff = t.timestamp - last_tick.timestamp;
-            p_sum += last_tick.mid() * t_diff;
+            p_sum += last_tick.mid() as u64 * t_diff;
             t_sum += t_diff;
             last_tick = t;
         }
@@ -59,11 +59,11 @@ impl Sma {
         // if there is a previous value to take into account
         if self.ref_tick.bid != 0 {
             let old_time = self.period - t_sum;
-            p_sum += old_time * self.ref_tick.mid();
+            p_sum += old_time * self.ref_tick.mid() as u64;
             t_sum = self.period;
         }
 
-        p_sum / t_sum
+        (p_sum / t_sum) as usize
     }
 
     fn is_overflown(&self) -> bool {
@@ -114,9 +114,9 @@ impl Sma {
         let mut last_tick = self.ticks.front().unwrap();
         // loop over ticks, oldest to newest
         for t in iter {
-            let t_diff = (t.timestamp - last_tick.timestamp) as usize;
-            bid_sum += last_tick.bid * t_diff;
-            ask_sum += last_tick.ask * t_diff;
+            let t_diff = t.timestamp - last_tick.timestamp;
+            bid_sum += last_tick.bid as u64 * t_diff;
+            ask_sum += last_tick.ask as u64 * t_diff;
             t_sum += t_diff;
             last_tick = t;
         }
@@ -124,14 +124,14 @@ impl Sma {
         // if there is a previous value to take into account
         if self.ref_tick.bid != 0 {
             let old_time = self.period - t_sum;
-            bid_sum += old_time * self.ref_tick.bid;
-            ask_sum += old_time * self.ref_tick.ask;
+            bid_sum += old_time * self.ref_tick.bid as u64;
+            ask_sum += old_time * self.ref_tick.ask as u64;
             t_sum = self.period;
         }
 
         Tick {
-            bid: bid_sum / t_sum,
-            ask: ask_sum / t_sum,
+            bid: (bid_sum / t_sum) as usize,
+            ask: (ask_sum / t_sum) as usize,
             timestamp: (*self.ticks.back().unwrap()).timestamp,
         }
     }
@@ -139,7 +139,7 @@ impl Sma {
 
 impl HistQuery for Sma {
     /// Queries the database for ticks in a range and returns the average bid and ask in that range.
-    fn get(start_time: usize, end_time: usize, period: usize, args: HashMap<String, String>) -> Result<String, String> {
+    fn get(start_time: u64, end_time: u64, period: u64, args: HashMap<String, String>) -> Result<String, String> {
         let connection_opt = get_client();
         if connection_opt.is_err() {
             return Err(String::from("Unable to connect to PostgreSQL!"))
@@ -179,7 +179,7 @@ impl HistQuery for Sma {
 /// Takes a row and returns a tick from the values of its columns.
 /// Panics if the row doesn't contain properly formatted `tick_time`, `bid`, and `ask` columns.
 fn tick_from_row(row: &Row) -> Tick {
-    let timestamp = row.get::<_, i64>("tick_time") as usize;
+    let timestamp = row.get::<_, i64>("tick_time") as u64;
     let bid = row.get::<_, i64>("bid") as usize;
     let ask = row.get::<_, i64>("ask") as usize;
 

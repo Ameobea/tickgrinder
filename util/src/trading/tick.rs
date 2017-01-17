@@ -12,21 +12,21 @@ use transport::query_server::QueryServer;
 pub struct Tick {
     pub bid: usize,
     pub ask: usize,
-    pub timestamp: usize
+    pub timestamp: u64
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SymbolTick {
     pub bid: usize,
     pub ask: usize,
-    pub timestamp: usize,
+    pub timestamp: u64,
     pub symbol: String
 }
 
 impl Tick {
     /// Returns a dummy placeholder tick
     pub fn null() -> Tick {
-        Tick {bid: 0usize, ask: 0usize, timestamp: 0usize}
+        Tick {bid: 0, ask: 0, timestamp: 0}
     }
 
     /// Converts a JSON-encoded String into a Tick
@@ -95,7 +95,7 @@ impl Tick {
     pub fn from_csv_string(s: &str) -> Tick {
         let spl: Vec<&str> = s.split(", ").collect();
         Tick {
-            timestamp: usize::from_str_radix(spl[0], 10).unwrap(),
+            timestamp: u64::from_str_radix(spl[0], 10).unwrap(),
             bid: usize::from_str_radix(spl[1], 10).unwrap(),
             ask: usize::from_str_radix(spl[2].split('\n').collect::<Vec<_>>()[0], 10).unwrap()
         }

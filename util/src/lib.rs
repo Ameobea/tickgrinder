@@ -15,8 +15,6 @@ extern crate serde_json;
 extern crate serde_derive;
 extern crate postgres;
 extern crate test;
-#[macro_use]
-extern crate from_hashmap;
 
 pub mod transport;
 pub mod strategies;

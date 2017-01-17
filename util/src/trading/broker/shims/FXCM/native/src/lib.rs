@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::ptr::drop_in_place;
 use std::thread;
-use std::mem;
 use std::slice;
 use std::str;
 use std::sync::Mutex;
@@ -24,7 +23,7 @@ use uuid::Uuid;
 use futures::sync::oneshot;
 use futures::stream::Stream;
 use futures::sync::oneshot::Receiver;
-use futures::sync::mpsc::{unbounded, UnboundedReceiver};
+use futures::sync::mpsc::unbounded;
 
 use tickgrinder_util::transport::commands::{LogLevel, CLogLevel};
 use tickgrinder_util::transport::command_server::CommandServer;
@@ -201,7 +200,7 @@ impl Broker for FXCMNative {
             let inst = FXCMNative {
                 settings_hash: settings,
                 server_environment: server_environment,
-                raw_rx: Some(rx),
+                raw_rx: Some(Box::new(rx)),
                 tickstream_obj: obj,
             };
 
@@ -232,9 +231,9 @@ impl Broker for FXCMNative {
             BrokerAction::Ping => {
                 unimplemented!(); // TODO
             },
-            BrokerAction::TradingAction{action} => {
+            BrokerAction::TradingAction{action, account_uuid} => {
                 match action {
-                    TradingAction::MarketOrder{account, symbol, long, size, stop, take_profit, max_range} => {
+                    TradingAction::MarketOrder{symbol, long, size, stop, take_profit, max_range} => {
                         unimplemented!(); // TODO
                     },
                     TradingAction::MarketClose{uuid, size} => {
@@ -251,12 +250,13 @@ impl Broker for FXCMNative {
                     }
                 }
             },
+            BrokerAction::Disconnect => unimplemented!(),
         }
     }
 
-    fn get_stream(&mut self) -> Result<UnboundedReceiver<BrokerResult>, BrokerError> {
+    fn get_stream(&mut self) -> Result<Box<Stream<Error=(), Item=Result<BrokerMessage, BrokerError>> + Send + 'static>, BrokerError> {
         if self.raw_rx.is_some() {
-            Ok(mem::replace::<Option<UnboundedReceiver<BrokerResult>>>(&mut self.raw_rx, None).unwrap())
+            Ok(self.raw_rx.take().unwrap())
         } else {
             Err(BrokerError::Message{message: String::from("The stream for this broker has already been taken.")})
         }

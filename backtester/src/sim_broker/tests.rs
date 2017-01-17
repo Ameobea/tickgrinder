@@ -6,19 +6,20 @@ use super::*;
 /// It should be an error to try to subscribe to a symbol that the SimBroker doesn't keep track of.
 #[test]
 fn sub_ticks_err() {
-    let settings = SimBrokerSettings::default();
-
-    let mut sim_b = SimBroker::new(settings, CommandServer::new(Uuid::new_v4(), "SimBroker Test"));
-    let stream = sim_b.sub_ticks("TEST".to_string());
+    let mut sim_client = SimBrokerClient::init(HashMap::new()).wait().unwrap().unwrap();
+    let stream = sim_client.sub_ticks("TEST".to_string());
     assert!(stream.is_err());
 }
 
 /// How long it takes to unwrap the sender, send a message, and re-store the sender.
 #[bench]
 fn send_push_message(b: &mut test::Bencher) {
+    use futures::sync::mpsc::unbounded;
+
     let settings = SimBrokerSettings::default();
-    let mut sim_b = SimBroker::new(settings, CommandServer::new(Uuid::new_v4(), "SimBroker Test"));
-    let receiver = sim_b.get_stream().unwrap();
+    let (_, dummy_rx) = unbounded();
+    let mut sim_b = SimBroker::new(settings, CommandServer::new(Uuid::new_v4(), "SimBroker Test"), dummy_rx);
+    let receiver = sim_b.push_stream_recv.take().unwrap().boxed();
     thread::spawn(move ||{
         for _ in receiver.wait() {
 
@@ -44,46 +45,43 @@ fn tick_retransmission() {
     // oneshot with which to receive the tick sub channel
     let (channel_complete, channel_oneshot) = oneshot();
 
-    thread::spawn(move || {
-        // create the SimBroker
-        let symbol = "TEST".to_string();
-        let settings = SimBrokerSettings::default();
-        let mut sim_b = SimBroker::new(settings, CommandServer::new(Uuid::new_v4(), "SimBroker Test"));
-        let msg_stream = sim_b.get_stream();
+    // create the SimBroker
+    let symbol = "TEST".to_string();
+    let mut sim_client = SimBrokerClient::init(HashMap::new()).wait().unwrap().unwrap();
+    let msg_stream = sim_client.get_stream();
 
-        // create a random tickstream and register it to the SimBroker
-        let mut gen = RandomReader::new(symbol.clone());
-        let map = Box::new(NullMap {});
-        let (tx, rx) = mpsc::sync_channel(5);
-        let tick_stream = gen.get(map, rx);
-        // start the random tick generator
-        let _ = tx.send(BacktestCommand::Resume);
+    // create a random tickstream and register it to the SimBroker
+    let mut gen = RandomReader::new(symbol.clone());
+    let map = Box::new(NullMap {});
+    let (tx, rx) = mpsc::sync_channel(5);
+    let tick_stream = gen.get(map, rx);
+    // start the random tick generator
+    let _ = tx.send(BacktestCommand::Resume);
 
-        // register the tickstream with the simbroker
-        let res = sim_b.register_tickstream(symbol.clone(), tick_stream.unwrap(), false, 0);
-        assert!(res.is_ok());
+    // register the tickstream with the simbroker
+    let res = sim_client.register_tickstream(symbol.clone(), tick_stream.unwrap(), false, 0);
+    assert!(res.is_ok());
 
-        // subscribe to ticks from the SimBroker for the test pair
-        let subbed_ticks = sim_b.sub_ticks(symbol).unwrap();
-        channel_complete.complete(subbed_ticks);
+    // subscribe to ticks from the SimBroker for the test pair
+    let subbed_ticks = sim_client.sub_ticks(symbol).unwrap();
+    channel_complete.complete(subbed_ticks);
 
-        // block this thread on the simbroker's simulation loop
-        sim_b.init_sim_loop();
-    });
+    // start the simbroker's simulation loop
+    sim_client.init_sim_loop();
 
     let subbed_ticks = channel_oneshot.wait().unwrap();
     let (c, o) = oneshot::<Vec<Tick>>();
     thread::spawn(move || {
-        let res: Vec<Result<Tick, ()>> = subbed_ticks
-            .wait().collect();
-            // .take(10)
-            // .map(|t| {
-            //     println!("Received tick: {:?}", t);
-            //     t.unwrap()
-            // })
-            // .collect();
+        let res: Vec<Tick> = subbed_ticks
+            .wait()
+            .take(10)
+            .map(|t| {
+                println!("Received tick: {:?}", t);
+                t.unwrap()
+            })
+            .collect();
         // signal once we've received all the ticks
-        // c.complete(res);
+        c.complete(res);
     });
 
     // block until we've received all awaited ticks
@@ -95,9 +93,7 @@ fn tick_retransmission() {
 fn position_opening_closing_modification() {
     use futures::Future;
 
-    let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
-    let mut sim = SimBroker::init(HashMap::new()).wait().unwrap().unwrap();
-
+    let mut sim = SimBrokerClient::init(HashMap::new()).wait().unwrap().unwrap();
     let price = (0999, 1001);
     sim.oneshot_price_set(String::from("TEST"), price, false, 4);
     // TODO
@@ -108,17 +104,17 @@ fn dynamic_base_rate_conversion() {
     use std::default::Default;
 
     let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
-    let mut settings = SimBrokerSettings::default();
-    settings.fx_accurate_pricing = true;
-    let mut sim = SimBroker::new(settings, cs);
+    let mut hm = HashMap::new();
+    hm.insert(String::from("fx_accurate_pricing"), String::from("true"));
+    let mut sim_client = SimBrokerClient::init(hm).wait().unwrap().unwrap();
 
     // wire tickstreams into the broker
     let (base_tx, base_rx) = unbounded::<Tick>();
     let base_pair    = String::from("EURUSD");
     let (foreign_tx, foreign_rx) = unbounded::<Tick>();
     let foreign_pair = String::from("EURJPY");
-    sim.register_tickstream(base_pair.clone(), base_rx, true, 4).unwrap();
-    sim.register_tickstream(foreign_pair.clone(), foreign_rx, true, 4).unwrap();
+    sim_client.register_tickstream(base_pair.clone(), base_rx, true, 4).unwrap();
+    sim_client.register_tickstream(foreign_pair.clone(), foreign_rx, true, 4).unwrap();
 
     base_tx.send(Tick {
         timestamp: 1,
@@ -130,8 +126,11 @@ fn dynamic_base_rate_conversion() {
         bid: 1219879,
         ask: 1219891,
     }).wait().unwrap();
-    assert_eq!((106141, 106147), sim.get_price(&base_pair).unwrap());
-    assert_eq!((1219879, 1219891), sim.get_price(&foreign_pair).unwrap());
+
+    // block this thread on the SimBroker simulation loop
+    sim_client.init_sim_loop();
+
+    // TODO: Sub prices and submit orders
     // TODO: Test reverses (EURUSD and USDEUR)
 }
 
@@ -139,13 +138,12 @@ fn dynamic_base_rate_conversion() {
 fn oneshot_price_setting() {
     use futures::Future;
 
-    let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
-    let mut sim = SimBroker::init(HashMap::new()).wait().unwrap().unwrap();
+    let mut sim_client = SimBrokerClient::init(HashMap::new()).wait().unwrap().unwrap();
 
     let price = (0999, 1001);
     let sym = String::from("TEST");
-    sim.oneshot_price_set(sym.clone(), price, false, 4);
-    assert_eq!(price, sim.get_price(&sym).unwrap());
+    sim_client.oneshot_price_set(sym.clone(), price, false, 4);
+    // TODO
 }
 
 #[test]
@@ -153,9 +151,9 @@ fn oneshot_base_rate_conversion() {
     use futures::Future;
 
     let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
-    let mut sim = SimBroker::init(HashMap::new()).wait().unwrap().unwrap();
+    let mut sim_client = SimBrokerClient::init(HashMap::new()).wait().unwrap().unwrap();
 
-    sim.oneshot_price_set(String::from("EURUSD"), (106143, 106147), true, 5);
+    sim_client.oneshot_price_set(String::from("EURUSD"), (106143, 106147), true, 5);
 }
 
 #[bench]
@@ -177,4 +175,37 @@ fn small_string_hashmap_lookup(b: &mut test::Bencher) {
 
     let lookup_key = String::from("key4");
     b.iter(|| hm.get(&lookup_key))
+}
+
+#[test]
+fn decimal_conversion() {
+    assert_eq!(1000, convert_decimals(0100, 2, 3));
+    assert_eq!(0999, convert_decimals(9991, 4, 3));
+    assert_eq!(0010, convert_decimals(1000, 3, 1));
+    assert_eq!(0000, convert_decimals(0000, 8, 2));
+    assert_eq!(0001, convert_decimals(0001, 3, 3));
+}
+
+/// Make sure that the ordering of `QueueItem`s is reversed as it should be.
+#[test]
+fn reverse_event_ordering() {
+    let item1 = QueueItem {
+        timestamp: 5,
+        unit: WorkUnit::NewTick(0, Tick::null()),
+    };
+    let item2 = QueueItem {
+        timestamp: 6,
+        unit: WorkUnit::NewTick(0, Tick::null()),
+    };
+
+    assert!(item2 < item1);
+}
+
+#[bench]
+fn symbols_contains(b: &mut test::Bencher) {
+    let symbols = Symbols::new(CommandServer::new(Uuid::new_v4(), "SimBroker Symbols Benchmark"));
+    let symbol = Symbol::new_oneshot((99, 103), true, 2);
+    let name = String::from("TEST");
+    symbols.add(name, symbol);
+    b.iter(|| symbols.contains(name))
 }

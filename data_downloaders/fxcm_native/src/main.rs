@@ -24,6 +24,7 @@ use std::fs::{File, OpenOptions};
 use std::path::Path;
 use std::io::prelude::*;
 use std::fmt;
+use std::str::FromStr;
 
 use uuid::Uuid;
 use libc::{c_char, c_void, uint64_t, c_double, c_int};
@@ -92,7 +93,7 @@ impl CTick {
         let ask_pips = self.ask * multiplier;
 
         Tick {
-            timestamp: self.timestamp as usize,
+            timestamp: self.timestamp as u64,
             bid: bid_pips as usize,
             ask: ask_pips as usize,
         }

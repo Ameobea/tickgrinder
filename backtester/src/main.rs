@@ -3,7 +3,7 @@
 //! Plays back market data and executes strategies, providing a simulated broker and
 //! account as well as statistics and data about the results of the strategy.
 
-#![feature(core_intrinsics, conservative_impl_trait, associated_consts, custom_derive, test, slice_patterns)]
+#![feature(rustc_attrs, core_intrinsics, conservative_impl_trait, associated_consts, custom_derive, test, slice_patterns)]
 // #![allow(unused_variables, dead_code,)]
 
 extern crate tickgrinder_util;
@@ -17,6 +17,8 @@ extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 extern crate test;
+#[macro_use]
+extern crate from_hashmap;
 
 mod data;
 mod backtest;
@@ -90,7 +92,7 @@ struct Backtester {
     pub uuid: Uuid,
     pub cs: CommandServer,
     pub running_backtests: Arc<Mutex<HashMap<Uuid, BacktestHandle>>>,
-    pub simbrokers: Arc<Mutex<HashMap<Uuid, SimBroker>>>,
+    pub simbrokers: Arc<Mutex<HashMap<Uuid, SimBrokerClient>>>,
 }
 
 impl Backtester {
@@ -104,10 +106,10 @@ impl Backtester {
     }
 
     /// Creates a SimBroker that's managed by the Backtester.  Returns its UUID.
-    pub fn init_simbroker(&mut self, settings: SimBrokerSettings) -> Uuid {
+    pub fn init_simbroker(&mut self, settings: HashMap<String, String>) -> Uuid {
         let mut simbrokers = self.simbrokers.lock().unwrap();
         // TODO: Use new updated SimbrokerSettings
-        let simbroker = SimBroker::init(HashMap::new()).wait().unwrap().unwrap();
+        let simbroker = SimBrokerClient::init(settings).wait().unwrap().unwrap();
         let uuid = Uuid::new_v4();
         simbrokers.insert(uuid, simbroker);
         uuid
@@ -198,7 +200,7 @@ impl Backtester {
                     let message = to_string(&message_vec);
                     match message {
                         Ok(msg) => Response::Info{ info: msg },
-                        Err(e) => Response::Error{ status: "Unable to convert backtest list into String.".to_string() },
+                        Err(e) => Response::Error{ status: format!("Unable to convert backtest list into String: {:?}", e) },
                     }
                 },
                 Command::SpawnSimbroker{settings} => {
@@ -307,6 +309,7 @@ impl Backtester {
             // plug the tickstream into the matching SimBroker
             // TODO TODO TODO: Implement proper values here
             simbroker.register_tickstream(definition.symbol.clone(), tickstream.unwrap(), true, 6).unwrap();
+            simbroker.init_sim_loop().expect("Unable to start SimBroker sim loop");
         }
 
         let handle = BacktestHandle {
@@ -347,7 +350,7 @@ impl Backtester {
 }
 
 /// Creates a `TickGenerator` from a `DataSource` and symbol String
-pub fn resolve_data_source(data_source: &DataSource, symbol: String, start_time: Option<usize>) -> Box<TickGenerator> {
+pub fn resolve_data_source(data_source: &DataSource, symbol: String, start_time: Option<u64>) -> Box<TickGenerator> {
     match *data_source {
         DataSource::Flatfile => {
             Box::new(FlatfileReader{

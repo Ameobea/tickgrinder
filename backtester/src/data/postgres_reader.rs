@@ -16,7 +16,7 @@ use backtest::{BacktestCommand, BacktestMap};
 
 pub struct PostgresReader {
     pub symbol: String,
-    pub start_time: Option<usize>,
+    pub start_time: Option<u64>,
 }
 
 impl TickGenerator for PostgresReader {
@@ -48,7 +48,7 @@ impl TickGenerator for PostgresReader {
                 let rows = rows_opt.unwrap();
                 for row in rows.iter() {
                     let tick = Tick {
-                        timestamp: row.get::<_, i64>(0) as usize,
+                        timestamp: row.get::<_, i64>(0) as u64,
                         bid: row.get::<_, i64>(1) as usize,
                         ask: row.get::<_, i64>(2) as usize,
                     };
@@ -74,7 +74,7 @@ impl TickGenerator for PostgresReader {
     }
 }
 
-pub fn get_ticks<'a>(symbol: &str, start_time: usize, conn: &'a Connection) -> Result<Rows<'a>, Error> {
+pub fn get_ticks<'a>(symbol: &str, start_time: u64, conn: &'a Connection) -> Result<Rows<'a>, Error> {
     let query = format!(
         "SELECT (tick_time, bid, ask) FROM hist_{} WHERE tick_time > {} LIMIT 500 ORDER BY tick_time;",
         symbol,

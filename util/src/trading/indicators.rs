@@ -12,7 +12,7 @@ pub trait HistQuery {
     /// through the specified time range.  Args is any additional indicator-specific
     /// arguments that need to be given.  Period is the minimum time that must elapse between
     /// two distinct indicator values returned.
-    fn get(start_time: usize, end_time: usize, period: usize, args: HashMap<String, String>) -> Result<String, String>;
+    fn get(start_time: u64, end_time: u64, period: u64, args: HashMap<String, String>) -> Result<String, String>;
 }
 
 /// Implemented for indicators that can process live ticks.  The `tick()` function should be

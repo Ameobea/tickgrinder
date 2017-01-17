@@ -15,6 +15,7 @@ use std::env;
 use std::thread;
 use std::process;
 use std::time::Duration;
+use std::str::FromStr;
 
 use futures::Stream;
 use uuid::Uuid;
