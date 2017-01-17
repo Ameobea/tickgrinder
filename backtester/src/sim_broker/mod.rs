@@ -154,7 +154,8 @@ impl SimBroker {
                 // Begins the network delay for the trip back to the client.
                 WorkUnit::ActionComplete(future, action) => {
                     // process the message and re-insert the response into the queue
-                    let res = self.exec_action(&action, item.timestamp);
+                    assert_eq!(self.timestamp, item.timestamp);
+                    let res = self.exec_action(&action);
                     // calculate when the response would be recieved by the client
                     // then re-insert the response into the queue
                     let res_time = item.timestamp + self.settings.ping_ns;
@@ -229,36 +230,114 @@ impl SimBroker {
     /// Actually carries out the action of the supplied BrokerAction (simulates it being received and processed)
     /// by a remote broker) and returns the result of the action.  The provided timestamp is that of
     /// when it was received by the broker (after delays and simulated lag).
-    fn exec_action(&mut self, cmd: &BrokerAction, timestamp: u64) -> BrokerResult {
+    fn exec_action(&mut self, cmd: &BrokerAction) -> BrokerResult {
         match cmd {
             &BrokerAction::Ping => {
-                Ok(BrokerMessage::Pong{time_received: timestamp})
+                Ok(BrokerMessage::Pong{time_received: self.timestamp})
             },
             &BrokerAction::TradingAction{account_uuid, ref action} => {
                 match action {
                     &TradingAction::MarketOrder{ref symbol, long, size, stop, take_profit, max_range} => {
                         match self.symbols.get_index(symbol) {
-                            Some(ix) => self.market_open(account_uuid, ix, long, size, stop, take_profit, max_range, timestamp),
+                            Some(ix) => self.market_open(account_uuid, ix, long, size, stop, take_profit, max_range),
                             None => Err(BrokerError::NoSuchSymbol),
                         }
                     },
                     &TradingAction::MarketClose{uuid, size} => {
                         self.market_close(account_uuid, uuid, size)
-                    }
-                    &TradingAction::LimitOrder{account, ref symbol, long, size, stop, take_profit, entry_price} => {
-                        unimplemented!(); // TODO
                     },
+                    &TradingAction::LimitOrder{ref symbol, long, size, stop, take_profit, entry_price} => {
+                        match self.symbols.get_index(symbol) {
+                            Some(ix) => self.place_order(account_uuid, ix, entry_price, long, size, stop, take_profit),
+                            None => Err(BrokerError::NoSuchSymbol),
+                        }
+                    },
+                    // no support for partial closes at this time
                     &TradingAction::LimitClose{uuid, size, exit_price} => {
-                        unimplemented!(); // TODO
+                        // limit close just means to take profit when we hit a certain price, so just adjust the TP
+                        self.modify_position(account_uuid, uuid, None, Some(Some(exit_price)))
                     },
-                    // TODO: Change this to only work with open positions
-                    &TradingAction::ModifyPosition{uuid, stop, take_profit, entry_price} => {
-                        self.modify_position(account_uuid, uuid, stop, take_profit)
+                    &TradingAction::ModifyOrder{uuid, size, entry_price, stop, take_profit} => {
+                        self.modify_order(account_uuid, uuid, size, entry_price, stop, take_profit)
+                    },
+                    &TradingAction::CancelOrder{uuid} => {
+                        self.cancel_order(account_uuid, uuid)
                     }
+                    &TradingAction::ModifyPosition{uuid, stop, take_profit} => {
+                        self.modify_position(account_uuid, uuid, Some(stop), Some(take_profit))
+                    },
                 }
             },
             &BrokerAction::Disconnect => unimplemented!(),
         }
+    }
+
+    /// Creates a new pending position on the `SimBroker`.
+    fn place_order(
+        &mut self, account_uuid: Uuid, symbol_ix: usize, limit_price: usize, long: bool, size: usize,
+        stop: Option<usize>, take_profit: Option<usize>,
+
+    ) -> BrokerResult {
+        let opt = self.get_price(symbol_ix);
+        if opt.is_none() {
+            return Err(BrokerError::NoSuchSymbol)
+        }
+        let (bid, ask) = opt.unwrap();
+
+        let order = Position {
+            creation_time: self.timestamp,
+            symbol_id: symbol_ix,
+            size: size,
+            price: Some(limit_price),
+            long: long,
+            stop: stop,
+            take_profit: take_profit,
+            execution_time: None,
+            execution_price: None,
+            exit_price: None,
+            exit_time: None,
+        };
+
+        // check if we're able to open this position right away at market price
+        match order.is_open_satisfied(bid, ask) {
+            // if this order is fillable right now, open it.
+            Some(entry_price) => {
+                let res = self.market_open(account_uuid, symbol_ix, long, size, stop, take_profit, Some(0));
+                // this should always succeed
+                assert!(res.is_ok());
+                return res
+            },
+            None => (),
+        }
+
+        let pos_value = self.get_position_value(&order)?;
+
+        // if we're not able to open it, try to place the order.
+        let res = match self.accounts.entry(account_uuid) {
+            Entry::Occupied(mut o) => {
+                let account = o.get_mut();
+                let margin_requirement = pos_value / self.settings.leverage;
+                account.ledger.place_order(order.clone(), margin_requirement)
+            },
+            Entry::Vacant(_) => {
+                Err(BrokerError::NoSuchAccount)
+            },
+        };
+
+        // if the order was actually placed, notify the cache that we've opened a new order
+        match &res {
+            &Ok(ref msg) => {
+                match msg {
+                    &BrokerMessage::OrderPlaced{order_id, order: _, timestamp: _} => {
+                        self.accounts.order_placed(&order, order_id, account_uuid)
+                    },
+                    _ => (),
+                }
+            },
+            &Err(_) => (),
+        }
+
+        res
     }
 
     /// Attempts to open a position at the current market price with options for settings stop loss, or take profit.
@@ -266,7 +345,7 @@ impl SimBroker {
     /// into account) and that it is filled fully.
     fn market_open(
         &mut self, account_id: Uuid, symbol_ix: usize, long: bool, size: usize, stop: Option<usize>,
-        take_profit: Option<usize>, max_range: Option<f64>, timestamp: u64
+        take_profit: Option<usize>, max_range: Option<usize>
     ) -> BrokerResult {
         let opt = self.get_price(symbol_ix);
         if opt.is_none() {
@@ -277,14 +356,14 @@ impl SimBroker {
         let cur_price = if long { ask } else { bid };
 
         let pos = Position {
-            creation_time: timestamp,
+            creation_time: self.timestamp,
             symbol_id: symbol_ix,
             size: size,
             price: Some(cur_price),
             long: long,
             stop: stop,
             take_profit: take_profit,
-            execution_time: Some(timestamp + self.settings.execution_delay_ns as u64),
+            execution_time: Some(self.timestamp + self.settings.execution_delay_ns),
             execution_price: Some(cur_price),
             exit_price: None,
             exit_time: None,
@@ -373,9 +452,105 @@ impl SimBroker {
         res
     }
 
-    /// Modifies the stop loss or take profit of a position.
+    /// Modifies an order, setting the parameters of the contained `Position` equal to those supplied.
+    fn modify_order(
+        &mut self, account_uuid: Uuid, pos_uuid: Uuid, size: usize, entry_price: usize,
+        stop: Option<usize>, take_profit: Option<usize>,
+    ) -> BrokerResult {
+        let res = {
+            let order = {
+                let account = match self.accounts.entry(account_uuid) {
+                    Entry::Occupied(o) => o.into_mut(),
+                    Entry::Vacant(_) => {
+                        return Err(BrokerError::NoSuchAccount);
+                    },
+                };
+
+                // pull it out of the pending hashmap while we modify it
+                match account.ledger.pending_positions.get(&pos_uuid) {
+                    Some(pos) => pos,
+                    None => {
+                        return Err(BrokerError::NoSuchPosition);
+                    },
+                }.clone()
+            };
+            let opt = self.get_price(order.symbol_id);
+            if opt.is_none() {
+                return Err(BrokerError::NoSuchSymbol)
+            }
+            let (bid, ask) = opt.unwrap();
+            match order.is_open_satisfied(bid, ask) {
+                // if the new entry price makes the order marketable, go ahead and open the position.
+                Some(entry_price) => {
+                    let res = {
+                        let account = self.accounts.get_mut(&account_uuid).unwrap();
+                        // remove the position from the pending hashmap
+                        let mut hm_order = account.ledger.pending_positions.remove(&pos_uuid).unwrap();
+                        hm_order.execution_time = Some(self.timestamp);
+                        hm_order.execution_price = Some(entry_price);
+                        // add it to the open hashmap
+                        account.ledger.open_position(pos_uuid, order.clone())
+                    };
+                    // that should always succeed
+                    assert!(res.is_ok());
+                    // notify the cache that the position was opened
+                    self.accounts.position_opened(&order, pos_uuid);
+                    return res;
+                },
+                // if it's not marketable, perform the modification on the ledger
+                None => {
+                    let mut account = self.accounts.get_mut(&account_uuid).unwrap();
+                    account.ledger.modify_order(pos_uuid, size, entry_price, stop, take_profit, self.timestamp)
+                },
+            }
+        };
+
+        // as of now, the modification operation always succeeds so we should always update the cache
+        match res.as_ref().unwrap() {
+            &BrokerMessage::OrderModified{ ref order, order_id: _, timestamp: _ } => {
+                self.accounts.order_modified(order, pos_uuid);
+            },
+            _ => unreachable!(),
+        }
+
+        res
+    }
+
+    /// Cancels the pending position.
+    pub fn cancel_order(&mut self, account_uuid: Uuid, order_uuid: Uuid) -> BrokerResult {
+        let res = {
+            let account = match self.accounts.entry(account_uuid) {
+                Entry::Occupied(o) => o.into_mut(),
+                Entry::Vacant(_) => {
+                    return Err(BrokerError::NoSuchAccount);
+                },
+            };
+
+            // attempt to cancel the order and remove it from the hashmaps
+            account.ledger.cancel_order(order_uuid, self.timestamp)
+        };
+
+        // if it was successful, remove the position from the `pending` cache.
+        match res {
+            Ok(ref msg) => {
+                match msg {
+                    &BrokerMessage::OrderCancelled{ ref order, order_id: _, timestamp: _ } => {
+                        self.accounts.order_cancelled(order_uuid, order.symbol_id)
+                    },
+                    _ => unreachable!(),
+                }
+            },
+            Err(_) => (),
+        }
+
+        res
+    }
+
+    /// Modifies the stop loss or take profit of a position.  SL and TP are double option-wrapped; the outer
+    /// option indicates if they should be changed and the inner option indicates if the value should be set
+    /// or not (`Some(None)` indicates that the current SL should be removed, for example).
     fn modify_position(
-        &mut self, account_id: Uuid, position_uuid: Uuid, sl: Option<usize>, tp: Option<usize>
+        &mut self, account_id: Uuid, position_uuid: Uuid, sl: Option<Option<usize>>, tp: Option<Option<usize>>
     ) -> BrokerResult {
         let res = {
             let account = match self.accounts.entry(account_id) {
@@ -386,6 +561,8 @@ impl SimBroker {
             };
             account.ledger.modify_position(position_uuid, sl, tp, self.timestamp)
         };
+
+        // TODO: Check if the new SL/TP make the position meet closure conditions and if they do, close it
 
         // if the position was actually modified, remove it from the cache
         match res {

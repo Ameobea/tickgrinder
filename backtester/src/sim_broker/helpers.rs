@@ -484,6 +484,15 @@ impl Accounts {
         self.data.get_mut(k)
     }
 
+    /// This is called when a new order is placed, indicating that it should be added to the pending cache.
+    pub fn order_placed(&mut self, order: &Position, order_uuid: Uuid, account_uuid: Uuid) {
+        self.positions[order.symbol_id].pending.push(CachedPosition {
+            pos_uuid: order_uuid,
+            acct_uuid: account_uuid,
+            pos: order.clone(),
+        });
+    }
+
     /// This is called when a pending position is manually modified but not closed, indicating that its cache
     /// value should be updated to the new supplied version.
     pub fn order_modified(&mut self, updated_order: &Position, supplied_uuid: Uuid) {
@@ -492,6 +501,19 @@ impl Accounts {
                 *pos = updated_order.clone();
             }
         }
+    }
+
+    /// Called when an order is cancelled, causing it to be removed from the pending cache without being added to
+    /// the open cache.
+    pub fn order_cancelled(&mut self, cancelled_uuid: Uuid, symbol_ix: usize) {
+        for i in 0..self.positions[symbol_ix].pending.len() {
+            let pos_uuid = self.positions[symbol_ix].pending[i].pos_uuid;
+            if pos_uuid == cancelled_uuid {
+                self.positions[symbol_ix].pending.remove(i);
+            }
+        }
+
+        panic!("We were told that an order was cancelled, but we couldn't find that order in the cache!");
     }
 
     /// This is called when a new position is opened manually, indicating that it should be removed from the pending

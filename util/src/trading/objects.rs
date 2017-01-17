@@ -31,6 +31,21 @@ pub enum BrokerMessage {
     Success,
     Failure,
     Notice,
+    OrderPlaced{
+        order_id: Uuid,
+        order: Position,
+        timestamp: u64,
+    },
+    OrderModified{
+        order_id: Uuid,
+        order: Position,
+        timestamp: u64,
+    },
+    OrderCancelled{
+        order_id: Uuid,
+        order: Position,
+        timestamp: u64
+    },
     PositionOpened{
         position_id: Uuid,
         position: Position,
@@ -98,7 +113,50 @@ impl Ledger {
             return Err(BrokerError::InsufficientBuyingPower)
         }
         self.balance -= margin_requirement;
-        unimplemented!(); // TODO
+        let uuid = Uuid::new_v4();
+        self.pending_positions.insert(uuid, pos.clone());
+        let creation_time = pos.creation_time;
+        Ok(BrokerMessage::OrderPlaced{
+            order_id: uuid,
+            order: pos,
+            timestamp: creation_time,
+        })
+    }
+
+    /// Changes the parameters of a pending order
+    pub fn modify_order(
+        &mut self, order_uuid: Uuid, size: usize, entry_price: usize, sl: Option<usize>, tp: Option<usize>, timestamp: u64,
+    ) -> BrokerResult {
+        // if we made it this far, we already checked to make sure the order isn't marketable
+        let mut order = match self.pending_positions.get_mut(&order_uuid) {
+            Some(order) => order,
+            None => return Err(BrokerError::NoSuchPosition),
+        };
+
+        order.size = size;
+        order.price = Some(entry_price);
+        order.stop = sl;
+        order.take_profit = tp;
+
+        // as of now, sends order modification message regardless of if anything actually was changed about it
+        Ok(BrokerMessage::OrderModified{
+            order: order.clone(),
+            order_id: order_uuid,
+            timestamp: timestamp
+        })
+    }
+
+    /// Cancel the pending order
+    pub fn cancel_order(&mut self, uuid: Uuid, timestamp: u64) -> BrokerResult {
+        // try to remove the pending order from the pending `HashMap`
+        match self.pending_positions.remove(&uuid) {
+            Some(order) => Ok(BrokerMessage::OrderCancelled{
+                order: order,
+                order_id: uuid,
+                timestamp: timestamp,
+            }),
+            None => Err(BrokerError::NoSuchPosition),
+        }
     }
 
     /// Opens the supplied position in the ledger.
@@ -168,11 +226,18 @@ impl Ledger {
         })
     }
 
-    pub fn modify_position(&mut self, pos_uuid: Uuid, sl: Option<usize>, tp: Option<usize>, timestamp: u64) -> BrokerResult {
+    /// Actually peform the position modification on the ledger and return the modification message
+    pub fn modify_position(
+        &mut self, pos_uuid: Uuid, sl: Option<Option<usize>>, tp: Option<Option<usize>>, timestamp: u64
+    ) -> BrokerResult {
         match self.open_positions.get_mut(&pos_uuid) {
             Some(pos) => {
-                pos.stop = sl;
-                pos.take_profit = tp;
+                if sl.is_some() {
+                    pos.stop = sl.unwrap();
+                }
+                if tp.is_some() {
+                    pos.take_profit = tp.unwrap();
+                }
                 Ok(BrokerMessage::PositionModified{
                     position: pos.clone(),
                     position_id: pos_uuid,
