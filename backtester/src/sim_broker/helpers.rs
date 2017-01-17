@@ -171,6 +171,7 @@ impl Ord for QueueItem {
 }
 
 pub struct Symbol {
+    pub name: String,
     /// The input stream that yields the ticks converted into an iterator.
     pub input_iter: Option<Box<Iterator<Item=Result<Tick, ()>>>>,
     /// The tx-side of the tickstream that's handed off to the client.
@@ -188,8 +189,9 @@ pub struct Symbol {
 
 impl Symbol {
     /// Constructs a new Symbol with a statically set price
-    pub fn new_oneshot(price: (usize, usize), is_fx: bool, decimals: usize) -> Symbol {
+    pub fn new_oneshot(price: (usize, usize), is_fx: bool, decimals: usize, name: String) -> Symbol {
         Symbol {
+            name: name,
             input_iter: None,
             client_sender: None,
             client_receiver: None,
@@ -202,13 +204,14 @@ impl Symbol {
         }
     }
 
-    pub fn new_from_stream(stream: Box<Stream<Item=Tick, Error=()>>, is_fx: bool, decimals: usize) -> Symbol {
+    pub fn new_from_stream(stream: Box<Stream<Item=Tick, Error=()>>, is_fx: bool, decimals: usize, name: String) -> Symbol {
         // TODO: Make sure that 0 is the right buffer size to use
         let (client_tx, client_rx) = channel(0);
         let mut iter = stream.wait();
         let future_tick = iter.next().unwrap().unwrap();
 
         Symbol {
+            name: name,
             input_iter: Some(Box::new(iter)),
             client_sender: Some(client_tx),
             client_receiver: Some(client_rx),
@@ -231,7 +234,7 @@ impl Symbol {
     pub fn send_client(&mut self, t: Tick) {
         let sender = mem::replace(&mut self.client_sender, None)
             .expect("No client stream has been initialized for this symbol!");
-        let new_sender = sender.send(t).wait().unwrap();
+        let new_sender = sender.send(t).wait().expect("Client stream is gone; probably due to shutdown.");
         mem::replace(&mut self.client_sender, Some(new_sender));
     }
 
@@ -303,6 +306,10 @@ impl Symbols {
             hm: HashMap::new(),
             cs: cs,
         }
+    }
+
+    pub fn get_index(&self, name: &String) -> Option<usize> {
+        self.hm.get(name).map(|r| *r)
     }
 
     pub fn contains(&self, name: &String) -> bool {
@@ -414,12 +421,19 @@ impl SimulationQueue {
     }
 }
 
+/// The units stored in the cache; contains the position and some data to easily locate it in the main HashMap.
+pub struct CachedPosition {
+    pub pos_uuid: Uuid,
+    pub acct_uuid: Uuid,
+    pub pos: Position,
+}
+
 /// All pending and open positions for a symbol
 pub struct Positions {
     /// pending positions
-    pub pending: Vec<Position>,
+    pub pending: Vec<CachedPosition>,
     /// open positions
-    pub open: Vec<Position>,
+    pub open: Vec<CachedPosition>,
 }
 
 impl Positions {
@@ -462,8 +476,72 @@ impl Accounts {
         self.data.entry(k)
     }
 
-    // TODO: Implement a position caching system using the `positions` field so that we don't have to
-    // loop over all the HashMaps every time that we tick.
+    pub fn get(&mut self, k: &Uuid) -> Option<&Account> {
+        self.data.get(k)
+    }
+
+    pub fn get_mut(&mut self, k: &Uuid) -> Option<&mut Account> {
+        self.data.get_mut(k)
+    }
+
+    /// This is called when a pending position is manually modified but not closed, indicating that its cache
+    /// value should be updated to the new supplied version.
+    pub fn order_modified(&mut self, updated_order: &Position, supplied_uuid: Uuid) {
+        for &mut CachedPosition { pos_uuid, acct_uuid: _, ref mut pos } in &mut self.positions[updated_order.symbol_id].pending {
+            if pos_uuid == supplied_uuid {
+                *pos = updated_order.clone();
+            }
+        }
+    }
+
+    /// This is called when a new position is opened manually, indicating that it should be removed from the pending
+    /// cache and added to the open cache.
+    pub fn position_opened(&mut self, pos: &Position, pos_uuid: Uuid) {
+        let mut removed_pos = None;
+        let mut i = 0;
+        { // borrow-b-gone
+            let mut pending_cache = &mut self.positions[pos.symbol_id].pending;
+            for _ in 0..pending_cache.len() {
+                if pending_cache[i].pos_uuid == pos_uuid {
+                    // remove the position from the pending cache and add it to the open cache
+                    let mut cached_pos = pending_cache.remove(i);
+                    cached_pos.pos = pos.clone();
+                    cached_pos.pos_uuid = pos_uuid;
+                    removed_pos = Some(cached_pos);
+                    break;
+                }
+                i += 1;
+            }
+        }
+
+        // add the position to the open cache
+        match removed_pos {
+            Some(cached_pos) => self.positions[pos.symbol_id].open.push(cached_pos),
+            None => panic!("`position_opened` was called, but there were no pending positions with the supplied uuid!"),
+        }
+    }
+
+    /// This is called when an open position is modified in some way, indicating that its cached value should be changed.
+    pub fn position_modified(&mut self, updated_pos: &Position, supplied_uuid: Uuid) {
+        for &mut CachedPosition { pos_uuid, acct_uuid: _, ref mut pos } in &mut self.positions[updated_pos.symbol_id].open {
+            if pos_uuid == supplied_uuid {
+                *pos = updated_pos.clone();
+            }
+        }
+    }
+
+    /// This is called when an open position is closed manually, indicating that it should be removed from the cache.
+    pub fn position_closed(&mut self, pos: &Position, pos_uuid: Uuid) {
+        let mut open_cache = &mut self.positions[pos.symbol_id].open;
+        for i in 0..open_cache.len() {
+            if open_cache[i].pos_uuid == pos_uuid {
+                let _ = open_cache.remove(i);
+                return
+            }
+        }
+
+        panic!("`position_closed` was called, but there were no open positions with the supplied uuid!");
+    }
 }
 
 /// Given a price with a specified decimal precision, converts the price to one with

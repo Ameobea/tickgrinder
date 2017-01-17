@@ -15,7 +15,7 @@ use std::mem;
 use test;
 
 use futures::{Future, Sink, oneshot, Oneshot, Complete};
-use futures::stream::{self, Stream, Wait};
+use futures::stream::Stream;
 use futures::sync::mpsc::{unbounded, channel, UnboundedReceiver, UnboundedSender, Sender, Receiver};
 use uuid::Uuid;
 
@@ -76,7 +76,7 @@ impl SimBroker {
         // Eventually, we'll want to use a threadsafe binary heap to avoid this behind-the-scenes involved with this.
         thread::spawn(move || {
             for msg in client_rx.wait() {
-                mpsc_tx.send(msg.unwrap());
+                mpsc_tx.send(msg.unwrap()).unwrap();
             }
         });
 
@@ -151,7 +151,7 @@ impl SimBroker {
                     inner_symbol.send_client(tick);
                 },
                 // The moment the broker finishes processing an action and the action takes place.
-                // Begins the network delay for the trip back to the client..
+                // Begins the network delay for the trip back to the client.
                 WorkUnit::ActionComplete(future, action) => {
                     // process the message and re-insert the response into the queue
                     let res = self.exec_action(&action, item.timestamp);
@@ -237,7 +237,10 @@ impl SimBroker {
             &BrokerAction::TradingAction{account_uuid, ref action} => {
                 match action {
                     &TradingAction::MarketOrder{ref symbol, long, size, stop, take_profit, max_range} => {
-                        self.market_open(account_uuid, symbol, long, size, stop, take_profit, max_range, timestamp)
+                        match self.symbols.get_index(symbol) {
+                            Some(ix) => self.market_open(account_uuid, ix, long, size, stop, take_profit, max_range, timestamp),
+                            None => Err(BrokerError::NoSuchSymbol),
+                        }
                     },
                     &TradingAction::MarketClose{uuid, size} => {
                         self.market_close(account_uuid, uuid, size)
@@ -259,11 +262,13 @@ impl SimBroker {
     }
 
     /// Attempts to open a position at the current market price with options for settings stop loss, or take profit.
+    /// Right now, this assumes that the order is filled as soon as it is placed (after the processing delay is taken
+    /// into account) and that it is filled fully.
     fn market_open(
-        &mut self, account_id: Uuid, symbol: &String, long: bool, size: usize, stop: Option<usize>,
+        &mut self, account_id: Uuid, symbol_ix: usize, long: bool, size: usize, stop: Option<usize>,
         take_profit: Option<usize>, max_range: Option<f64>, timestamp: u64
     ) -> BrokerResult {
-        let opt = self.get_price(symbol);
+        let opt = self.get_price(symbol_ix);
         if opt.is_none() {
             return Err(BrokerError::NoSuchSymbol)
         }
@@ -273,7 +278,7 @@ impl SimBroker {
 
         let pos = Position {
             creation_time: timestamp,
-            symbol: symbol.clone(),
+            symbol_id: symbol_ix,
             size: size,
             price: Some(cur_price),
             long: long,
@@ -285,21 +290,41 @@ impl SimBroker {
             exit_time: None,
         };
 
-        let open_cost = self.get_position_value(&pos)?;
+        let pos_value = self.get_position_value(&pos)?;
+        let pos_uuid = Uuid::new_v4();
 
-        let account_ = self.accounts.entry(account_id);
-        match account_ {
-            Entry::Occupied(mut occ) => {
-                let mut account = occ.get_mut();
-                account.ledger.open_position(pos, open_cost)
-            },
-            Entry::Vacant(_) => {
-                Err(BrokerError::NoSuchAccount)
-            }
+        let res;
+        { // borrow-b-gone
+            let account_ = self.accounts.entry(account_id);
+            res = match account_ {
+                Entry::Occupied(mut occ) => {
+                    let mut account = occ.get_mut();
+                    // subtract the cost of the position from our balance
+                    if account.ledger.balance < pos_value * self.settings.leverage {
+                        return Err(BrokerError::InsufficientBuyingPower);
+                    } else {
+                        account.ledger.balance -= pos_value * self.settings.leverage;
+                    }
+
+                    // create the position in the `Ledger`
+                    account.ledger.open_position(pos_uuid, pos.clone())
+                },
+                Entry::Vacant(_) => {
+                    return Err(BrokerError::NoSuchAccount);
+                }
+            };
         }
+
+        // that should never fail
+        assert!(res.is_ok());
+        // add the position to the cache for checking when to close it
+        self.accounts.position_opened(&pos, pos_uuid);
+
+        res
     }
 
-    /// Attempts to close part of a position at market price.
+    /// Attempts to close part of a position at market price.  Right now, this assumes that the order is
+    /// fully filled as soon as it is placed (after the processing delay is taken into account).
     fn market_close(&mut self, account_id: Uuid, position_uuid: Uuid, size: usize) -> BrokerResult {
         if size == 0 {
             let ts_string = self.timestamp.to_string();
@@ -310,36 +335,69 @@ impl SimBroker {
             // TODO: Add configuration setting to optionally return an error
         }
 
-        let account = match self.accounts.entry(account_id) {
-            Entry::Occupied(o) => o.into_mut(),
-            Entry::Vacant(_) => {
-                return Err(BrokerError::NoSuchAccount);
-            },
+        let pos;
+        { // borrow-b-gone
+            let account = match self.accounts.entry(account_id) {
+                Entry::Occupied(o) => o.into_mut(),
+                Entry::Vacant(_) => {
+                    return Err(BrokerError::NoSuchAccount);
+                },
+            };
+
+            pos = match account.ledger.open_positions.entry(position_uuid) {
+                Entry::Occupied(o) => o.get().clone(),
+                Entry::Vacant(_) => {
+                    return Err(BrokerError::NoSuchPosition);
+                }
+            };
+        }
+
+        let pos_value = self.get_position_value(&pos)?;
+        let res = { // borrow-b-gone
+            let account = self.accounts.get_mut(&account_id).unwrap();
+
+            let modification_cost = (pos_value / pos.size) * size;
+            account.ledger.resize_position(position_uuid, (-1 * size as isize), modification_cost, self.timestamp)
         };
-        let modification_cost = match account.ledger.open_positions.entry(position_uuid) {
-            Entry::Occupied(o) => {
-                let pos = o.get();
-                let pos_value = self.get_position_value(pos)?;
-                (pos_value / pos.size) * size
+
+        // if the position was fully closed, remove it from the cache
+        match res {
+            Ok(ref message) => match message {
+                &BrokerMessage::PositionClosed{position: ref pos, position_id: pos_uuid, reason: _, timestamp: _} => {
+                    self.accounts.position_closed(pos, pos_uuid);
+                },
+                _ => (),
             },
-            Entry::Vacant(_) => {
-                return Err(BrokerError::NoSuchPosition);
-            }
-        };
-        account.ledger.resize_position(position_uuid, (-1 * size as isize), modification_cost, self.timestamp)
+            Err(_) => (),
+        }
+        res
     }
 
     /// Modifies the stop loss or take profit of a position.
     fn modify_position(
         &mut self, account_id: Uuid, position_uuid: Uuid, sl: Option<usize>, tp: Option<usize>
     ) -> BrokerResult {
-        let account = match self.accounts.entry(account_id) {
-            Entry::Occupied(o) => o.into_mut(),
-            Entry::Vacant(_) => {
-                return Err(BrokerError::NoSuchAccount);
-            },
+        let res = {
+            let account = match self.accounts.entry(account_id) {
+                Entry::Occupied(o) => o.into_mut(),
+                Entry::Vacant(_) => {
+                    return Err(BrokerError::NoSuchAccount);
+                },
+            };
+            account.ledger.modify_position(position_uuid, sl, tp, self.timestamp)
         };
-        account.ledger.modify_position(position_uuid, sl, tp, self.timestamp)
+
+        // if the position was actually modified, remove it from the cache
+        match res {
+            Ok(ref message) => match message {
+                &BrokerMessage::PositionModified{position: ref pos, position_id: pos_uuid, timestamp: _} => {
+                    self.accounts.position_modified(pos, pos_uuid);
+                },
+                _ => (),
+            },
+            Err(_) => (),
+        }
+        res
     }
 
     /// Dumps the SimBroker state to a file that can be resumed later.
@@ -353,8 +411,9 @@ impl SimBroker {
     ///
     /// Gets the conversion rate (in pips) between the base currency of the simbroker and
     /// the supplied currency.  If the base currency is USD and AUD is provided, the exchange
-    /// rate for AUD/USD will be returned.  Returns Err if we lack the data to do that.
-    fn get_base_rate(&self, symbol: &str) -> Result<usize, BrokerError> {
+    /// rate for AUD/USD will be returned.  Returns Err if we lack the data to do that.  Results
+    /// are returned with the specified decimal precision.
+    fn get_base_rate(&self, currency: &str, desired_decimals: usize) -> Result<usize, BrokerError> {
         if !self.settings.fx {
             return Err(BrokerError::Message{
                 message: String::from("Can only convert to base rate when in FX mode.")
@@ -362,11 +421,11 @@ impl SimBroker {
         }
 
         let base_currency = &self.settings.fx_base_currency;
-        let base_pair = format!("{}{}", symbol, base_currency);
+        let base_pair = format!("{}{}", currency, base_currency);
 
         let (_, ask, decimals) = if !self.symbols.contains(&base_pair) {
             // try reversing the order or the pairs
-            let base_pair_reverse = format!("{}{}", base_currency, symbol);
+            let base_pair_reverse = format!("{}{}", base_currency, currency);
             if !self.symbols.contains(&base_pair_reverse) {
                 return Err(BrokerError::NoDataAvailable);
             } else {
@@ -376,22 +435,103 @@ impl SimBroker {
             self.symbols[&base_pair].get_price()
         };
 
-        Ok(convert_decimals(ask, decimals, 10))
+        Ok(convert_decimals(ask, decimals, desired_decimals))
     }
 
     /// Returns the worth of a position in units of base currency.
     fn get_position_value(&self, pos: &Position) -> Result<usize, BrokerError> {
-        let name = &pos.symbol;
-        if !self.symbols.contains(name) {
-            return Err(BrokerError::NoSuchSymbol);
-        }
+        let ix = pos.symbol_id;
 
-        let sym = &self.symbols[name];
+        let sym = &self.symbols[ix];
         if sym.is_fx() {
-            let base_rate = self.get_base_rate(&name)?;
+            let base_rate: usize = self.get_base_rate(&sym.name[0..3], sym.metadata.decimal_precision)?;
             Ok(pos.size * base_rate * self.settings.fx_lot_size)
         } else {
             Ok(pos.size)
+        }
+    }
+
+    /// Called every price update the broker receives.  It simulates some kind of market activity on the simulated exchange
+    /// that triggers a price update for that symbol.  This function checks all pending and open positions and determines
+    /// if they need to be opened, closed, or modified in any way due to this update.  All actions that take place here are
+    /// guarenteed to succeed since they are simulated as taking place within the brokerage itself.  All `BrokerMessage`s
+    /// generated by any actions that take place are sent through the supplied push stream handle to the client.
+    pub fn tick_positions(&mut self, symbol_id: usize, price: (usize, usize)) {
+        let (bid, ask) = price;
+        // check if any pending orders should be closed, modified, or opened
+        // manually keep track of the index because we remove things from the vector dynamically
+        let mut i = 0;
+        while i < self.accounts.positions[symbol_id].pending.len() {
+            let push_msg_opt;
+            { // borrow-b-gone
+                let &CachedPosition { pos_uuid, acct_uuid, ref pos } = &self.accounts.positions[symbol_id].pending[i];
+                push_msg_opt = match pos.is_open_satisfied(bid, ask) {
+                    Some(open_price) => {
+                        // if the position should be opened, remove it from the pending `HashMap` and the cache and open it.
+                        let mut ledger = &mut self.accounts.data.get_mut(&acct_uuid).unwrap().ledger;
+                        // remove from the hashmap
+                        let mut hm_pos = ledger.pending_positions.remove(&pos_uuid).unwrap();
+                        hm_pos.execution_price = Some(open_price);
+                        hm_pos.execution_time = Some(self.timestamp);
+
+                        Some(ledger.open_position(pos_uuid, pos.clone()))
+                    },
+                    None => None,
+                };
+            }
+
+            if push_msg_opt.is_some() {
+                // remove from the pending cache
+                let swapped_pos = self.accounts.positions[symbol_id].pending.remove(i);
+                // add it to the open cache
+                self.accounts.positions[symbol_id].open.push(swapped_pos);
+                let push_msg = push_msg_opt.unwrap();
+                // this should always succeed
+                assert!(push_msg.is_ok());
+                // send the push message to the client
+                self.push_msg(Ok(push_msg.unwrap()));
+                // decrement i since we modified the cache
+                i -= 1;
+            }
+
+            i += 1;
+        }
+
+        // check if any open positions should be closed or modified
+        let mut i = 0;
+        while i < self.accounts.positions[symbol_id].open.len() {
+            let push_msg_opt;
+            { // borrow-b-gone
+                let &CachedPosition { pos_uuid, acct_uuid, ref pos } = &self.accounts.positions[symbol_id].open[i];
+                push_msg_opt = match pos.is_close_satisfied(bid, ask) {
+                    Some((closure_price, closure_reason)) => {
+                        let pos_value = self.get_position_value(&pos).expect("Unable to get position value for pending position!");
+                        // if the position should be closed, remove it from the cache.
+                        let mut ledger = &mut self.accounts.data.get_mut(&acct_uuid).unwrap().ledger;
+                        // remove from the hashmap
+                        let mut real_pos = ledger.open_positions.remove(&pos_uuid).unwrap();
+                        real_pos.exit_price = Some(closure_price);
+                        real_pos.exit_time = Some(self.timestamp);
+
+                        Some(ledger.close_position(pos_uuid, pos_value, self.timestamp, closure_reason))
+                    },
+                    None => None,
+                };
+            }
+
+            if push_msg_opt.is_some() {
+                // remove from the open cache
+                let _ = self.accounts.positions[symbol_id].open.remove(i);
+                let push_msg = push_msg_opt.unwrap();
+                // this should always succeed
+                assert!(push_msg.is_ok());
+                // send the push message to the client
+                self.push_msg(push_msg);
+                // decrement i since we modified the cache
+                i -= 1;
+            }
+
+            i += 1;
         }
     }
 
@@ -400,7 +540,6 @@ impl SimBroker {
     fn oneshot_price_set(
         &mut self, name: String, price: (usize, usize), is_fx: bool, decimal_precision: usize,
     ) {
-        let (bid, ask) = price;
         if is_fx {
             assert_eq!(name.len(), 6);
         }
@@ -409,7 +548,7 @@ impl SimBroker {
         if self.symbols.contains(&name) {
             self.symbols[&name].price = price;
         } else {
-            let symbol = Symbol::new_oneshot(price, is_fx, decimal_precision);
+            let symbol = Symbol::new_oneshot(price, is_fx, decimal_precision, name.clone());
             self.symbols.add(name, symbol).expect("Unable to set oneshot price for new symbol");
         }
     }
@@ -424,62 +563,6 @@ impl SimBroker {
         }
     }
 
-    /// Called each received tick to check if any pending positions need opening or closing.
-    fn tick_positions(&mut self, symbol_ix: usize, price: (usize, usize)) {
-        for (acct_id, mut acct) in self.accounts.data.iter_mut() {
-            let (bid, ask) = self.symbols[symbol_ix].price;
-            let mut satisfied_pendings = Vec::new();
-
-            for (pos_id, pos) in &acct.ledger.pending_positions {
-                let satisfied = pos.is_open_satisfied(bid, ask);
-                // market conditions have changed and this position should be opened
-                if pos.symbol_id == symbol_ix && satisfied.is_some() {
-                    satisfied_pendings.push( (*pos_id, satisfied) );
-                }
-            }
-
-            // fill all the satisfied pending positions
-            for (pos_id, price_opt) in satisfied_pendings {
-                let mut pos = acct.ledger.pending_positions.remove(&pos_id).unwrap();
-                pos.execution_time = Some(self.timestamp);
-                pos.execution_price = price_opt;
-                // TODO: Adjust account balance and stats
-                acct.ledger.open_positions.insert(pos_id, pos.clone());
-                // send push message with notification of fill
-                let _ = self.push_handle_tx.send(
-                    Ok(BrokerMessage::PositionOpened{
-                        position_id: pos_id, position: pos, timestamp: self.timestamp
-                    })
-                );
-            }
-
-            let mut satisfied_opens = Vec::new();
-            for (pos_id, pos) in &acct.ledger.open_positions {
-                let satisfied = pos.is_close_satisfied(bid, ask);
-                // market conditions have changed and this position should be closed
-                if pos.symbol == symbol && satisfied.is_some() {
-                    satisfied_opens.push( (*pos_id, satisfied) );
-                }
-            }
-
-            // close all the satisfied open positions
-            for (pos_id, closure) in satisfied_opens {
-                let (close_price, closure_reason) = closure.unwrap();
-                let mut pos = acct.ledger.pending_positions.remove(&pos_id).unwrap();
-                pos.exit_time = Some(timestamp);
-                pos.exit_price = Some(close_price);
-                // TODO: Adjust account balance and stats
-                acct.ledger.closed_positions.insert(pos_id, pos.clone());
-                // send push message with notification of close
-                let _ = sender_handle.send(
-                    Ok(BrokerMessage::PositionClosed{
-                        position_id: pos_id, position: pos, reason: closure_reason, timestamp: timestamp
-                    })
-                );
-            }
-        }
-    }
-
     /// Registers a data source into the SimBroker.  Ticks from the supplied generator will be
     /// used to upate the SimBroker's internal prices and transmitted to connected clients.
     pub fn register_tickstream(
@@ -487,7 +570,7 @@ impl SimBroker {
     ) -> BrokerResult {
         // allocate space for open positions of the new symbol in `Accounts`
         self.accounts.add_symbol();
-        let mut sym = Symbol::new_from_stream(raw_tickstream.boxed(), is_fx, decimal_precision);
+        let mut sym = Symbol::new_from_stream(raw_tickstream.boxed(), is_fx, decimal_precision, name.clone());
         // get the first element out of the tickstream and set the next tick equal to it
         let first_tick = sym.next().unwrap().unwrap();
         self.cs.debug(None, &format!("Set first tick for tickstream {}: {:?}", name, &first_tick));
@@ -497,11 +580,11 @@ impl SimBroker {
 
     /// Returns the current price for a given symbol or None if the SimBroker
     /// doensn't have a price.
-    pub fn get_price(&self, name: &String) -> Option<(usize, usize)> {
-        if !self.symbols.contains(name) {
-            return None;
+    pub fn get_price(&self, ix: usize) -> Option<(usize, usize)> {
+        if !self.symbols.len() > ix {
+            return Some(self.symbols[ix].price)
         }
 
-        Some(self.symbols[name].price)
+        None
     }
 }

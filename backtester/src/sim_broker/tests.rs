@@ -103,31 +103,26 @@ fn position_opening_closing_modification() {
 fn dynamic_base_rate_conversion() {
     use std::default::Default;
 
-    let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
     let mut hm = HashMap::new();
     hm.insert(String::from("fx_accurate_pricing"), String::from("true"));
     let mut sim_client = SimBrokerClient::init(hm).wait().unwrap().unwrap();
 
     // wire tickstreams into the broker
-    let (base_tx, base_rx) = unbounded::<Tick>();
+    let (mut base_tx, base_rx) = unbounded::<Tick>();
     let base_pair    = String::from("EURUSD");
-    let (foreign_tx, foreign_rx) = unbounded::<Tick>();
+    let (mut foreign_tx, foreign_rx) = unbounded::<Tick>();
     let foreign_pair = String::from("EURJPY");
+
+    base_tx = base_tx.send(Tick {timestamp: 1, bid: 106143, ask: 106147}).wait().unwrap();
+    base_tx = base_tx.send(Tick {timestamp: 3, bid: 106143, ask: 106147}).wait().unwrap();
+    base_tx = base_tx.send(Tick {timestamp: 5, bid: 106143, ask: 106147}).wait().unwrap();
+    foreign_tx = foreign_tx.send(Tick {timestamp: 2, bid: 1219879, ask: 1219891}).wait().unwrap();
+    foreign_tx = foreign_tx.send(Tick {timestamp: 4, bid: 1219879, ask: 1219891}).wait().unwrap();
+    foreign_tx = foreign_tx.send(Tick {timestamp: 6, bid: 1219879, ask: 1219891}).wait().unwrap();
+
     sim_client.register_tickstream(base_pair.clone(), base_rx, true, 4).unwrap();
     sim_client.register_tickstream(foreign_pair.clone(), foreign_rx, true, 4).unwrap();
 
-    base_tx.send(Tick {
-        timestamp: 1,
-        bid: 106143,
-        ask: 106147
-    }).wait().unwrap();
-    foreign_tx.send(Tick {
-        timestamp: 2,
-        bid: 1219879,
-        ask: 1219891,
-    }).wait().unwrap();
-
-    // block this thread on the SimBroker simulation loop
     sim_client.init_sim_loop();
 
     // TODO: Sub prices and submit orders
@@ -154,14 +149,6 @@ fn oneshot_base_rate_conversion() {
     let mut sim_client = SimBrokerClient::init(HashMap::new()).wait().unwrap().unwrap();
 
     sim_client.oneshot_price_set(String::from("EURUSD"), (106143, 106147), true, 5);
-}
-
-#[bench]
-fn mutex_lock_unlock(b: &mut test::Bencher) {
-    let amtx = Arc::new(Mutex::new(0));
-    b.iter(move || {
-        let _ = amtx.lock();
-    })
 }
 
 #[bench]
@@ -203,9 +190,10 @@ fn reverse_event_ordering() {
 
 #[bench]
 fn symbols_contains(b: &mut test::Bencher) {
-    let symbols = Symbols::new(CommandServer::new(Uuid::new_v4(), "SimBroker Symbols Benchmark"));
-    let symbol = Symbol::new_oneshot((99, 103), true, 2);
+    let mut symbols = Symbols::new(CommandServer::new(Uuid::new_v4(), "SimBroker Symbols Benchmark"));
     let name = String::from("TEST");
+    let symbol = Symbol::new_oneshot((99, 103), true, 2, name.clone());
+    let name_clone = name.clone();
     symbols.add(name, symbol);
-    b.iter(|| symbols.contains(name))
+    b.iter(|| symbols.contains(&name_clone))
 }

@@ -53,7 +53,7 @@ impl Broker for SimBrokerClient {
             return oneshot
         }
         let simbroker = simbroker_res.unwrap();
-        complete.complete(Ok(simbroker.accounts.clone()));
+        complete.complete(Ok(simbroker.accounts.data.clone()));
 
         oneshot
     }
@@ -136,7 +136,7 @@ impl SimBrokerClient {
     }
 
     /// Calls same function on inner `SimBroker`
-    fn oneshot_price_set(
+    pub fn oneshot_price_set(
         &mut self, name: String, price: (usize, usize), is_fx: bool, decimal_precision: usize,
     ) -> BrokerResult {
         let simbroker = self.get_simbroker()?;

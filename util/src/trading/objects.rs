@@ -92,24 +92,24 @@ impl Ledger {
         }
     }
 
-    /// Opens the supplied position in the ledger.  Returns an error if there are insufficient funds
-    /// in the ledger to open the position in units of the base currency.
-    ///
-    /// `margin_requirement` is the dollar value of the position * leverage.
-    pub fn open_position(&mut self, pos: Position, margin_requirement: usize) -> BrokerResult {
-        let uuid = Uuid::new_v4();
-        // we assume that the supplied execution time is valid here
-        let execution_time = pos.execution_time.unwrap();
-        if pos.price.is_none() {
-            return Err(BrokerError::Message{
-                message: "The supplied position does not have an entry price.".to_string()
-            })
-        }
-
+    /// Attempts to open a pending position in the ledger with the supplied position.
+    pub fn place_order(&mut self, pos: Position, margin_requirement: usize) -> BrokerResult {
         if margin_requirement > self.balance {
             return Err(BrokerError::InsufficientBuyingPower)
         }
         self.balance -= margin_requirement;
+        unimplemented!(); // TODO
+    }
+
+    /// Opens the supplied position in the ledger.
+    pub fn open_position(&mut self, uuid: Uuid, pos: Position) -> BrokerResult {
+        // we assume that the supplied execution time is valid here
+        let execution_time = pos.execution_time.unwrap();
+        if pos.execution_price.is_none() {
+            return Err(BrokerError::Message{
+                message: "The supplied position does not have an entry price.".to_string()
+            })
+        }
 
         self.open_positions.insert(uuid, pos.clone());
         Ok(BrokerMessage::PositionOpened{
@@ -121,7 +121,9 @@ impl Ledger {
 
     /// Completely closes the specified condition at the given price, crediting the account the
     /// funds yielded.  Timestamp is the time the order was submitted + any simulated delays.
-    pub fn close_position(&mut self, uuid: Uuid, position_value: usize, timestamp: u64) -> BrokerResult {
+    pub fn close_position(
+        &mut self, uuid: Uuid, position_value: usize, timestamp: u64, reason: PositionClosureReason
+    ) -> BrokerResult {
         let pos_opt = self.open_positions.remove(&uuid);
         if pos_opt.is_none() {
             return Err(BrokerError::NoSuchPosition)
@@ -131,7 +133,7 @@ impl Ledger {
         Ok(BrokerMessage::PositionClosed{
             position: pos_opt.unwrap(),
             position_id: uuid,
-            reason: PositionClosureReason::MarketClose,
+            reason: reason,
             timestamp: timestamp,
         })
     }
@@ -147,7 +149,7 @@ impl Ledger {
         if unit_diff < 0 {
             return Err(BrokerError::InvalidModificationAmount);
         } else if unit_diff == 0 {
-            return self.close_position(uuid, modification_cost, timestamp);
+            return self.close_position(uuid, modification_cost, timestamp, PositionClosureReason::MarketClose);
         }
 
         if self.balance < modification_cost {
@@ -188,8 +190,7 @@ impl Ledger {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Position {
     pub creation_time: u64,
-    pub symbol: String,
-    pub symbol_id: usize, // TEMP: used in a SimBroker performance hack
+    pub symbol_id: usize,
     pub size: usize,
     pub price: Option<usize>,
     pub long: bool,
@@ -206,8 +207,8 @@ pub struct Position {
 }
 
 impl Position {
-    /// Returns the price the position would execute at if the prices are at
-    /// levels such that the position can open, else returns None.
+    /// Returns the price the position would execute at if the prices are at levels such that the position
+    /// can open, else returns None.
     pub fn is_open_satisfied(&self, bid: usize, ask: usize) -> Option<usize> {
         // only meant to be used for pending positions
         assert_eq!(self.execution_price, None);
