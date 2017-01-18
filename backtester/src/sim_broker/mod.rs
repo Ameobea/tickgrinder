@@ -765,3 +765,16 @@ impl SimBroker {
         None
     }
 }
+
+/// Only enable event-level debug information to be logged if we have need to.
+#[cfg(feature = "superlog")]
+pub fn event_log(timestamp: u64, event: &str) {
+    unimplemented!();
+}
+
+#[cfg(not(feature = "superlog"))]
+#[allow(unused_variables)]
+pub fn event_log(timestamp: u64, event: &str) {
+    // Do nothing if we're not looking for event-level debugging.
+    // this should optimize out completely, leaving zero overhead.
+}

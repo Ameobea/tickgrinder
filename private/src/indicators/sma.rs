@@ -9,7 +9,6 @@ use serde_json;
 use tickgrinder_util::trading::indicators::*;
 use tickgrinder_util::trading::tick::*;
 use tickgrinder_util::transport::postgres::*;
-// use tickgrinder_util::trading::datafield::DataField;
 // use tickgrinder_util::trading::trading_condition::*;
 
 /// Alteration of a simple moving average using ticks as input where the prices in a time frame
@@ -254,6 +253,8 @@ fn tick_sma_accuracy() {
 // insert a tick into a DataField
 #[bench]
 fn tick_insertion(b: &mut test::Bencher) {
+    use tickgrinder_util::trading::datafield::DataField;
+
     let t = Tick {bid: 1123128412, ask: 1123128402, timestamp: 1471291001837};
     let mut df: DataField<Tick> = DataField::new();
 

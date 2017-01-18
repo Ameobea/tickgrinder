@@ -1,7 +1,13 @@
 SHELL := /bin/bash
 
+# Dependencies for the platform are fairly straightforward.  Configurator must be built and run first because it generates the conf files that
+# are compiled into `tickgrinder_util` and `mm`.  Then, `tickgrinder_util` must be built because pretty much everything else depends on it.
+
 release:
 	make init
+
+	# copy rust's libstd to the dist/lib directory
+	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
 	# Run the configurator if no settings exist from a previous run
 	if [[ ! -f configurator/settings.json ]]; then cd configurator && cargo run; fi;
@@ -9,14 +15,18 @@ release:
 	# build the platform's utility library and copy into dist/lib
 	cd util && cargo build --release
 	cp util/target/release/libtickgrinder_util.so dist/lib
-	# copy libstd to the dist/lib directory
-	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
 	# build the FXCM shim
 	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
 	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
 	cd util/src/trading/broker/shims/FXCM/native && cargo build --release
 	cp util/src/trading/broker/shims/FXCM/native/target/release/libfxcm.so dist/lib
+
+	# build the private library containing user-specific code as well as the small C++ wrapper
+	cd private/src/strategies/fuzzer/extern && ./build.sh
+	cp private/src/strategies/fuzzer/extern/librand_bindings.so dist/lib
+	cd private && cargo build --release
+	cp private/target/release/libprivate.so dist/lib
 
 	# build all modules and copy their binaries into the dist directory
 	cd backtester && cargo build --release
@@ -36,8 +46,6 @@ release:
 	cp logger/target/release/logger dist
 	cd mm && npm install
 	cp ./mm dist -r
-	cd private && cargo build --release
-	cp private/target/release/libprivate.so dist/lib
 
 dev:
 	rm dist/mm -r
@@ -49,20 +57,29 @@ debug:
 	# build the configurator
 	cd configurator && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
 
+	# copy libstd to the dist/lib directory if it's not already there
+	if [[ ! -f dist/lib/$$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) ]]; then \
+		cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib; \
+	fi;
+
 	# Run the configurator if no settings exist from a previous run
 	if [[ ! -f configurator/settings.json ]]; then cd configurator && cargo run; fi;
 
 	# build the platform's utility library and copy into dist/lib
 	cd util && cargo build
 	cp util/target/debug/libtickgrinder_util.so dist/lib
-	# copy libstd to the dist/lib directory
-	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
 	# build the FXCM shim
 	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
 	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
 	cd util/src/trading/broker/shims/FXCM/native && RUSTFLAGS="-L ../../../../../../../util/target/debug/deps -L ../../../../../../../dist/lib -C prefer-dynamic" cargo build
 	cp util/src/trading/broker/shims/FXCM/native/target/debug/libfxcm.so dist/lib
+
+	# build the private library containing user-specific code as well as the small C++ wrapper
+	cd private/src/strategies/fuzzer/extern && ./build.sh
+	cp private/src/strategies/fuzzer/extern/librand_bindings.so dist/lib
+	cd private && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cp private/target/debug/libprivate.so dist/lib
 
 	# build all modules and copy their binaries into the dist directory
 	cd backtester && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
@@ -73,8 +90,8 @@ debug:
 	cp tick_parser/target/debug/tick_processor dist
 
 	# build the FXCM native data downloader
-	cd data_downloaders/fxcm_native && cargo build --release
-	cp data_downloaders/fxcm_native/target/release/fxcm_native dist/fxcm_native_downloader
+	cd data_downloaders/fxcm_native && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build
+	cp data_downloaders/fxcm_native/target/debug/fxcm_native dist/fxcm_native_downloader
 
 	cd optimizer && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
 	cp optimizer/target/debug/optimizer dist
@@ -82,8 +99,6 @@ debug:
 	cp logger/target/debug/logger dist
 	cd mm && npm install
 	cp ./mm dist -r
-	cd private && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
-	cp private/target/debug/libprivate.so dist/lib
 
 strip:
 	cd dist && strip backtester spawner optimizer tick_processor
@@ -104,11 +119,15 @@ clean:
 	rm configurator/target -rf
 
 test:
+	# copy libstd to the dist/lib directory if it's not already there
+	if [[ ! -f dist/lib/$$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) ]]; then \
+		cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib; \
+	fi;
+
+	cd configurator && LD_LIBRARY_PATH="../../dist/lib" RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	# build the platform's utility library and copy into dist/lib
 	cd util && cargo build && cargo test --no-fail-fast
 	cp util/target/debug/libtickgrinder_util.so dist/lib
-	# copy libstd to the dist/lib directory
-	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
 	# build the FXCM shim
 	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
@@ -128,7 +147,6 @@ test:
 	cd util/src/trading/broker/shims/FXCM/native && LD_LIBRARY_PATH=native/dist:../../../../../../target/debug/deps \
 		RUSTFLAGS="-L ../../../../../../target/debug/deps -L ../../../../../../../dist/lib -C prefer-dynamic" cargo test -- --nocapture
 	cd data_downloaders/fxcm_native && LD_LIBRARY_PATH="../../dist/lib" RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
-	cd configurator && LD_LIBRARY_PATH="../../dist/lib" RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	# TODO: Collect the results into a nice format
 
 bench:

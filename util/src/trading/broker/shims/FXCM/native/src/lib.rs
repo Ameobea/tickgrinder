@@ -236,18 +236,24 @@ impl Broker for FXCMNative {
                     TradingAction::MarketOrder{symbol, long, size, stop, take_profit, max_range} => {
                         unimplemented!(); // TODO
                     },
+                    TradingAction::ModifyOrder{uuid, size, entry_price, stop, take_profit} => {
+                        unimplemented!(); // TODO
+                    },
+                    TradingAction::CancelOrder{uuid} => {
+                        unimplemented!(); // TODO
+                    },
                     TradingAction::MarketClose{uuid, size} => {
                         unimplemented!(); // TODO
-                    }
-                    TradingAction::LimitOrder{account, symbol, long, size, stop, take_profit, entry_price} => {
+                    },
+                    TradingAction::LimitOrder{symbol, long, size, stop, take_profit, entry_price} => {
                         unimplemented!(); // TODO
                     },
                     TradingAction::LimitClose{uuid, size, exit_price} => {
                         unimplemented!(); // TODO
                     },
-                    TradingAction::ModifyPosition{uuid, stop, take_profit, entry_price} => {
+                    TradingAction::ModifyPosition{uuid, stop, take_profit} => {
                         unimplemented!(); // TODO
-                    }
+                    },
                 }
             },
             BrokerAction::Disconnect => unimplemented!(),

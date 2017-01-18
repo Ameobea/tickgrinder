@@ -520,6 +520,30 @@ pub const RUNTIME_SETTINGS: SettingsPage = SettingsPage {
     comment: None,
 };
 
+pub const FUZZER_SETTINGS: SettingsPage = SettingsPage {
+    name: "Fuzzer Settings",
+    comment: Some(&[
+        "Settings for configuring the fuzzer strategy used to test broker shims.",
+        "// For more info, see README.md in /private/strategies/fuzzer",
+    ]),
+    rows: &[
+        SettingRow {
+            id: "fuzzer_deterministic_rng",
+            name: "Use Deterministic RNG",
+            default: Some("true"),
+            setting_type: SettingType::Boolean,
+            comment: Some("Set if the RNG used to generate the actions of the fuzzer should be seeded with the same seed every run."),
+        },
+        SettingRow {
+            id: "fuzzer_seed",
+            name: "Seed String",
+            default: Some("S0 R4nD0m"),
+            setting_type: SettingType::String,
+            comment: Some("The string from which the fuzzer's RNG is seeded from (if the option is enabled)."),
+        },
+    ],
+};
+
 pub const PAGE_LIST: &'static [&'static SettingsPage] = &[
     &POSTGRES_SETTINGS,
     &REDIS_SETTINGS,
@@ -527,4 +551,5 @@ pub const PAGE_LIST: &'static [&'static SettingsPage] = &[
     &GENERAL_SETTINGS,
     &COMMANDSERVER_QUERYSERVER_SETTINGS,
     &RUNTIME_SETTINGS,
+    &FUZZER_SETTINGS,
 ];
