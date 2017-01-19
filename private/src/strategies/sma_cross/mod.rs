@@ -25,7 +25,7 @@ pub struct SmaCross {
 }
 
 impl Strategy for SmaCross {
-    fn new(cs: CommandServer, qs: QueryServer) -> SmaCross {
+    fn new(cs: CommandServer, qs: QueryServer, conf: HashMap<String, String>) -> SmaCross {
         SmaCross {
             cs: cs,
             qs: qs,

@@ -378,6 +378,8 @@ fn login_test() {
 
 #[test]
 fn broker_server() {
+    use std::mem::transmute;
+
     use std::time::Duration;
     // channel with which to receive responses from the server
     let (tx, rx) = unbounded::<BrokerResult>();
@@ -423,6 +425,8 @@ fn broker_server() {
 
 #[test]
 fn tickstream_subbing() {
+    use std::mem;
+
     use futures::Future;
     let mut broker = Box::new(FXCMNative::init(HashMap::new()).wait().unwrap().unwrap());
     let rx = Box::new(broker.sub_ticks(String::from("EUR/USD")).unwrap());
