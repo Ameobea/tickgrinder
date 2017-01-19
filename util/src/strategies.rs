@@ -14,6 +14,8 @@
 //!
 //! TODO: Update this descrition
 
+use std::collections::HashMap;
+
 use futures;
 
 // use trading::broker::Broker;
@@ -21,8 +23,9 @@ use transport::command_server::CommandServer;
 use transport::query_server::QueryServer;
 
 pub trait Strategy {
-    /// Make sure that all strategies include ways to interact with the optimizer in a standardized way
-    fn new(cs: CommandServer, qs: QueryServer) -> Self;
+    /// Make sure that all strategies include ways to interact with the optimizer in a standardized way.
+    /// `conf` is a HashMap of K:V pairs that are used to configure how the strategy runs.
+    fn new(cs: CommandServer, qs: QueryServer, conf: HashMap<String, String>) -> Self;
 
     /// Instruct the strategy to initialize itself, subscribing to data streams and communicating with the
     /// the rest of the platform as necessary

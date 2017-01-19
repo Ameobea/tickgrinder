@@ -1,13 +1,27 @@
 SHELL := /bin/bash
 
-# Dependencies for the platform are fairly straightforward.  Configurator must be built and run first because it generates the conf files that
-# are compiled into `tickgrinder_util` and `mm`.  Then, `tickgrinder_util` must be built because pretty much everything else depends on it.
+# All modules of the platform are dynamically linked, so rust's `libstd` is copied into the dist directory first.
+# Dependencies for the platform are somewhat complicated; the Configurator must be built and run first because it
+# generates the conf files that are compiled into `tickgrinder_util` and `mm`.  Then, `tickgrinder_util` must be
+# built because pretty much everything else depends on it.  After that, the `private` module must be built since
+# it contains code used in many of the platform's modules such as the tick processor and the optimizer.
+#
+# However, the FXCM shim must be built in order for the private module to work with the FXCM native broker, so
+# it is built first.  That shim depends on the FXCM native broker libraries contained in a git submodule;
+# those are automatically copied into `dist/lib` during the build process.
+#
+# All dependency libraries are copied into the `dist/lib` directory after compilation.  In addition, for all
+# modules execpt for the configurator (since it is a dependency of util), the pre-built crate dependencies are
+# re-used from the `util` module's `target/release/deps`; this is why `extern crate` imports are used in the
+# platform's modules without any crates listed as dependencies in their `Cargo.toml` files.
 
 release:
 	make init
 
-	# copy rust's libstd to the dist/lib directory
-	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
+	# copy libstd to the dist/lib directory if it's not already there
+	if [[ ! -f dist/lib/$$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) ]]; then \
+		cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib; \
+	fi;
 
 	# Run the configurator if no settings exist from a previous run
 	if [[ ! -f configurator/settings.json ]]; then cd configurator && cargo run; fi;
@@ -54,13 +68,13 @@ dev:
 debug:
 	make init
 
-	# build the configurator
-	cd configurator && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
-
 	# copy libstd to the dist/lib directory if it's not already there
 	if [[ ! -f dist/lib/$$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) ]]; then \
 		cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib; \
 	fi;
+
+	# build the configurator
+	cd configurator && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
 
 	# Run the configurator if no settings exist from a previous run
 	if [[ ! -f configurator/settings.json ]]; then cd configurator && cargo run; fi;
@@ -151,11 +165,15 @@ test:
 
 bench:
 	make init
+
+	# copy libstd to the dist/lib directory if it's not already there
+	if [[ ! -f dist/lib/$$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) ]]; then \
+		cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib; \
+	fi;
+
 	# build the platform's utility library and copy into dist/lib
 	cd util && cargo build --release && cargo bench
 	cp util/target/release/libtickgrinder_util.so dist/lib
-	# copy libstd to the dist/lib directory
-	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
 	# build the FXCM shim
 	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
