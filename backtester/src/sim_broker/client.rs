@@ -66,16 +66,29 @@ impl Broker for SimBrokerClient {
         oneshot
     }
 
+    /// Maps a new channel through the pushtream, duplicating all messages sent to it.
     fn get_stream(&mut self) -> Result<Box<Stream<Item=BrokerResult, Error=()> + Send>, BrokerError> {
+        let (tx, rx) = channel(0);
         let simbroker = self.get_simbroker()?;
         if simbroker.push_stream_recv.is_none() {
             // TODO: Enable multiple handles to be taken?
             return Err(BrokerError::Message{
-                message: "You already took a handle to the push stream and can't take another.".to_string()
+                message: "There is no push stream handle to take!".to_string()
             })
         }
 
-        Ok(simbroker.push_stream_recv.take().unwrap().boxed())
+        let strm = simbroker.push_stream_recv.take().unwrap();
+        let mut tx_opt = Some(tx);
+        let new_strm = strm.map(move |msg| {
+            // unfortunate workaround needed since `send()` takes `self`
+            let mut tx = tx_opt.take().unwrap();
+            tx = tx.send(msg.clone()).wait().unwrap();
+            tx_opt = Some(tx);
+            msg
+        });
+        simbroker.push_stream_recv = Some(new_strm.boxed());
+
+        Ok(rx.boxed())
     }
 
     fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()> + Send>, BrokerError> {
@@ -87,11 +100,22 @@ impl Broker for SimBrokerClient {
 
         let mut sym = &mut simbroker.symbols[&symbol];
         if sym.client_receiver.is_some() {
-            Ok(Box::new(mem::replace(&mut sym.client_receiver, None).unwrap()))
+            let (tx, rx) = channel(0);
+            let tickstream = sym.client_receiver.take().unwrap();
+            let mut tx_opt = Some(tx);
+            let new_tickstream = tickstream.map(move |tick| {
+                let mut tx = tx_opt.take().unwrap();
+                tx = tx.send(tick).wait().unwrap();
+                tx_opt = Some(tx);
+                tick
+            });
+            sym.client_receiver = Some(new_tickstream.boxed());
+
+            Ok(rx.boxed())
         } else {
             return Err(BrokerError::Message{
-                message: "You already took a handle to the tick stream for that symbol and can't take another.".to_string()
-            })
+                message: "The stream for that symbol is `None`!".to_string()
+            });
         }
     }
 }

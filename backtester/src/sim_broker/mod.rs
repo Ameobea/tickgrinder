@@ -47,8 +47,8 @@ pub struct SimBroker {
     client_rx: Option<mpsc::Receiver<(BrokerAction, Complete<BrokerResult>)>>,
     /// A handle to the sender for the channel through which push messages are sent
     push_stream_handle: Option<Sender<BrokerResult>>,
-    /// A handle to the receiver for the channel throgh which push messages are received
-    push_stream_recv: Option<Receiver<BrokerResult>>,
+    /// A handle to the receiver for the channel through which push messages are received
+    push_stream_recv: Option<Box<Stream<Item=BrokerResult, Error=()> + Send>>,
     /// The CommandServer used for logging
     pub cs: CommandServer,
 }
@@ -88,7 +88,7 @@ impl SimBroker {
             timestamp: 0,
             client_rx: Some(mpsc_rx),
             push_stream_handle: Some(client_push_tx),
-            push_stream_recv: Some(client_push_rx),
+            push_stream_recv: Some(client_push_rx.boxed()),
             cs: cs,
         }
     }
