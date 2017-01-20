@@ -2,3 +2,5 @@ dist
 core
 vgcore.*
 *.dot
+Cargo.lock
+*.dump

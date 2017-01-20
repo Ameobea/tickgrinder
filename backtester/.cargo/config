@@ -1,7 +1,11 @@
 [build]
 rustflags = [
+    "-L", "../broker_shims/simbroker/target/release",
+    "-L", "../../broker_shims/simbroker/target/release",
+    "-L", "../../../broker_shims/simbroker/target/release",
     "-L", "../util/target/release/deps",
     "-L", "../../util/target/release/deps",
     "-L", "../../../util/target/release/deps",
+    "-L", "../../../../util/target/release/deps",
     "-C", "prefer-dynamic"
 ]

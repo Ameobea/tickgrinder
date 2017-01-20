@@ -19,10 +19,10 @@ extern crate serde_derive;
 extern crate test;
 #[macro_use]
 extern crate from_hashmap;
+extern crate simbroker;
 
 mod data;
 mod backtest;
-mod sim_broker;
 
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
@@ -43,7 +43,7 @@ use tickgrinder_util::trading::tick::Tick;
 use tickgrinder_util::conf::CONF;
 use backtest::*;
 use data::*;
-use sim_broker::*;
+use simbroker::*;
 
 /// Starts the backtester module, initializing its interface to the rest of the platform
 fn main() {

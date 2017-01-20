@@ -178,7 +178,7 @@ pub struct Symbol {
     pub client_sender: Option<Sender<Tick>>,
     /// The stream that is handed off to the client.  Only yields `Tick`s when the order
     /// of events dictates it inside the internal simulation loop.
-    pub client_receiver: Option<Receiver<Tick>>,
+    pub client_receiver: Option<Box<Stream<Item=Tick, Error=()> + Send>>,
     /// Contains some information about the symbol that the ticks represent
     pub metadata: SymbolData,
     /// Broker's view of prices in pips, determined by the `tick_receiver`s
@@ -214,7 +214,7 @@ impl Symbol {
             name: name,
             input_iter: Some(Box::new(iter)),
             client_sender: Some(client_tx),
-            client_receiver: Some(client_rx),
+            client_receiver: Some(client_rx.boxed()),
             metadata: SymbolData {
                 is_fx: is_fx,
                 decimal_precision: decimals,

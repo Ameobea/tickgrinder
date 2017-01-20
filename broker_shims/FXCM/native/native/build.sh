@@ -12,4 +12,4 @@ src/offers.cpp include/ForexConnectAPI-Linux-x86_64/samples/cpp/NonTableManagerS
 -Iinclude/ForexConnectAPI-Linux-x86_64/samples/cpp/sample_tools/include/ include/ForexConnectAPI-Linux-x86_64/include/ForexConnect.h \
 -Iinclude/ForexConnectAPI-Linux-x86_64/samples/cpp/NonTableManagerSamples/GetHistPrices/source/ \
 dist/libForexConnect.so dist/libfxmsg.so dist/libsample_tools.so
-cp dist/libfxcm_ffi.so ../../../../../../../../dist/lib
+cp dist/libfxcm_ffi.so ../../../../dist/lib

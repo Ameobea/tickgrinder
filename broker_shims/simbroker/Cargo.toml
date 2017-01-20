@@ -1,12 +1,13 @@
 [package]
-name = "fxcm"
+name = "simbroker"
 version = "0.1.0"
 authors = ["Casey Primozic <me@ameo.link>"]
 
 [lib]
-name = "fxcm"
+name = "simbroker"
 crate-type = ["dylib"]
 
 [profile.release]
 opt-level = 3
 debug = true
+debug-assertions = false
