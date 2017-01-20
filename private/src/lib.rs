@@ -14,6 +14,7 @@ extern crate fxcm;
 extern crate libc;
 extern crate uuid;
 extern crate rand;
+extern crate time;
 
 pub mod indicators;
 pub mod trading_conditions;
