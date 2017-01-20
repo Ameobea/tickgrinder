@@ -62,6 +62,8 @@ fn tick_ingestion() {
 
 #[test]
 fn command_server_broadcast() {
+    use std::str::FromStr;
+
     let cmds_channel_string = String::from("test_channel_998");
     let mut cs = CommandServer::new(Uuid::new_v4(), "Tick Processor Test");
     let mut client = get_client(CONF.redis_host);
