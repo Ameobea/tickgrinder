@@ -1,1 +1,1 @@
-LD_LIBRARY_PATH=native/dist:../util/target/release/deps cargo test -- --nocapture
+LD_LIBRARY_PATH=../dist/lib:../util/target/release/deps cargo test -- --nocapture

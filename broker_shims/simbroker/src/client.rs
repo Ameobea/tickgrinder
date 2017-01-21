@@ -2,6 +2,8 @@
 //! internally, provides access to it via streams, and holds it in a thread during the simulation loop.
 
 use super::*;
+use futures::stream::BoxStream;
+use futures::sync::mpsc::UnboundedSender;
 
 /// The client-facing part of the SimBroker.  Implements the `Broker` trait and enables clients to communicate with
 /// the underlying `SimBroker` instance while it's blocked on the simulation loop.
@@ -149,7 +151,22 @@ impl SimBrokerClient {
                 message: String::from("The SimBroker has already been initialized!"),
             });
         }
-        let simbroker = simbroker_opt.unwrap();
+        let mut simbroker = simbroker_opt.unwrap();
+
+        // consume the tickstream and push stream internally to drive progress
+        let push_stream = simbroker.push_stream_recv.take().unwrap();
+        let (mut tickstream_tx, tickstream_rx) = unbounded();
+        for symbol in simbroker.symbols.iter_mut() {
+            let tickstream_tx: &mut UnboundedSender<BoxStream<Tick, ()>> = &mut tickstream_tx;
+            let tickstream = symbol.client_receiver.take().unwrap();
+            tickstream_tx.send(tickstream).wait().unwrap();
+        }
+        thread::spawn(move || {
+            let tickstreams_comb = tickstream_rx.flatten();
+            for _ in tickstreams_comb.merge(push_stream).wait() {
+                // do nothing; we're just consuming the streams.
+            }
+        });
 
         thread::spawn(move || {
             // block this thread on the `SimBroker`'s simulation loop

@@ -121,15 +121,13 @@ fn tick_retransmission() {
     use std::sync::mpsc;
     use std::collections::HashMap;
 
-    use futures::{Future, oneshot};
+    use futures::{Future, Stream, oneshot};
+    use futures::stream::BoxStream;
 
     use data::random_reader::RandomReader;
     use data::TickGenerator;
     use backtest::{NullMap, BacktestCommand};
     use simbroker::*;
-
-    // oneshot with which to receive the tick sub channel
-    let (channel_complete, channel_oneshot) = oneshot();
 
     // create the SimBroker
     let symbol = "TEST".to_string();
@@ -150,12 +148,10 @@ fn tick_retransmission() {
 
     // subscribe to ticks from the SimBroker for the test pair
     let subbed_ticks = sim_client.sub_ticks(symbol).unwrap();
-    channel_complete.complete(subbed_ticks);
 
     // start the simbroker's simulation loop
     sim_client.init_sim_loop();
 
-    let subbed_ticks = Box::new(channel_oneshot.wait().unwrap());
     let (c, o) = oneshot::<Vec<Tick>>();
     thread::spawn(move || {
         let res: Vec<Tick> = subbed_ticks

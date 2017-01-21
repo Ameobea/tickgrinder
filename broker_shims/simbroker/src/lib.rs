@@ -27,7 +27,7 @@ use std::mem;
 
 use futures::{Future, Sink, oneshot, Oneshot, Complete};
 use futures::stream::Stream;
-use futures::sync::mpsc::{unbounded, channel, UnboundedReceiver, UnboundedSender, Sender};
+use futures::sync::mpsc::{unbounded, channel, UnboundedReceiver, Sender};
 use uuid::Uuid;
 
 use tickgrinder_util::trading::tick::*;
