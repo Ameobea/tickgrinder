@@ -9,7 +9,7 @@ use uuid::Uuid;
 use tickgrinder_util::trading::tick::*;
 
 use {BacktestType, DataSource, DataDest};
-use sim_broker::SimBrokerSettings;
+use simbroker::SimBrokerSettings;
 
 /// Commands for controlling a backtest
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -113,4 +113,64 @@ pub struct NullMap {}
 
 impl BacktestMap for NullMap {
     fn map(&mut self, t: Tick) -> Option<Tick> { Some(t) }
+}
+
+/// Ticks sent to the SimBroker should be re-broadcast to the client.
+#[test]
+fn tick_retransmission() {
+    use std::sync::mpsc;
+    use std::collections::HashMap;
+
+    use futures::{Future, oneshot};
+
+    use data::random_reader::RandomReader;
+    use data::TickGenerator;
+    use backtest::{NullMap, BacktestCommand};
+    use simbroker::*;
+
+    // oneshot with which to receive the tick sub channel
+    let (channel_complete, channel_oneshot) = oneshot();
+
+    // create the SimBroker
+    let symbol = "TEST".to_string();
+    let mut sim_client = SimBrokerClient::init(HashMap::new()).wait().unwrap().unwrap();
+    let msg_stream = sim_client.get_stream();
+
+    // create a random tickstream and register it to the SimBroker
+    let mut gen = RandomReader::new(symbol.clone());
+    let map = Box::new(NullMap {});
+    let (tx, rx) = mpsc::sync_channel(5);
+    let tick_stream = gen.get(map, rx);
+    // start the random tick generator
+    let _ = tx.send(BacktestCommand::Resume);
+
+    // register the tickstream with the simbroker
+    let res = sim_client.register_tickstream(symbol.clone(), tick_stream.unwrap(), false, 0);
+    assert!(res.is_ok());
+
+    // subscribe to ticks from the SimBroker for the test pair
+    let subbed_ticks = sim_client.sub_ticks(symbol).unwrap();
+    channel_complete.complete(subbed_ticks);
+
+    // start the simbroker's simulation loop
+    sim_client.init_sim_loop();
+
+    let subbed_ticks = Box::new(channel_oneshot.wait().unwrap());
+    let (c, o) = oneshot::<Vec<Tick>>();
+    thread::spawn(move || {
+        let res: Vec<Tick> = subbed_ticks
+            .wait()
+            .take(10)
+            .map(|t| {
+                println!("Received tick: {:?}", t);
+                t.unwrap()
+            })
+            .collect();
+        // signal once we've received all the ticks
+        c.complete(res);
+    });
+
+    // block until we've received all awaited ticks
+    let res = o.wait().unwrap();
+    assert_eq!(res.len(), 10);
 }

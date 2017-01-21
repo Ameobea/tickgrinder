@@ -4,6 +4,19 @@
 //! See README.md for more information about the specifics of the SimBroker implementation
 //! and a description of its functionality.
 
+#![feature(rustc_attrs, core_intrinsics, conservative_impl_trait, associated_consts, custom_derive, test, slice_patterns)]
+
+extern crate test;
+extern crate futures;
+extern crate uuid;
+extern crate serde;
+extern crate serde_json;
+#[macro_use]
+extern crate serde_derive;
+extern crate tickgrinder_util;
+#[macro_use]
+extern crate from_hashmap;
+
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::collections::BinaryHeap;
@@ -11,12 +24,10 @@ use std::sync::mpsc;
 use std::thread;
 use std::ops::{Index, IndexMut};
 use std::mem;
-#[allow(unused_imports)]
-use test;
 
 use futures::{Future, Sink, oneshot, Oneshot, Complete};
 use futures::stream::Stream;
-use futures::sync::mpsc::{unbounded, channel, UnboundedReceiver, UnboundedSender, Sender, Receiver};
+use futures::sync::mpsc::{unbounded, channel, UnboundedReceiver, UnboundedSender, Sender};
 use uuid::Uuid;
 
 use tickgrinder_util::trading::tick::*;

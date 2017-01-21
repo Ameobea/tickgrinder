@@ -30,11 +30,13 @@ release:
 	cd util && cargo build --release
 	cp util/target/release/libtickgrinder_util.so dist/lib
 
-	# build the FXCM shim
-	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
-	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
-	cd util/src/trading/broker/shims/FXCM/native && cargo build --release
-	cp util/src/trading/broker/shims/FXCM/native/target/release/libfxcm.so dist/lib
+	# build the broker shims
+	cd broker_shims/simbroker && cargo build --release
+	cp broker_shims/simbroker/target/release/libsimbroker.so dist/lib
+	cd broker_shims/FXCM/native/native && ./build.sh
+	cp broker_shims/FXCM/native/native/dist/* dist/lib
+	cd broker_shims/FXCM/native && cargo build --release
+	cp broker_shims/FXCM/native/target/release/libfxcm.so dist/lib
 
 	# build the private library containing user-specific code as well as the small C++ wrapper
 	cd private/src/strategies/fuzzer/extern && ./build.sh
@@ -83,11 +85,13 @@ debug:
 	cd util && cargo build
 	cp util/target/debug/libtickgrinder_util.so dist/lib
 
-	# build the FXCM shim
-	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
-	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
-	cd util/src/trading/broker/shims/FXCM/native && RUSTFLAGS="-L ../../../../../../../util/target/debug/deps -L ../../../../../../../dist/lib -C prefer-dynamic" cargo build
-	cp util/src/trading/broker/shims/FXCM/native/target/debug/libfxcm.so dist/lib
+	# build the broker shims
+	cd broker_shims/simbroker && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build
+	cp broker_shims/simbroker/target/debug/libsimbroker.so dist/lib
+	cd broker_shims/FXCM/native/native && ./build.sh
+	cp broker_shims/FXCM/native/native/dist/* dist/lib
+	cd broker_shims/FXCM/native && RUSTFLAGS="-L ../../../util/target/debug/deps -L ../../../dist/lib -C prefer-dynamic" cargo build
+	cp broker_shims/FXCM/native/target/debug/libfxcm.so dist/lib
 
 	# build the private library containing user-specific code as well as the small C++ wrapper
 	cd private/src/strategies/fuzzer/extern && ./build.sh
@@ -127,8 +131,8 @@ clean:
 	rm backtester/target -rf
 	rm mm/node_modules -rf
 	rm private/target -rf
-	rm util/src/trading/broker/shims/FXCM/native/native/dist -rf
-	rm util/src/trading/broker/shims/FXCM/native/target -rf
+	rm broker_shims/FXCM/native/native/dist -rf
+	rm broker_shims/FXCM/native/target -rf
 	rm data_downloaders/fxcm_native/target -rf
 	rm configurator/target -rf
 
@@ -143,11 +147,17 @@ test:
 	cd util && cargo build && cargo test --no-fail-fast
 	cp util/target/debug/libtickgrinder_util.so dist/lib
 
-	# build the FXCM shim
-	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
-	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
-	cd util/src/trading/broker/shims/FXCM/native && RUSTFLAGS="-L ../../../../../../../util/target/debug/deps -L ../../../../../../../dist/lib -C prefer-dynamic" cargo build
-	cp util/src/trading/broker/shims/FXCM/native/target/debug/libfxcm.so dist/lib
+	# build and test the broker shims
+	cd broker_shims/simbroker && LD_LIBRARY_PATH=../../util/target/debug/deps \
+		RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test && \
+		RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build
+	cp broker_shims/simbroker/target/debug/libsimbroker.so dist/lib
+	cd broker_shims/FXCM/native/native && ./build.sh
+	cp broker_shims/FXCM/native/native/dist/* dist/lib
+	cd broker_shims/FXCM/native && RUSTFLAGS="-L ../../../util/target/debug/deps -L ../../../dist/lib -C prefer-dynamic" cargo build && \
+		LD_LIBRARY_PATH=native/dist:../../../util/target/debug/deps \
+		RUSTFLAGS="-L ../../../util/target/debug/deps -L ../../../dist/lib -C prefer-dynamic" cargo test -- --nocapture
+	cp broker_shims/FXCM/native/target/debug/libfxcm.so dist/lib
 
 	# build private and its corresponding c++ wrapper library
 	cd private/src/strategies/fuzzer/extern && ./build.sh
@@ -162,8 +172,6 @@ test:
 	cd backtester && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd mm && npm install
 	cp private/target/debug/libprivate.so dist/lib
-	cd util/src/trading/broker/shims/FXCM/native && LD_LIBRARY_PATH=native/dist:../../../../../../target/debug/deps \
-		RUSTFLAGS="-L ../../../../../../target/debug/deps -L ../../../../../../../dist/lib -C prefer-dynamic" cargo test -- --nocapture
 	cd data_downloaders/fxcm_native && LD_LIBRARY_PATH="../../dist/lib" RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	# TODO: Collect the results into a nice format
 
@@ -179,11 +187,13 @@ bench:
 	cd util && cargo build --release && cargo bench
 	cp util/target/release/libtickgrinder_util.so dist/lib
 
-	# build the FXCM shim
-	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
-	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
-	cd util/src/trading/broker/shims/FXCM/native && cargo build --release
-	cp util/src/trading/broker/shims/FXCM/native/target/release/libfxcm.so dist/lib
+	# build the broker shims
+	cd broker_shims/simbroker && cargo build --release && cargo bench
+	cp broker_shims/simbroker/target/release/libsimbroker.so dist/lib
+	cd broker_shims/FXCM/native/native && ./build.sh
+	cp broker_shims/FXCM/native/native/dist/* dist/lib
+	cd broker_shims/FXCM/native && cargo build --release
+	cp broker_shims/FXCM/native/target/release/libfxcm.so dist/lib
 
 	# build private and its corresponding c++ wrapper library
 	cd private/src/strategies/fuzzer/extern && ./build.sh
@@ -209,7 +219,7 @@ update:
 	cd backtester && cargo update
 	cd private && cargo update
 	cd mm && npm update
-	cd util/src/trading/broker/shims/FXCM/native && cargo update
+	cd broker_shims/FXCM/native && cargo update
 	cd configurator && cargo update
 	git submodule update
 
