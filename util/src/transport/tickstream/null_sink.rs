@@ -3,13 +3,14 @@
 #[allow(unused_imports)]
 use test;
 
-use tickgrinder_util::trading::tick::Tick;
+use trading::tick::Tick;
 
-use data::TickSink;
+use super::TickSink;
 
 pub struct NullSink {}
 
 impl TickSink for NullSink {
+    #[allow(unused_variables)]
     fn tick(&mut self, t: Tick) {}
 }
 

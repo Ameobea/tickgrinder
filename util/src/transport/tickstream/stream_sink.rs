@@ -4,12 +4,11 @@ use std::thread;
 use std::sync::mpsc;
 
 use futures::sync::mpsc::UnboundedSender;
-use tickgrinder_util::trading::tick::Tick;
 
-use data::TickSink;
+use trading::tick::Tick;
+use super::TickSink;
 
 pub struct StreamSink {
-    symbol: String,
     mpsc_tx: mpsc::Sender<Tick>,
 }
 
@@ -17,6 +16,7 @@ pub struct StreamSink {
 // futures channel due to the fact that futures-rs is terrible but we're WAY too
 // commmitted to go back now.
 impl StreamSink {
+    #[allow(unused_variables)]
     pub fn new(symbol: String, dst_tx: UnboundedSender<Tick>) -> StreamSink {
         let (tx, rx) = mpsc::channel::<Tick>();
         thread::spawn(move || {
@@ -27,7 +27,6 @@ impl StreamSink {
         });
 
         StreamSink {
-            symbol: symbol,
             mpsc_tx: tx,
         }
     }

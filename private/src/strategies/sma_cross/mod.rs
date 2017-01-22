@@ -33,12 +33,12 @@ impl Strategy for SmaCross {
     }
 
     /// Called when we are to start actively trading this strategy and initialize trading activity.
-    fn init(&mut self) {
+    fn init(&mut self, broker: Box<Broker>) {
         self.cs.notice(Some("Startup"), "SMA Cross strategy is being initialized...");
 
         let strat_clone = self.clone();
         thread::spawn(move || {
-            init_strat(strat_clone, get_broker_settings());
+            // init_strat(strat_clone, get_broker_settings());
         });
     }
 
@@ -50,19 +50,19 @@ impl Strategy for SmaCross {
     }
 }
 
-/// The inner logic for this strategy.  Called once the strategy is initialized.  It will block indefinately as long as
-/// the strategy remains active.
-fn init_strat(strat: SmaCross, settings: HashMap<String, String>) {
-    let mut cs = strat.cs;
-    cs.notice(Some("Startup"), "Creating connection to broker...");
-    let broker_res = ActiveBroker::init(settings).wait().unwrap();
-    let mut broker = unwrap_log_panic(broker_res, &mut cs);
-    cs.notice(Some("Startup"), "Successfully connected to broker.");
+// /// The inner logic for this strategy.  Called once the strategy is initialized.  It will block indefinately as long as
+// /// the strategy remains active.
+// fn init_strat(strat: SmaCross, settings: HashMap<String, String>) {
+//     let mut cs = strat.cs;
+//     // cs.notice(Some("Startup"), "Creating connection to broker...");
+//     // let broker_res = ActiveBroker::init(settings).wait().unwrap();
+//     let mut broker = unwrap_log_panic(broker_res, &mut cs);
+//     cs.notice(Some("Startup"), "Successfully connected to broker.");
 
-    let accounts = unwrap_log_panic(broker.list_accounts().wait().unwrap(), &mut cs);
-    let accounts_dbg = format!("Accounts on the broker: {:?}", accounts);
-    println!("{}", accounts_dbg);
-}
+//     let accounts = unwrap_log_panic(broker.list_accounts().wait().unwrap(), &mut cs);
+//     let accounts_dbg = format!("Accounts on the broker: {:?}", accounts);
+//     println!("{}", accounts_dbg);
+// }
 
 /// Unwraps a Result and returns the inner value if it is Ok; `panic!()`s after logging a critical error otherwise.
 fn unwrap_log_panic<T, E>(res: Result<T, E>, cs: &mut CommandServer) -> T where E:Debug {

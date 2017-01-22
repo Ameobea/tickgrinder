@@ -131,6 +131,7 @@ clean:
 	rm backtester/target -rf
 	rm mm/node_modules -rf
 	rm private/target -rf
+	rm broker_shims/simbroker/target -rf
 	rm broker_shims/FXCM/native/native/dist -rf
 	rm broker_shims/FXCM/native/target -rf
 	rm data_downloaders/fxcm_native/target -rf

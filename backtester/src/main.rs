@@ -3,7 +3,7 @@
 //! Plays back market data and executes strategies, providing a simulated broker and
 //! account as well as statistics and data about the results of the strategy.
 
-#![feature(rustc_attrs, core_intrinsics, conservative_impl_trait, associated_consts, custom_derive, test, slice_patterns)]
+#![feature(rustc_attrs, conservative_impl_trait, associated_consts, custom_derive, test, slice_patterns)]
 // #![allow(unused_variables, dead_code,)]
 
 extern crate tickgrinder_util;
@@ -21,7 +21,6 @@ extern crate test;
 extern crate from_hashmap;
 extern crate simbroker;
 
-mod data;
 mod backtest;
 
 use std::sync::{Arc, Mutex, mpsc};
@@ -39,10 +38,10 @@ use serde_json::to_string;
 use tickgrinder_util::transport::command_server::CommandServer;
 use tickgrinder_util::transport::redis::{sub_multiple, get_client};
 use tickgrinder_util::transport::commands::*;
+use tickgrinder_util::transport::tickstream::*;
 use tickgrinder_util::trading::tick::Tick;
 use tickgrinder_util::conf::CONF;
 use backtest::*;
-use data::*;
 use simbroker::*;
 
 /// Starts the backtester module, initializing its interface to the rest of the platform
@@ -168,19 +167,19 @@ impl Backtester {
                     Response::Info{info: "Backtester will self-destruct in 3 seconds.".to_string()}
                 }
                 Command::PauseBacktest{uuid} => {
-                    match copy.send_backtest_cmd(&uuid, BacktestCommand::Pause) {
+                    match copy.send_backtest_cmd(&uuid, TickstreamCommand::Pause) {
                         Ok(()) => Response::Ok,
                         Err(()) => Response::Error{status: "No backtest with that uuid!".to_string()},
                     }
                 },
                 Command::ResumeBacktest{uuid} => {
-                    match copy.send_backtest_cmd(&uuid, BacktestCommand::Resume) {
+                    match copy.send_backtest_cmd(&uuid, TickstreamCommand::Resume) {
                         Ok(()) => Response::Ok,
                         Err(()) => Response::Error{status: "No backtest with that uuid!".to_string()},
                     }
                 },
                 Command::StopBacktest{uuid} => {
-                    match copy.send_backtest_cmd(&uuid, BacktestCommand::Stop) {
+                    match copy.send_backtest_cmd(&uuid, TickstreamCommand::Stop) {
                         Ok(()) => {
                             // deregister from internal running backtest list
                             copy.remove_backtest(&uuid);
@@ -239,7 +238,7 @@ impl Backtester {
         );
 
         // create channel for communicating messages to the running backtest sent externally
-        let (external_handle_tx, handle_rx) = mpsc::sync_channel::<BacktestCommand>(5);
+        let (external_handle_tx, handle_rx) = mpsc::sync_channel::<TickstreamCommand>(5);
         // create channel for communicating messages to the running backtest internally
         let internal_handle_tx = external_handle_tx.clone();
 
@@ -291,7 +290,7 @@ impl Backtester {
                         },
                         Err(_) => {
                             csc.notice(None, "Stopping backtest because tickstream has ended");
-                            internal_handle_tx.send(BacktestCommand::Stop)
+                            internal_handle_tx.send(TickstreamCommand::Stop)
                                 .expect("Sending through the internal handle failed; tickstream dropped?");
                         }
                     };
@@ -308,8 +307,9 @@ impl Backtester {
             let simbroker = simbroker_opt.unwrap();
             // plug the tickstream into the matching SimBroker
             // TODO TODO TODO: Implement proper values here
-            simbroker.register_tickstream(definition.symbol.clone(), tickstream.unwrap(), true, 6).unwrap();
-            simbroker.init_sim_loop().expect("Unable to start SimBroker sim loop");
+            // BIG TODO; a large part of the backtester logic will have to be re-thought
+            // simbroker.register_tickstream(definition.symbol.clone(), tickstream.unwrap(), true, 6).unwrap();
+            // simbroker.init_sim_loop().expect("Unable to start SimBroker sim loop");
         }
 
         let handle = BacktestHandle {
@@ -334,14 +334,14 @@ impl Backtester {
     }
 
     /// Sends a command to a managed backtest
-    pub fn send_backtest_cmd(&mut self, uuid: &Uuid, cmd: BacktestCommand) -> Result<(), ()> {
+    pub fn send_backtest_cmd(&mut self, uuid: &Uuid, cmd: TickstreamCommand) -> Result<(), ()> {
         let handles = self.running_backtests.lock().unwrap();
         let handle = handles.get(uuid);
 
         if handle.is_none() {
             return Err(());
         }
-        let sender = &handle.unwrap().handle;
+        let sender: &mpsc::SyncSender<TickstreamCommand> = &handle.unwrap().handle;
         sender.send(cmd)
             .expect("The receiver corresponding to the sender in the backtest handle seems to have been dropped.");
 
@@ -364,7 +364,7 @@ pub fn resolve_data_source(data_source: &DataSource, symbol: String, start_time:
             ) as Box<TickGenerator>
         },
         DataSource::Random => {
-            Box::new(RandomReader::new(symbol.clone())) as Box<TickGenerator>
+            Box::new(RandomReader {}) as Box<TickGenerator>
         },
         DataSource::Postgres => {
             Box::new(PostgresReader {symbol: symbol, start_time: start_time} )
@@ -405,7 +405,7 @@ fn backtest_n_early_exit() {
 
     let uuid = bt.start_backtest(definition).unwrap();
     // backtest starts paused so resume it
-    let _ = bt.send_backtest_cmd(&uuid, BacktestCommand::Resume);
+    let _ = bt.send_backtest_cmd(&uuid, TickstreamCommand::Resume);
     let res = rx.wait().take(10).collect::<Vec<_>>();
     assert_eq!(res.len(), 10);
 }
@@ -432,7 +432,7 @@ fn backtest_timestamp_early_exit() {
     let uuid = bt.start_backtest(definition)
         .expect("start_backtest() returned Err!");
     // backtest starts paused so resume it
-    bt.send_backtest_cmd(&uuid, BacktestCommand::Resume).expect("no handle exists for the backtest!");
+    bt.send_backtest_cmd(&uuid, TickstreamCommand::Resume).expect("no handle exists for the backtest!");
     let res = rx.wait().take(8).collect::<Vec<_>>();
     assert_eq!(res.len(), 8);
 }

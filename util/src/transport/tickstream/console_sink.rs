@@ -1,8 +1,8 @@
 //! Simply `println!()`s ticks to the console; useful for debugging.
 
-use tickgrinder_util::trading::tick::Tick;
+use trading::tick::Tick;
 
-use data::TickSink;
+use super::TickSink;
 
 pub struct ConsoleSink {}
 

@@ -14,6 +14,7 @@ extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 extern crate postgres;
+extern crate rand;
 extern crate test;
 
 pub mod transport;

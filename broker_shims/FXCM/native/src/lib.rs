@@ -1,5 +1,6 @@
 //! Broker shim for FXCM.  Integrates directly with the C++ native FXCM API to map complete broker
 //! functionality through into Rust.
+ 
 
 #![feature(libc, test)]
 
