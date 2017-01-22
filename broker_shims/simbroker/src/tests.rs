@@ -7,7 +7,7 @@ use super::*;
 #[test]
 fn sub_ticks_err() {
     let mut sim_client = SimBrokerClient::init(HashMap::new()).wait().unwrap().unwrap();
-    let stream = sim_client.sub_ticks("TEST".to_string());
+    let stream = sim_client.sub_ticks("ABCDEFG".to_string());
     assert!(stream.is_err());
 }
 
@@ -18,7 +18,7 @@ fn send_push_message(b: &mut test::Bencher) {
 
     let settings = SimBrokerSettings::default();
     let (_, dummy_rx) = unbounded();
-    let mut sim_b = SimBroker::new(settings, CommandServer::new(Uuid::new_v4(), "SimBroker Test"), dummy_rx);
+    let mut sim_b = SimBroker::new(settings, CommandServer::new(Uuid::new_v4(), "SimBroker Test"), dummy_rx).unwrap();
     let receiver = sim_b.push_stream_recv.take().unwrap().boxed();
     thread::spawn(move ||{
         for _ in receiver.wait() {
@@ -62,10 +62,8 @@ fn dynamic_base_rate_conversion() {
     foreign_tx = foreign_tx.send(Tick {timestamp: 4, bid: 1219879, ask: 1219891}).wait().unwrap();
     foreign_tx = foreign_tx.send(Tick {timestamp: 6, bid: 1219879, ask: 1219891}).wait().unwrap();
 
-    sim_client.register_tickstream(base_pair.clone(), base_rx, true, 4).unwrap();
-    sim_client.register_tickstream(foreign_pair.clone(), foreign_rx, true, 4).unwrap();
-
-    sim_client.init_sim_loop();
+    // sim_client.register_tickstream(base_pair.clone(), base_rx, true, 4).unwrap();
+    // sim_client.register_tickstream(foreign_pair.clone(), foreign_rx, true, 4).unwrap();
 
     // TODO: Sub prices and submit orders
     // TODO: Test reverses (EURUSD and USDEUR)

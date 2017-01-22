@@ -2,15 +2,14 @@
 
 use redis::{Client, cmd};
 
-use tickgrinder_util::transport::redis::get_client;
-use tickgrinder_util::trading::tick::Tick;
-
-use data::TickSink;
+use transport::redis::get_client;
+use trading::tick::Tick;
+use super::TickSink;
 
 pub struct RedisSink {
-    symbol: String,
-    tx_channel: String,
-    client: Client
+    pub symbol: String,
+    pub tx_channel: String,
+    pub client: Client
 }
 
 impl TickSink for RedisSink {

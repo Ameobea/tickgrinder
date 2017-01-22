@@ -1,6 +1,8 @@
 //! Contains all the helper objects and functions for the SimBroker.  Helpers inlclude objects to hold
 //! data about the SimBroker's state and their corresponding functions and trait implementations.
 
+use serde_json;
+
 use std::intrinsics::unlikely;
 use std::slice::{Iter, IterMut};
 
@@ -24,6 +26,9 @@ pub struct SimBrokerSettings {
     pub execution_delay_ns: u64,
     /// Buying power is leverage * balance
     pub leverage: usize,
+    /// Contains the JSON-serialized version of the Vec<(String, TickGenerators)> containing
+    /// symbol-gen pairs used to create tickstreams to power the broker.
+    pub tickstreams: String,
     /// `true` if this simbroker is simulating a forex borker
     pub fx: bool,
     /// Base currency in which the SimBroker is funded.  Should be in the lowest division of that
@@ -38,11 +43,14 @@ pub struct SimBrokerSettings {
 
 impl Default for SimBrokerSettings {
     fn default() -> SimBrokerSettings {
+        let tickstreams = serde_json::to_string(&vec![("TEST", TickGenerators::RandomReader, false, 0)]).unwrap();
+
         SimBrokerSettings {
             starting_balance: 50 * 1000 * 100, // $50,000
             ping_ns: 0,
             execution_delay_ns: 0,
             leverage: 50,
+            tickstreams: tickstreams,
             fx: true,
             fx_base_currency: String::from("USD"),
             fx_lot_size: 1000,

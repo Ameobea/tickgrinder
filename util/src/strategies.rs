@@ -21,6 +21,7 @@ use futures;
 // use trading::broker::Broker;
 use transport::command_server::CommandServer;
 use transport::query_server::QueryServer;
+use trading::broker::Broker;
 
 pub trait Strategy {
     /// Make sure that all strategies include ways to interact with the optimizer in a standardized way.
@@ -29,7 +30,7 @@ pub trait Strategy {
 
     /// Instruct the strategy to initialize itself, subscribing to data streams and communicating with the
     /// the rest of the platform as necessary
-    fn init(&mut self);
+    fn init(&mut self, broker: Box<Broker>);
 
     // /// Indicates that the strategy should save a copy of its internal state of its internal state to
     // /// the database.  The supplied future should be resolved when the dump is complete.

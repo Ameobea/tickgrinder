@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use tickgrinder_util::strategies::Strategy;
 
-mod sma_cross;
-mod fuzzer;
+pub mod sma_cross;
+pub mod fuzzer;
 
 // Set this to whichever strategy you want to use.
 pub use self::sma_cross::SmaCross as ActiveStrategy;

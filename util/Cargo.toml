@@ -6,7 +6,7 @@ description = "Code used in all of TickGrinder's modules."
 
 [dependencies]
 redis = "0.5.3"
-futures = "0.1.8"
+futures = "0.1.9"
 postgres = "0.13"
 serde = "0.8.22"
 serde_json = "0.8"

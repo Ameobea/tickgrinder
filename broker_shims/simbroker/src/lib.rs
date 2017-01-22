@@ -34,6 +34,7 @@ use tickgrinder_util::trading::tick::*;
 pub use tickgrinder_util::trading::broker::*;
 use tickgrinder_util::trading::trading_condition::*;
 use tickgrinder_util::transport::command_server::CommandServer;
+use tickgrinder_util::transport::tickstream::{TickGenerator, TickGenerators};
 
 mod tests;
 mod helpers;
@@ -70,7 +71,7 @@ unsafe impl Send for SimBroker {}
 impl SimBroker {
     pub fn new(
         settings: SimBrokerSettings, cs: CommandServer, client_rx: UnboundedReceiver<(BrokerAction, Complete<BrokerResult>)>
-    ) -> SimBroker {
+    ) -> Result<SimBroker, BrokerError> {
         let mut accounts = Accounts::new();
         // create with one account with the starting balance.
         let account = Account {
@@ -91,7 +92,11 @@ impl SimBroker {
             }
         });
 
-        SimBroker {
+        // try to deserialize the "tickstreams" parameter of the input settings to get a list of tickstreams register
+        let tickstreams: Vec<(String, TickGenerators, bool, usize)> = serde_json::from_str(&settings.tickstreams)
+            .map_err(|_| BrokerError::Message{message: String::from("Unable to deserialize the input tickstreams into a vector!")})?;
+
+        let mut sim = SimBroker {
             accounts: accounts,
             settings: settings,
             symbols: Symbols::new(cs.clone()),
@@ -101,7 +106,16 @@ impl SimBroker {
             push_stream_handle: Some(client_push_tx),
             push_stream_recv: Some(client_push_rx.boxed()),
             cs: cs,
+        };
+
+        // create an actual tickstream for each of the definitions and subscribe to all of them
+        for (name, def, is_fx, decimals) in tickstreams {
+            let mut gen: Box<TickGenerator> = def.get();
+            let strm = gen.get_raw().map_err(|s| BrokerError::Message{message: s})?;
+            sim.register_tickstream(name, strm, is_fx, decimals)?;
         }
+
+        Ok(sim)
     }
 
     /// Starts the simulation process.  Ticks are read in from the inputs and processed internally into

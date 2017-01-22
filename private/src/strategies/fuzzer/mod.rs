@@ -42,6 +42,7 @@ impl Strategy for Fuzzer {
         // convert the seed string into an integer we can use to seen the PNRG if deterministic fuzzing is enabled
         let seed: u32 = if CONF.fuzzer_deterministic_rng {
             let mut sum = 0;
+            // convert the seed string into an integer for seeding the fuzzer
             for c in CONF.fuzzer_seed.chars() {
                 sum += c as u32;
             }
@@ -63,10 +64,7 @@ impl Strategy for Fuzzer {
         }
     }
 
-    fn init(&mut self) {
-        // first step is to initialize the connection to the broker
-        let mut broker = ActiveBroker::init(HashMap::new()).wait().unwrap().unwrap();
-
+    fn init(&mut self, mut broker: Box<Broker>) {
         // subscribe to all the tickstreams as supplied in the configuration and combine the streams
         let (streams_tx, streams_rx) = unbounded();
         let mut symbol_enumeration = Vec::new(); // way to match symbols with their id

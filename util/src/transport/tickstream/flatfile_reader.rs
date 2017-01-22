@@ -4,15 +4,13 @@ use std::path::PathBuf;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::thread;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::AtomicBool;
+
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver};
-use tickgrinder_util::trading::tick::Tick;
-use tickgrinder_util::conf::CONF;
+use trading::tick::Tick;
+use conf::CONF;
 
-use data::*;
-use backtest::{BacktestCommand, BacktestMap};
+use super::*;
 
 pub struct FlatfileReader {
     pub symbol: String,
@@ -21,10 +19,10 @@ pub struct FlatfileReader {
 
 impl TickGenerator for FlatfileReader {
     fn get(
-        &mut self, mut map: Box<BacktestMap + Send>, cmd_handle: CommandStream
+        &mut self, mut map: Box<TickMap + Send>, cmd_handle: CommandStream
     )-> Result<UnboundedReceiver<Tick>, String> {
         // small atomic communication bus between the handle listener and worker threads
-        let internal_message: Arc<Mutex<BacktestCommand>> = Arc::new(Mutex::new(BacktestCommand::Stop));
+        let internal_message: Arc<Mutex<TickstreamCommand>> = Arc::new(Mutex::new(TickstreamCommand::Stop));
         let got_mail = Arc::new(AtomicBool::new(false));
         let (sender, receiver) = unbounded::<Tick>();
 
@@ -37,7 +35,7 @@ impl TickGenerator for FlatfileReader {
             // open the file and get an iterator over its lines set to the starting point
             let iter_ = init_reader(&symbol);
             if iter_.is_err() {
-                return Err("Unable to open the file.".to_string())
+                println!("Unable to open the file!");
             }
             let iter = iter_.unwrap().skip_while(|t| {
                 start_time.is_some() && t.timestamp < start_time.unwrap()
@@ -55,14 +53,34 @@ impl TickGenerator for FlatfileReader {
                     sender.send(tick).unwrap();
                 }
             }
-
-            Ok(()) // ???
         }).thread().clone();
 
         // spawn the handle listener thread that awaits commands
         spawn_listener_thread(_got_mail, cmd_handle, internal_message, reader_handle);
 
         Ok(receiver)
+    }
+
+    fn get_raw(&mut self) -> Result<UnboundedReceiver<Tick>, String> {
+        let (tx, rx) = unbounded();
+
+        let start_time = self.start_time;
+        let symbol = self.symbol.clone();
+        thread::spawn(move || {
+            let iter_ = init_reader(&symbol);
+            if iter_.is_err() {
+                println!("Unable to open the file!");
+            }
+            let iter = iter_.unwrap().skip_while(|t| {
+                start_time.is_some() && t.timestamp < start_time.unwrap()
+            });
+
+            for tick in iter {
+                tx.send(tick).unwrap();
+            }
+        });
+
+        Ok(rx)
     }
 }
 
@@ -78,3 +96,4 @@ pub fn init_reader(symbol: &str) -> Result<impl Iterator<Item=Tick>, String> {
         Tick::from_csv_string(line.unwrap().as_str())
     }))
 }
+
