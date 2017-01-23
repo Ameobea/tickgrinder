@@ -2,17 +2,13 @@
 
 use std::collections::HashMap;
 use std::thread;
-use std::path::PathBuf;
-use std::fs::{DirBuilder, ReadDir, read_dir, File};
 use std::time::Duration;
-use std::io::Write;
 
 use libc::c_void;
 use rand::{self, Rng};
-use time::now;
 
-use futures::{Future, Stream, Complete};
-use futures::sync::mpsc::{unbounded, channel, UnboundedSender};
+use futures::{Future, Stream, Sink, Complete};
+use futures::sync::mpsc::{unbounded, Sender};
 
 use tickgrinder_util::strategies::Strategy;
 use tickgrinder_util::trading::broker::{Broker, BrokerResult};
@@ -20,9 +16,8 @@ use tickgrinder_util::trading::objects::BrokerAction;
 use tickgrinder_util::trading::tick::Tick;
 use tickgrinder_util::transport::command_server::CommandServer;
 use tickgrinder_util::transport::query_server::QueryServer;
+use tickgrinder_util::transport::textlog::get_logger_handle;
 use tickgrinder_util::conf::CONF;
-
-use super::super::ActiveBroker;
 
 // link with the libboost_random wrapper
 #[link(name="rand_bindings")]
@@ -128,7 +123,7 @@ pub fn get_action(t: Tick, gen: *mut c_void) -> Option<BrokerAction> {
 }
 
 pub struct EventLogger {
-    tx: UnboundedSender<String>,
+    tx: Option<Sender<String>>,
     i: usize, // incremented every time an event is logged in order to record order
 }
 
@@ -136,48 +131,10 @@ impl EventLogger {
     /// Initializes a new logger thread and returns handle to it
     /// TODO: write header info into the log file about symbol/symbol_id pairing etc.
     pub fn new() -> EventLogger {
-        let (tx, rx) = unbounded();
-
-        // spawn the logger thread and initialize the logging loop
-        thread::spawn(move || {
-            // if the directories don't exist in the logging directory, create them
-            let log_dir: PathBuf = PathBuf::from(CONF.data_dir).join("logs").join("fuzzer");
-            if !log_dir.is_dir() {
-                let mut builder = DirBuilder::new();
-                builder.recursive(true).create(log_dir.clone())
-                    .expect("Unable to create directory to hold the log files; permission issue or bad data dir configured?");
-            }
-
-            println!("Attempting to find valid filename...");
-            let mut attempts = 1;
-            let curtime = now();
-            let mut datestring = format!("{}-{}_{}.log", curtime.tm_mon + 1, curtime.tm_mday, attempts);
-            while PathBuf::from(CONF.data_dir).join("logs").join("fuzzer").join(&datestring).exists() {
-                attempts += 1;
-                datestring = format!("{}-{}_{}.log", curtime.tm_mon + 1, curtime.tm_mday, attempts);
-            }
-
-            println!("creating log file...");
-            let datestring = format!("{}-{}_{}.log", curtime.tm_mon + 1, curtime.tm_mday, attempts);
-            let mut file = File::create(PathBuf::from(CONF.data_dir).join("logs").join("fuzzer").join(&datestring))
-                .expect("Unable to create log file!");
-
-            // buffer up 50 log lines before writing to disk
-            for msg in rx.chunks(50).wait() {
-                println!("Logging message chunk...");
-                let text: String = match msg {
-                    Ok(lines) => lines.as_slice().join("\n") + "\n",
-                    // World is likely dropping due to a crash or shutdown
-                    Err(_) => unimplemented!(),
-                };
-
-                // write the 50 lines into the file
-                write!(&mut file, "{}", text).expect("Unable to write lines into log file!");
-            }
-        });
+        let tx = get_logger_handle(String::from("fuzzer"), 50);
 
         EventLogger {
-            tx: tx,
+            tx: Some(tx),
             i: 0,
         }
     }
@@ -185,32 +142,45 @@ impl EventLogger {
     /// Logs an event taking place during the fuzzing process.  Returns a number to be used to match
     /// the request to a response.
     pub fn log_request(&mut self, action: &BrokerAction) -> usize {
+        println!("Sending request to broker: {:?}", action);
         self.i += 1;
-        self.tx.send(format!("{} -  REQUEST: {:?}", self.i, action))
-            .expect("Unable to log request!");
+        let tx = self.tx.take().unwrap();
+        let new_tx = tx.send(format!("{} -  REQUEST: {:?}", self.i, action))
+            .wait().expect("Unable to log request!");
+        self.tx = Some(new_tx);
         self.i
     }
 
     /// Logs a response received from the broker
     pub fn log_response(&mut self, res: &BrokerResult, id: usize) {
-        self.tx.send(format!("{} - RESPONSE: {:?}", id, res)).expect("Unable to log response!");
+        println!("Got response from broker: {:?}", res);
+        let tx = self.tx.take().unwrap();
+        let new_tx = tx.send(format!("{} - RESPONSE: {:?}", id, res))
+            .wait().expect("Unable to log response!");
+        self.tx = Some(new_tx);
     }
 
     /// Logs the fuzzer receiving a tick from the broker.  `i` is the index of that symbol.
     pub fn log_tick(&mut self, t: Tick, i: usize) {
-        self.tx.send(format!("Received tick from symbol with index {}: {:?}", i, t))
-            .expect("Unable to log tick!");
+        println!("Received new tick from broker: {:?}", t);
+        let tx = self.tx.take().unwrap();
+        let new_tx = tx.send(format!("Received tick from symbol with index {}: {:?}", i, t))
+            .wait().expect("Unable to log tick!");
+        self.tx = Some(new_tx);
     }
 
     /// Logs a plain old text message
     pub fn log_misc(&mut self, msg: String) {
-        self.tx.send(msg).expect("Logging tick failed");
+        println!("Message: {}", msg);
+        let tx = self.tx.take().unwrap();
+        let new_tx = tx.send(msg).wait().expect("Logging tick failed");
+        self.tx = Some(new_tx);
     }
 }
 
 // Make sure that the values we pull out of the seeded random number generator really are deterministic.
 #[test]
-fn do_test() {
+fn deterministic_rng() {
     unsafe {
         let gen1 = init_rng(12345u32);
         let gen2 = init_rng(12345u32);

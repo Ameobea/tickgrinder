@@ -67,6 +67,10 @@ dev:
 	rm dist/mm -r
 	cd dist && ln -s ../mm/ ./mm
 
+	# build the simbroker in superlog mode
+	cd broker_shims/simbroker && RUSTFLAGS="-L ../../util/target/release/deps -L ../../dist/lib -C prefer-dynamic" cargo build --features="superlog"
+	cp broker_shims/simbroker/target/debug/libsimbroker.so dist/lib
+
 debug:
 	make init
 
