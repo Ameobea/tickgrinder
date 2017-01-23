@@ -5,6 +5,7 @@ use serde_json;
 
 use std::intrinsics::unlikely;
 use std::slice::{Iter, IterMut};
+use std::fmt::{self, Formatter, Debug};
 
 use super::*;
 
@@ -148,6 +149,25 @@ impl PartialEq for WorkUnit {
                     },
                     _ => false,
                 }
+            }
+        }
+    }
+}
+
+impl Debug for WorkUnit {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match *self {
+            WorkUnit::NewTick(self_ix, self_tick) => {
+                write!(f, "NewTick({}, {:?})", self_ix, self_tick)
+            },
+            WorkUnit::ClientTick(self_ix, self_tick) => {
+                write!(f, "ClientTick({}, {:?})", self_ix, self_tick)
+            },
+            WorkUnit::ActionComplete(_, ref self_action) => {
+                write!(f, "ActionComplete(_, {:?})", self_action)
+            },
+            WorkUnit::Response(_, ref self_res) => {
+                write!(f, "Response(_, {:?})", self_res)
             }
         }
     }

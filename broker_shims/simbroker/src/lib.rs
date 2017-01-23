@@ -41,6 +41,8 @@ mod helpers;
 pub use self::helpers::*;
 mod client;
 pub use self::client::*;
+mod superlog;
+use superlog::SuperLogger;
 
 /// A simulated broker that is used as the endpoint for trading activity in backtests.  This is the broker backend
 /// that creates/ingests streams that interact with the client.
@@ -63,6 +65,8 @@ pub struct SimBroker {
     push_stream_recv: Option<Box<Stream<Item=BrokerResult, Error=()> + Send>>,
     /// The CommandServer used for logging
     pub cs: CommandServer,
+    /// Holds a logger used to log detailed data to flatfile if the `superlog` feature id enabled and an empty struct otherwise.
+    logger: SuperLogger,
 }
 
 // .-.
@@ -106,6 +110,7 @@ impl SimBroker {
             push_stream_handle: Some(client_push_tx),
             push_stream_recv: Some(client_push_rx.boxed()),
             cs: cs,
+            logger: SuperLogger::new(),
         };
 
         // create an actual tickstream for each of the definitions and subscribe to all of them
@@ -135,6 +140,7 @@ impl SimBroker {
         // continue looping while the priority queue has new events to simulate
         while let Some(item) = self.pq.pop() {
             self.timestamp = item.timestamp;
+            self.logger.event_log(self.timestamp, &format!("Popped new work unit from queue: {:?}", item.unit));
             // first check if we have any messages from the client to process into the queue
             while let Ok((action, complete,)) = self.client_rx.as_mut().unwrap().try_recv() {
                 // determine how long it takes the broker to process this message internally
@@ -208,10 +214,14 @@ impl SimBroker {
     /// Immediately sends a message over the broker's push channel.  Should only be called from within
     /// the SimBroker's internal event handling loop since it immediately sends the message.
     fn push_msg(&mut self, msg: BrokerResult) {
+        self.logger.event_log(self.timestamp, &format!("Sending message to client: {:?}", msg));
         let sender = mem::replace(&mut self.push_stream_handle, None).unwrap();
         let new_sender = sender.send(msg).wait().expect("Unable to push_msg");
         mem::replace(&mut self.push_stream_handle, Some(new_sender));
     }
+
+    // TODO: Check if we need to be using these methods in the client or if they're obsolete
+    // (e.g. test push stream taking)
 
     /// Returns a handle with which to send push messages.  The returned handle will immediately send
     /// messages to the client so should only be used from within the internal event handling loop.
@@ -253,6 +263,7 @@ impl SimBroker {
     /// by a remote broker) and returns the result of the action.  The provided timestamp is that of
     /// when it was received by the broker (after delays and simulated lag).
     fn exec_action(&mut self, cmd: &BrokerAction) -> BrokerResult {
+        self.logger.event_log(self.timestamp, &format!("`exec_action()`: {:?}", cmd));
         match cmd {
             &BrokerAction::Ping => {
                 Ok(BrokerMessage::Pong{time_received: self.timestamp})
@@ -786,17 +797,4 @@ impl SimBroker {
 
         None
     }
-}
-
-/// Only enable event-level debug information to be logged if we have need to.
-#[cfg(feature = "superlog")]
-pub fn event_log(timestamp: u64, event: &str) {
-    unimplemented!();
-}
-
-#[cfg(not(feature = "superlog"))]
-#[allow(unused_variables)]
-pub fn event_log(timestamp: u64, event: &str) {
-    // Do nothing if we're not looking for event-level debugging.
-    // this should optimize out completely, leaving zero overhead.
 }
