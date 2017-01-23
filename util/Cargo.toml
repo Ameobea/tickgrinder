@@ -21,3 +21,8 @@ clippy = { git = "https://github.com/Manishearth/rust-clippy.git", optional = tr
 [lib]
 name = "tickgrinder_util"
 crate-type = ["dylib"]
+
+[profile.release]
+opt-level = 3
+debug = true
+debug-assertions = false

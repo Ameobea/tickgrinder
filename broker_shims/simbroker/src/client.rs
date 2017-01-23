@@ -1,6 +1,9 @@
 //! The frontend of the SimBroker that is exposed to clients.  It contains the real `SimBroker` instance
 //! internally, provides access to it via streams, and holds it in a thread during the simulation loop.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use super::*;
 use futures::stream::BoxStream;
 use futures::sync::mpsc::UnboundedSender;
@@ -13,9 +16,9 @@ pub struct SimBrokerClient {
     /// The channel over which messages are passed to the inner `SimBroker`
     inner_tx: UnboundedSender<(BrokerAction, Complete<BrokerResult>)>,
     /// A handle to the receiver for the channel through which push messages are received
-    push_stream_recv: Option<Box<Stream<Item=BrokerResult, Error=()> + Send>>,
+    push_stream_recv: Option<(Box<Stream<Item=BrokerResult, Error=()> + Send>, Arc<AtomicBool>,)>,
     /// Holds the tick channels that are distributed to the clients
-    tick_recvs: HashMap<String, BoxStream<Tick, ()>>,
+    tick_recvs: HashMap<String, (BoxStream<Tick, ()>, Arc<AtomicBool>,)>,
 }
 
 impl Broker for SimBrokerClient {
@@ -34,18 +37,18 @@ impl Broker for SimBrokerClient {
             },
         };
 
-        let push_stream_recv = sim.push_stream_recv.take();
+        let push_stream_recv = sim.push_stream_recv.take().expect("No push stream to take from the sim!");
         let mut tick_hm = HashMap::new();
         // take the tick receivers from each of the symbols and put them in the `HashMap`
         for sym in sim.symbols.iter_mut() {
             let recv = sym.client_receiver.take().unwrap();
-            tick_hm.insert(sym.name.clone(), recv);
+            tick_hm.insert(sym.name.clone(), (recv, Arc::new(AtomicBool::new(false)),));
         }
 
         let mut client = SimBrokerClient {
             simbroker: Some(sim),
             inner_tx: tx,
-            push_stream_recv: push_stream_recv,
+            push_stream_recv: Some((push_stream_recv, Arc::new(AtomicBool::new(false)),)),
             tick_recvs: tick_hm,
         };
         // init the simulation loop in another thread
@@ -93,22 +96,31 @@ impl Broker for SimBrokerClient {
 
     /// Maps a new channel through the pushtream, duplicating all messages sent to it.
     fn get_stream(&mut self) -> Result<Box<Stream<Item=BrokerResult, Error=()> + Send>, BrokerError> {
-        let (tx, rx) = channel(0);
+        let (fork_tx, fork_rx) = channel(0);
+        // move out the forked tx and the `AtomicBool` indicating whether or not it's consumed
+        let (strm, old_bool) = self.push_stream_recv.take().unwrap();
+        // set the old `AtomicBool` to `true` since we're handing the old fork to the client for consumption
+        old_bool.store(true, Ordering::Relaxed);
 
-        let strm = self.push_stream_recv.take().unwrap();
-        let mut tx_opt = Some(tx);
-        // TODO: Check to see if the current fork has been consumed yet and, if not, don't send ticks
-        // Since they're 0-sized buffers, the whole tree will block even if one fork isn't consumed.
-        let new_strm = strm.map(move |msg| {
-            // unfortunate workaround needed since `send()` takes `self`
-            let mut tx = tx_opt.take().unwrap();
-            tx = tx.send(msg.clone()).wait().unwrap();
-            tx_opt = Some(tx);
+        let mut tx_opt = Some(fork_tx);
+        let atomb = Arc::new(AtomicBool::new(false));
+        let atomb_clone = atomb.clone();
+        let new_tail = strm.map(move |msg| {
+            // only send the tick to the fork if the fork has been consumed as indicated by `atomb_clone`
+            if atomb_clone.load(Ordering::Relaxed) {
+                // unfortunate workaround needed since `send()` takes `self`
+                let mut tx = tx_opt.take().unwrap();
+                tx = tx.send(msg.clone()).wait().unwrap();
+                tx_opt = Some(tx);
+            }
             msg
         });
-        self.push_stream_recv = Some(new_strm.boxed());
+        // move the new fork back into self along with a new `AtomicBool` set to false since the new
+        // fork isn't yet consumed.
+        self.push_stream_recv = Some((fork_rx.boxed(), atomb,));
 
-        Ok(rx.boxed())
+        // hand off the new tail to the client with the assumption that they will drive it to completion.
+        Ok(new_tail.boxed())
     }
 
     fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()> + Send>, BrokerError> {
@@ -117,21 +129,30 @@ impl Broker for SimBrokerClient {
         }
 
         // take the tickstream out of the `HashMap` so we can modify it
-        let tickstream = self.tick_recvs.remove(&symbol).unwrap();
-        let (fork_tx, rx) = channel(0);
+        let (tickstream, old_bool) = self.tick_recvs.remove(&symbol).unwrap();
+        // set the old boolean to true since we're sending off the stream to the client to be consumed
+        old_bool.store(true, Ordering::Relaxed);
+        let (fork_tx, fork_rx) = channel(0);
+
         let mut tx_opt = Some(fork_tx);
-        // TODO: Check to see if the current fork has been consumed yet and, if not, don't send ticks
-        // Since they're 0-sized buffers, the whole tree will block even if one fork isn't consumed.
+        let atomb = Arc::new(AtomicBool::new(false));
+        let atomb_clone = atomb.clone();
         let new_tickstream = tickstream.map(move |tick| {
-            let mut tx = tx_opt.take().unwrap();
-            println!("Sending tick through fork created by `sub_ticks`!");
-            tx = tx.send(tick).wait().unwrap();
-            tx_opt = Some(tx);
+            // check to make sure that the tickstream is consumed before sending ticks down it.
+            // Since this is a bounded channel, sending ticks down it without a client waiting at the other
+            // end will cause the ENTIRE future tree to block on the `send()` call.
+            if atomb_clone.load(Ordering::Relaxed) {
+                let mut tx = tx_opt.take().unwrap();
+                tx = tx.send(tick).wait().unwrap();
+                tx_opt = Some(tx);
+            }
             tick
         });
-        // put the forked tickstream back in the `HashMap`
-        self.tick_recvs.insert(symbol, rx.boxed());
+        // put the forked tickstream back in the `HashMap` along with a new `AtomicBool` set to false since
+        // the new fork tickstream is not yet consumed.
+        self.tick_recvs.insert(symbol, (fork_rx.boxed(), atomb,));
 
+        // return the new tail tickstream to the client with the assumption that it will be driven to completion there.
         Ok(new_tickstream.boxed())
     }
 }
@@ -161,18 +182,24 @@ impl SimBrokerClient {
 
         // fork the push stream internally so we can drive progress on the tail while still getting clones during sim
         // remove the tickstream from the `Option`
-        let push_stream = self.push_stream_recv.take().unwrap();
+        let (push_stream, false_abool) = self.push_stream_recv.take().unwrap();
         // fork that will be replaced in the `HashMap` and forked again as needed during operation
         let (fork_tx, fork_rx) = channel(0);
         let mut fork_tx_opt = Some(fork_tx);
         // perform the fork by mapping the fork into the parent
+        let abool_arc_clone = false_abool.clone();
         let tail_pushstream = push_stream.map(move |msg| {
-            let tx = fork_tx_opt.take().unwrap();
-            let new_tx = tx.send(msg.clone()).wait().unwrap();
-            fork_tx_opt = Some(new_tx);
+            // Only send the tick to the fork (`SimBrokerClient`'s pushstream) if at least one strategy process has
+            // taken a copy.  This allows the simulation process to start and the strategy to become interested in it
+            // in response to some event.
+            if abool_arc_clone.load(Ordering::Relaxed) {
+                let tx = fork_tx_opt.take().unwrap();
+                let new_tx = tx.send(msg.clone()).wait().unwrap();
+                fork_tx_opt = Some(new_tx);
+            }
             msg
         });
-        self.push_stream_recv = Some(fork_rx.boxed());
+        self.push_stream_recv = Some((fork_rx.boxed(), false_abool,));
 
         // get all of the tickstreams ready for the simulation process to start
         let mut keys = Vec::new();
@@ -186,18 +213,23 @@ impl SimBrokerClient {
             // fork that will be replaced in the `HashMap` and forked again as needed during operation
             let (fork_tx, fork_rx) = channel(0);
             // remove the tickstream from the `HashMap`
-            let tickstream = self.tick_recvs.remove(&name).unwrap();
+            let (tickstream, false_abool) = self.tick_recvs.remove(&name).unwrap();
             let mut fork_tx_opt = Some(fork_tx);
             // perform the fork by mapping the forked stream into the parent stream
+            let abool_arc_clone = false_abool.clone();
             let tail_tickstream = tickstream.map(move |t| {
-                let tx = fork_tx_opt.take().unwrap();
-                println!("Sending val through the fork_rx given to the client!");
-                let new_tx = tx.send(t).wait().unwrap();
-                fork_tx_opt = Some(new_tx);
+                // Only send the tick to the fork (`SimBrokerClient`'s tickstream) if at least one strategy process has
+                // taken a copy.  This allows the simulation process to start and the strategy to become interested in it
+                // in response to some event.
+                if abool_arc_clone.load(Ordering::Relaxed) {
+                    let tx = fork_tx_opt.take().unwrap();
+                    let new_tx = tx.send(t).wait().unwrap();
+                    fork_tx_opt = Some(new_tx);
+                }
                 t
             });
             // re-insert the forked tickstream into the `HashMap`
-            self.tick_recvs.insert(name, fork_rx.boxed());
+            self.tick_recvs.insert(name, (fork_rx.boxed(), false_abool,));
             tickstream_tx.send(tail_tickstream.boxed()).unwrap();
         }
 
@@ -205,9 +237,8 @@ impl SimBrokerClient {
         // forks (which have been handed off to clients) are populated with values.
         thread::spawn(move || {
             let tickstreams_comb = tickstream_rx.flatten();
-            for tick in tickstreams_comb.wait() {
+            for _ in tickstreams_comb.wait() {
                 // do nothing; we're just consuming the streams.
-                println!("Received tick at the end of the stream: {:?}", tick);
             }
         });
 

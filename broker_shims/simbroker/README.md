@@ -13,5 +13,12 @@ Since the TickGrinder platform is designed to be event-based with trading action
 
 To simulate things like processing delay and network latency while preserving non-blocking behavior, an internal event loop built on top of a priority queue is used.  All historical ticks, broker commands, and outgoing messages are inserted into this queue with their timestamps adjusted for simulated latency so that everything happens in precise order.
 
+### Data Streams
+The entire SimBroker is built using [futures](docs.rs/futures) to represent all of the simulated datastreams.
+
+All simulated tick data originates from a `TickGenerator` which can be implemented for many different sources (a PostgreSQL database, flatfile, or randomly generated) and returns a `Stream` of ticks.  This data is then passed down a series of other futures to the `SimBrokerClient`.  From there, the streams are forked (triggered by `sub_ticks()` and `get_stream()`, returning new streams that are handed off to the strategy for consumption.
+
+All of these streams are buffered with a size of 0.  This means that ticks will never back up in memory and that the entire simulation loop will only progress once all of the endpoints of the input tx have been consumed.  This is critical to the simulation's accuracy.  Streams are by nature asynchronous which works very well for the design of the platform as a whole (actions occuring in response to events).  However, simply streaming data to many different endpoints asynchronously leaves no method for ensuring that everything arrives in the precise order necessary to fit the simulation parameters.  By forcing all endpoints to be consumed before progressing the simulation, the SimBroker is able to ensure that all events occur atomically and each tick's actions and responses are separate from each other.
+
 ## Development
 The SimBroker is currently undergoing active development.  It is not yet functional and mahy of the features described above may not be fully implemented in this current release.  I want to have a full battery of tests in place to verify its integrity and accuracy before releasing it officially.
