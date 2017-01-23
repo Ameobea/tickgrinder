@@ -1,1 +1,1 @@
-LD_LIBRARY_PATH=native/dist:../util/target/release/deps cargo test retrans --verbose --release -- --nocapture
+LD_LIBRARY_PATH=../dist/lib RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test retrans -- --nocapture

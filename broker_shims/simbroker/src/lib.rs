@@ -169,9 +169,6 @@ impl SimBroker {
                 WorkUnit::ClientTick(symbol_ix, tick) => {
                     // TODO: Check to see if this does a copy and if it does, fine a way to eliminate it
                     let mut inner_symbol = &mut self.symbols[symbol_ix];
-                    if tick.timestamp % 100000 == 0 {
-                        println!("{}", tick.timestamp);
-                    }
                     // send the tick through the client stream, blocking until it is consumed by the client.
                     inner_symbol.send_client(tick);
                 },

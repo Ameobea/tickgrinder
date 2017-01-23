@@ -1,1 +1,1 @@
-LD_LIBRARY_PATH=../dist/lib:../util/target/release/deps cargo test -- --nocapture
+LD_LIBRARY_PATH=../dist/lib RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test -- --nocapture

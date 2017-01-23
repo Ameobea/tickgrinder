@@ -4,3 +4,4 @@ vgcore.*
 *.dot
 Cargo.lock
 *.dump
+callgrind.*

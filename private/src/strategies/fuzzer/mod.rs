@@ -108,7 +108,7 @@ pub fn get_action(t: Tick, gen: *mut c_void) -> Option<BrokerAction> {
     let rand = unsafe { rand_int_range(gen, 0, 5) };
     let action_opt: Option<BrokerAction> = match rand {
         0 => Some(BrokerAction::Ping),
-        1 => unimplemented!(), // TODO
+        1 => None, // TODO
         // sleep for a few milliseconds, then do either do nothing or perform an action
         2 => {
             let sleep_time = unsafe { rand_int_range(gen, 0, 25) };
@@ -148,19 +148,23 @@ impl EventLogger {
                     .expect("Unable to create directory to hold the log files; permission issue or bad data dir configured?");
             }
 
+            println!("Attempting to find valid filename...");
             let mut attempts = 1;
             let curtime = now();
-            let datestring = format!("{}-{}_{}.log", curtime.tm_mon + 1, curtime.tm_mday, attempts);
+            let mut datestring = format!("{}-{}_{}.log", curtime.tm_mon + 1, curtime.tm_mday, attempts);
             while PathBuf::from(CONF.data_dir).join("logs").join("fuzzer").join(&datestring).exists() {
                 attempts += 1;
+                datestring = format!("{}-{}_{}.log", curtime.tm_mon + 1, curtime.tm_mday, attempts);
             }
 
+            println!("creating log file...");
             let datestring = format!("{}-{}_{}.log", curtime.tm_mon + 1, curtime.tm_mday, attempts);
             let mut file = File::create(PathBuf::from(CONF.data_dir).join("logs").join("fuzzer").join(&datestring))
                 .expect("Unable to create log file!");
 
             // buffer up 50 log lines before writing to disk
             for msg in rx.chunks(50).wait() {
+                println!("Logging message chunk...");
                 let text: String = match msg {
                     Ok(lines) => lines.as_slice().join("\n") + "\n",
                     // World is likely dropping due to a crash or shutdown
@@ -168,7 +172,7 @@ impl EventLogger {
                 };
 
                 // write the 50 lines into the file
-                write!(&mut file, "{}", text);
+                write!(&mut file, "{}", text).expect("Unable to write lines into log file!");
             }
         });
 

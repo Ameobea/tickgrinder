@@ -57,11 +57,9 @@ pub struct BacktestDefinition {
 /// Ticks sent to the SimBroker should be re-broadcast to the client.
 #[test]
 fn tick_retransmission() {
-    use std::thread;
-    use std::sync::mpsc;
     use std::collections::HashMap;
 
-    use futures::{Future, Stream, oneshot};
+    use futures::{Future, Stream};
 
     use tickgrinder_util::trading::tick::Tick;
     use simbroker::*;
@@ -73,21 +71,13 @@ fn tick_retransmission() {
     // subscribe to ticks from the SimBroker for the test pair
     let subbed_ticks = sim_client.sub_ticks(symbol).unwrap();
 
-    let (c, o) = oneshot::<Vec<Tick>>();
-    thread::spawn(move || {
-        let res: Vec<Tick> = subbed_ticks
-            .wait()
-            .take(10)
-            .map(|t| {
-                println!("Received tick: {:?}", t);
-                t.unwrap()
-            })
-            .collect();
-        // signal once we've received all the ticks
-        c.complete(res);
-    });
-
-    // block until we've received all awaited ticks
-    let res = o.wait().unwrap();
+    let res: Vec<Tick> = subbed_ticks
+        .wait()
+        .take(10)
+        .map(|t| {
+            println!("Received tick: {:?}", t);
+            t.unwrap()
+        })
+        .collect();
     assert_eq!(res.len(), 10);
 }
