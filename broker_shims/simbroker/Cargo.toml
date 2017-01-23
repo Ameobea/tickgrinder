@@ -11,3 +11,7 @@ crate-type = ["dylib"]
 opt-level = 3
 debug = true
 debug-assertions = false
+
+[features]
+default = []
+superlog = []

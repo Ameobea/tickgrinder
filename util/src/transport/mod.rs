@@ -7,3 +7,4 @@ pub mod commands;
 pub mod query_server;
 pub mod command_server;
 pub mod tickstream;
+pub mod textlog;
