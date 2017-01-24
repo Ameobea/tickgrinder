@@ -48,6 +48,6 @@ impl SuperLogger {
 
     #[allow(unused_variables)]
     pub fn event_log(&mut self, timestamp: u64, event: &str) {
-        unimplemented!();
+        // do nothing; this should optimize out completely.
     }
 }

@@ -74,6 +74,13 @@ impl Strategy for Fuzzer {
         let master_rx = streams_rx.flatten();
         self.logger.log_misc(format!("Subscribed to {} tickstreams", symbol_enumeration.len()));
 
+        let pushstream_rx = broker.get_stream().unwrap();
+        thread::spawn(move || {
+            for msg in pushstream_rx.wait() {
+                println!("PUSHTREAM: {:?}", msg.unwrap());
+            }
+        });
+
         // start responding to ticks from all the streams.
         self.logger.log_misc(String::from("Initializing fuzzer loop..."));
         for msg in master_rx.wait() {

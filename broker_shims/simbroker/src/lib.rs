@@ -136,6 +136,7 @@ impl SimBroker {
         // all tickstreams should be added by this point
         self.pq.init(&mut self.symbols);
         self.cs.debug(None, "Internal simulation queue has been initialized.");
+        self.logger.event_log(self.timestamp, "Starting the great simulation loop...");
 
         // continue looping while the priority queue has new events to simulate
         while let Some(item) = self.pq.pop() {
@@ -150,6 +151,7 @@ impl SimBroker {
                     timestamp: self.timestamp + execution_delay,
                     unit: WorkUnit::ActionComplete(complete, action),
                 };
+                self.logger.event_log(self.timestamp, &format!("Pushing new ActionComplete into pq: {:?}", qi.unit));
                 self.pq.push(qi);
             }
 
@@ -166,8 +168,13 @@ impl SimBroker {
                         unit: WorkUnit::ClientTick(symbol_ix, tick),
                     });
                     // check to see if we have any actions to take on open positions and take them if we do
+                    self.logger.event_log(
+                        self.timestamp,
+                        &format!("Ticking positions in response to new tick: ({}, {:?})", symbol_ix, tick)
+                    );
                     self.tick_positions(symbol_ix, (tick.bid, tick.ask,));
                     // push the next future tick into the queue
+                    self.logger.event_log(self.timestamp, &format!("Pushing ClientTick into queue: ({}, {:?})", symbol_ix, tick));
                     self.pq.push_next_tick(&mut self.symbols);
                 },
                 // A tick arriving at the client.  We now send it down the Client's channels and block
@@ -175,6 +182,7 @@ impl SimBroker {
                 WorkUnit::ClientTick(symbol_ix, tick) => {
                     // TODO: Check to see if this does a copy and if it does, fine a way to eliminate it
                     let mut inner_symbol = &mut self.symbols[symbol_ix];
+                    self.logger.event_log(self.timestamp, &format!("Sending tick to client: ({}, {:?})", symbol_ix, tick));
                     // send the tick through the client stream, blocking until it is consumed by the client.
                     inner_symbol.send_client(tick);
                 },
@@ -196,6 +204,7 @@ impl SimBroker {
                 // The moment a response reaches the client.
                 WorkUnit::Response(future, res) => {
                     // fulfill the future with the result
+                    self.logger.event_log(self.timestamp, &format!("Fulfilling work unit {:?}'s oneshot", res));
                     future.complete(res.clone());
                     // send the push message through the channel, blocking until it's consumed by the client.
                     self.push_msg(res);
@@ -214,49 +223,10 @@ impl SimBroker {
     /// Immediately sends a message over the broker's push channel.  Should only be called from within
     /// the SimBroker's internal event handling loop since it immediately sends the message.
     fn push_msg(&mut self, msg: BrokerResult) {
-        self.logger.event_log(self.timestamp, &format!("Sending message to client: {:?}", msg));
+        self.logger.event_log(self.timestamp, &format!("`push_msg()` sending message to client: {:?}", msg));
         let sender = mem::replace(&mut self.push_stream_handle, None).unwrap();
         let new_sender = sender.send(msg).wait().expect("Unable to push_msg");
         mem::replace(&mut self.push_stream_handle, Some(new_sender));
-    }
-
-    // TODO: Check if we need to be using these methods in the client or if they're obsolete
-    // (e.g. test push stream taking)
-
-    /// Returns a handle with which to send push messages.  The returned handle will immediately send
-    /// messages to the client so should only be used from within the internal event handling loop.
-    fn get_push_handle(&self) -> Sender<Result<BrokerMessage, BrokerError>> {
-        self.push_stream_handle.clone().unwrap()
-    }
-
-    /// Initializes the push stream by creating internal messengers
-    fn init_stream() -> (mpsc::Sender<Result<BrokerMessage, BrokerError>>, UnboundedReceiver<BrokerResult>) {
-        let (mpsc_s, mpsc_r) = mpsc::channel::<Result<BrokerMessage, BrokerError>>();
-        let tup = unbounded::<BrokerResult>();
-        // wrap the sender in options so we can `mem::replace` them in the loop.
-        let (mut f_s, f_r) = (Some(tup.0), tup.1);
-
-        thread::spawn(move || {
-            // block until message received over a mpsc sender
-            // then re-transmit them through the push stream
-            for message in mpsc_r.iter() {
-                match message {
-                    Ok(message) => {
-                        let temp_f_s = mem::replace(&mut f_s, None).unwrap();
-                        let new_f_s = temp_f_s.send(Ok(message)).wait().unwrap();
-                        mem::replace(&mut f_s, Some(new_f_s));
-                    },
-                    Err(err_msg) => {
-                        let temp_f_s = mem::replace(&mut f_s, None).unwrap();
-                        let new_f_s = temp_f_s.send(Err(err_msg)).wait().unwrap();
-                        mem::replace(&mut f_s, Some(new_f_s));
-                    },
-                }
-            }
-            println!("After init_stream() channel conversion loop!!");
-        });
-
-        (mpsc_s, f_r)
     }
 
     /// Actually carries out the action of the supplied BrokerAction (simulates it being received and processed)
