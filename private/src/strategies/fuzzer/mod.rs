@@ -3,12 +3,15 @@
 use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
+use std::sync::mpsc;
 
 use libc::c_void;
 use rand::{self, Rng};
 
-use futures::{Future, Stream, Sink, Complete};
-use futures::sync::mpsc::{unbounded, Sender};
+use futures::{Future, Stream, Sink, Complete, Canceled, BoxFuture};
+use futures::stream::{BufferUnordered, MapErr, BoxStream};
+use futures::sync::mpsc::{unbounded, channel, Sender, Receiver};
+use futures::sync::oneshot;
 
 use tickgrinder_util::strategies::Strategy;
 use tickgrinder_util::trading::broker::{Broker, BrokerResult};
@@ -30,6 +33,8 @@ pub struct Fuzzer {
     pub gen: *mut c_void,
     pub logger: EventLogger,
     pub pairs: Vec<String>,
+    pub events_tx: Option<Sender<oneshot::Receiver<BrokerResult>>>,
+    pub events_rx: mpsc::Receiver<BrokerResult>,
 }
 
 impl Strategy for Fuzzer {
@@ -52,10 +57,27 @@ impl Strategy for Fuzzer {
             .expect("This needs a list of pairs to subscribe to from the connected broker, else we can't do anything!");
         let pairs: Vec<String> = (&pairs_list).split(", ").map(|x| String::from(x)).collect();
 
+        // create the stream over which we receive callbacks from the broker
+        let buffer_size = 8;//pairs.len() * 2;
+        let (tx, rx) = channel(buffer_size);
+
+        // map the output of the events buffer strea into a stdlib mpsc channel so we can try_get it
+        let (mpsc_tx, mpsc_rx) = mpsc::sync_channel::<BrokerResult>(0);
+        thread::spawn(move || {
+            let mod_rx: BoxStream<oneshot::Receiver<BrokerResult>, Canceled> = rx.map_err(|()| Canceled).boxed();
+            let buf_rx = mod_rx.buffer_unordered(buffer_size);
+            for msg in buf_rx.wait() {
+                println!("Mapping message through mpsc...");
+                mpsc_tx.send(msg.unwrap()).unwrap();
+            }
+        });
+
         Fuzzer {
             gen: unsafe { init_rng(seed)},
             logger: EventLogger::new(),
             pairs: pairs,
+            events_tx: Some(tx),
+            events_rx: mpsc_rx,
         }
     }
 
@@ -78,12 +100,17 @@ impl Strategy for Fuzzer {
         thread::spawn(move || {
             for msg in pushstream_rx.wait() {
                 println!("PUSHTREAM: {:?}", msg.unwrap());
+                // TODO: log/handle
             }
         });
 
         // start responding to ticks from all the streams.
         self.logger.log_misc(String::from("Initializing fuzzer loop..."));
         for msg in master_rx.wait() {
+            while let Ok(msg) = self.events_rx.try_recv() {
+                self.logger.log_misc(format!("EVENT: {:?}", msg));
+            }
+
             let (i, t) = msg.unwrap();
             self.logger.log_tick(t, i);
 
@@ -91,8 +118,11 @@ impl Strategy for Fuzzer {
                 Some(action) => {
                     let id = self.logger.log_request(&action);
                     let fut = broker.execute(action);
-                    let res = fut.wait().unwrap();
-                    self.logger.log_response(&res, id);
+                    // store the pending future into the buffered queue
+                    let mut tx = self.events_tx.take().unwrap();
+                    tx = tx.send(fut).wait().unwrap();
+                    self.events_tx = Some(tx);
+                    // self.logger.log_response(&res, id);
                 },
                 None => (),
             }
@@ -113,8 +143,6 @@ pub fn get_action(t: Tick, gen: *mut c_void) -> Option<BrokerAction> {
         1 => None, // TODO
         // sleep for a few milliseconds, then do either do nothing or perform an action
         2 => {
-            let sleep_time = unsafe { rand_int_range(gen, 0, 25) };
-            thread::sleep(Duration::from_millis(sleep_time as u64));
             let action_or_no = unsafe { rand_int_range(gen, 0, 5) };
             if action_or_no > 3 {
                 get_action(t, gen)
