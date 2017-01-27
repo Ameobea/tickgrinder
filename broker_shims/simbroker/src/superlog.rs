@@ -29,7 +29,7 @@ impl SuperLogger {
     pub fn event_log(&mut self, timestamp: u64, event: &str) {
         let tx = self.tx.take().unwrap();
         let log_line = format!("{}: {}", timestamp, event);
-        println!("{}", log_line);
+        // println!("{}", log_line);
         let new_tx = tx.send(log_line).wait().unwrap();
         self.tx = Some(new_tx);
     }

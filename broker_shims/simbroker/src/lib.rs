@@ -27,7 +27,7 @@ use std::mem;
 
 use futures::{Future, Sink, oneshot, Oneshot, Complete};
 use futures::stream::Stream;
-use futures::sync::mpsc::{unbounded, channel, UnboundedReceiver, Sender};
+use futures::sync::mpsc::{unbounded, channel, UnboundedReceiver, Sender, Receiver};
 use uuid::Uuid;
 
 use tickgrinder_util::trading::tick::*;
@@ -74,7 +74,7 @@ unsafe impl Send for SimBroker {}
 
 impl SimBroker {
     pub fn new(
-        settings: SimBrokerSettings, cs: CommandServer, client_rx: UnboundedReceiver<(BrokerAction, Complete<BrokerResult>)>
+        settings: SimBrokerSettings, cs: CommandServer, client_rx: mpsc::Receiver<(BrokerAction, Complete<BrokerResult>)>
     ) -> Result<SimBroker, BrokerError> {
         let mut accounts = Accounts::new();
         // create with one account with the starting balance.
@@ -86,15 +86,6 @@ impl SimBroker {
         accounts.insert(Uuid::new_v4(), account);
         // TODO: Make sure that 0 is the right buffer size for this channel
         let (client_push_tx, client_push_rx) = channel::<BrokerResult>(0);
-        let (mpsc_tx, mpsc_rx) = mpsc::sync_channel(0);
-
-        // spawn a thread to block on the `client_rx` and map it into the mpsc so we can conditionally check for new values.
-        // Eventually, we'll want to use a threadsafe binary heap to avoid this behind-the-scenes involved with this.
-        thread::spawn(move || {
-            for msg in client_rx.wait() {
-                mpsc_tx.send(msg.unwrap()).unwrap();
-            }
-        });
 
         // try to deserialize the "tickstreams" parameter of the input settings to get a list of tickstreams register
         let tickstreams: Vec<(String, TickGenerators, bool, usize)> = serde_json::from_str(&settings.tickstreams)
@@ -106,7 +97,7 @@ impl SimBroker {
             symbols: Symbols::new(cs.clone()),
             pq: SimulationQueue::new(),
             timestamp: 0,
-            client_rx: Some(mpsc_rx),
+            client_rx: Some(client_rx),
             push_stream_handle: Some(client_push_tx),
             push_stream_recv: Some(client_push_rx.boxed()),
             cs: cs,
@@ -139,9 +130,7 @@ impl SimBroker {
         self.logger.event_log(self.timestamp, "Starting the great simulation loop...");
 
         // continue looping while the priority queue has new events to simulate
-        while let Some(item) = self.pq.pop() {
-            self.timestamp = item.timestamp;
-            self.logger.event_log(self.timestamp, &format!("Popped new work unit from queue: {:?}", item.unit));
+        loop {
             // first check if we have any messages from the client to process into the queue
             while let Ok((action, complete,)) = self.client_rx.as_mut().unwrap().try_recv() {
                 // determine how long it takes the broker to process this message internally
@@ -154,6 +143,10 @@ impl SimBroker {
                 self.logger.event_log(self.timestamp, &format!("Pushing new ActionComplete into pq: {:?}", qi.unit));
                 self.pq.push(qi);
             }
+
+            let item = self.pq.pop().unwrap();
+            self.timestamp = item.timestamp;
+            self.logger.event_log(self.timestamp, &format!("Popped new work unit from queue: {:?}", item.unit));
 
             // then process the new item we took out of the queue
             match item.unit {

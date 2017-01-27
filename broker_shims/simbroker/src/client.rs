@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::*;
 use futures::stream::BoxStream;
-use futures::sync::mpsc::UnboundedSender;
+use futures::sync::mpsc::Sender;
 
 /// The client-facing part of the SimBroker.  Implements the `Broker` trait and enables clients to communicate with
 /// the underlying `SimBroker` instance while it's blocked on the simulation loop.
@@ -14,7 +14,7 @@ pub struct SimBrokerClient {
     /// The internal `SimBroker` instance before being consumed in the simulation loop
     simbroker: Option<SimBroker>,
     /// The channel over which messages are passed to the inner `SimBroker`
-    inner_tx: UnboundedSender<(BrokerAction, Complete<BrokerResult>)>,
+    inner_tx: mpsc::SyncSender<(BrokerAction, Complete<BrokerResult>)>,
     /// A handle to the receiver for the channel through which push messages are received
     push_stream_recv: Option<(Box<Stream<Item=BrokerResult, Error=()> + Send>, Arc<AtomicBool>,)>,
     /// Holds the tick channels that are distributed to the clients
@@ -28,7 +28,7 @@ impl Broker for SimBrokerClient {
         // TODO: convert FromHashmap to return a Result<SimbrokerSettings>
         let broker_settings = SimBrokerSettings::from_hashmap(settings);
         let cs = CommandServer::new(Uuid::new_v4(), "Simbroker");
-        let (tx, rx) = unbounded();
+        let (tx, rx) = mpsc::sync_channel(0);
         let mut sim = match SimBroker::new(broker_settings, cs, rx) {
             Ok(sim) => sim,
             Err(err) => {
@@ -89,8 +89,7 @@ impl Broker for SimBrokerClient {
     fn execute(&mut self, action: BrokerAction) -> PendingResult {
         // push the message into the inner `SimBroker`'s simulation queue
         let (complete, oneshot) = oneshot::<BrokerResult>();
-        let inner_tx = &self.inner_tx;
-        inner_tx.send((action, complete)).expect("Unable to send through inner_tx");
+        self.inner_tx.send((action, complete)).expect("Unable to send through inner_tx");
         oneshot
     }
 
@@ -206,10 +205,11 @@ impl SimBrokerClient {
         for k in self.tick_recvs.keys() {
             keys.push(k.clone());
         }
-        let (tickstream_tx, tickstream_rx) = unbounded();
+        let (tickstream_tx, tickstream_rx) = channel(0);
+        let mut tickstream_tx_opt = Some(tickstream_tx);
         // fork each of the tick receivers so we can consume the tail and still get copies during simulation
         for name in keys {
-            let tickstream_tx: &UnboundedSender<_> = &tickstream_tx;
+            let tickstream_tx: Sender<_> = tickstream_tx_opt.take().unwrap();
             // fork that will be replaced in the `HashMap` and forked again as needed during operation
             let (fork_tx, fork_rx) = channel(0);
             // remove the tickstream from the `HashMap`
@@ -230,7 +230,8 @@ impl SimBrokerClient {
             });
             // re-insert the forked tickstream into the `HashMap`
             self.tick_recvs.insert(name, (fork_rx.boxed(), false_abool,));
-            tickstream_tx.send(tail_tickstream.boxed()).unwrap();
+            let new_tickstream_tx = tickstream_tx.send(tail_tickstream.boxed()).wait().unwrap();
+            tickstream_tx_opt = Some(new_tickstream_tx);
         }
 
         // thread in which all of the tickstreams are consumed.  This drives them to completion so all of their

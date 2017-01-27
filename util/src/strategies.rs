@@ -23,11 +23,15 @@ use transport::command_server::CommandServer;
 use transport::query_server::QueryServer;
 use trading::broker::Broker;
 
-pub trait Strategy {
-    /// Make sure that all strategies include ways to interact with the optimizer in a standardized way.
-    /// `conf` is a HashMap of K:V pairs that are used to configure how the strategy runs.
-    fn new(cs: CommandServer, qs: QueryServer, conf: HashMap<String, String>) -> Self;
+/// Wrapper for a user-defined strategy providing a variety of helper methods and utility functions for the
+/// individual strategies.
+pub struct StrategyContainer {
+    pub cs: CommandServer,
+    pub qs: QueryServer,
+    pub strategy: Box<Strategy>,
+}
 
+pub trait Strategy {
     /// Instruct the strategy to initialize itself, subscribing to data streams and communicating with the
     /// the rest of the platform as necessary
     fn init(&mut self, broker: Box<Broker>);
@@ -41,4 +45,8 @@ pub trait Strategy {
     /// the strategy should do whatever necessary to exit as soon as possible.
     /// Provides a oneshot that should be resolved when the strategy is ready to exit.
     fn exit_now(&mut self, ready: futures::Complete<()>);
+}
+
+pub trait ContingencyHandler {
+    fn 
 }
