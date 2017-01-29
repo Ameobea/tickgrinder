@@ -10,30 +10,21 @@ use std::fmt::Debug;
 
 use futures::{Future, Complete};
 
-use tickgrinder_util::strategies::Strategy;
+use tickgrinder_util::strategies::{StrategyManager, ManagedStrategy, Helper, StrategyAction};
 use tickgrinder_util::transport::command_server::CommandServer;
 use tickgrinder_util::transport::query_server::QueryServer;
 use tickgrinder_util::trading::broker::Broker;
+use tickgrinder_util::trading::tick::Tick;
 
 use ActiveBroker;
 use super::get_broker_settings;
 
 #[derive(Clone)]
-pub struct SmaCross {
-    pub cs: CommandServer,
-    pub qs: QueryServer,
-}
+pub struct SmaCross {}
 
-impl Strategy for SmaCross {
-    fn new(cs: CommandServer, qs: QueryServer, conf: HashMap<String, String>) -> SmaCross {
-        SmaCross {
-            cs: cs,
-            qs: qs,
-        }
-    }
-
+impl ManagedStrategy for SmaCross {
     /// Called when we are to start actively trading this strategy and initialize trading activity.
-    fn init(&mut self, broker: Box<Broker>) {
+    fn init(&mut self) {
         self.cs.notice(Some("Startup"), "SMA Cross strategy is being initialized...");
 
         let strat_clone = self.clone();
@@ -42,12 +33,13 @@ impl Strategy for SmaCross {
         });
     }
 
+    fn tick(&mut self, helper: &mut Helper, data_ix: usize, t: &Tick) -> Option<StrategyAction> {
+        unimplemented!();
+    }
+
     /// Indicates that the platform is shutting down and that we need to do anything necessary (closing positions)
     /// before that happens.  Includes a future to complete once we're ready.
-    fn exit_now(&mut self, ready: Complete<()>) {
-        // complete the future to indicate that we're ready to be shut down
-        ready.complete(());
-    }
+    fn abort(&mut self) {}
 }
 
 // /// The inner logic for this strategy.  Called once the strategy is initialized.  It will block indefinately as long as

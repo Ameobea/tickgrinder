@@ -37,7 +37,7 @@ pub struct Fuzzer {
     pub events_rx: mpsc::Receiver<BrokerResult>,
 }
 
-impl Strategy for Fuzzer {
+impl Fuzzer {
     fn new(cs: CommandServer, qs: QueryServer, conf: HashMap<String, String>) -> Fuzzer {
         // convert the seed string into an integer we can use to seen the PNRG if deterministic fuzzing is enabled
         let seed: u32 = if CONF.fuzzer_deterministic_rng {
@@ -79,8 +79,10 @@ impl Strategy for Fuzzer {
             events_rx: mpsc_rx,
         }
     }
+}
 
-    fn init(&mut self, mut broker: Box<Broker>) {
+impl Strategy for Fuzzer {
+    fn init(&mut self) {
         // subscribe to all the tickstreams as supplied in the configuration and combine the streams
         let (streams_tx, streams_rx) = unbounded();
         let mut symbol_enumeration = Vec::new(); // way to match symbols with their id
@@ -128,7 +130,11 @@ impl Strategy for Fuzzer {
         }
     }
 
-    fn exit_now(&mut self, ready: Complete<()>) {
+    fn tick(&mut self, helper: &mut Helper, data_ix: usize, t: &Tick) -> Option<StrategyAction> {
+        unimplemented!();
+    }
+
+    fn abort(&mut self) {
         unimplemented!();
     }
 }
