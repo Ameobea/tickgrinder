@@ -193,7 +193,8 @@ impl Helper {
 /// individual strategies.  This is passed off to a strategy executor that handles the act of actually ticking
 /// the user-defined strategy and driving the process forward.
 pub struct StrategyManager {
-    helper: Helper,
+    pub helper: Helper,
+    pub subscriptions: Vec<Tickstream>,
     /// The user-defined portion of the strategy container
     pub strategy: Box<ManagedStrategy>,
 }
@@ -202,6 +203,7 @@ impl StrategyManager {
     pub fn new(strategy: Box<ManagedStrategy>, broker: Box<Broker>) -> StrategyManager {
         StrategyManager {
             helper: Helper::new(broker),
+            subscriptions: Vec::new(),
             strategy: strategy,
         }
     }
@@ -211,16 +213,16 @@ impl StrategyManager {
 /// structure that supplies helper functions to the CommandServer, QueryServer, and other miscllanious
 /// platform utilities.
 pub trait ManagedStrategy {
-    fn init(&mut self);
+    fn init(&mut self, helper: &mut Helper, subscriptions: &[Tickstream]);
 
-    fn tick(&mut self, util: &mut Helper, data_ix: usize, t: &Tick) -> Option<StrategyAction>;
+    fn tick(&mut self, helper: &mut Helper, data_ix: usize, t: &Tick) -> Option<StrategyAction>;
 
     fn abort(&mut self);
 }
 
 impl Strategy for StrategyManager {
     fn init(&mut self) {
-        self.strategy.init()
+        self.strategy.init(&mut self.helper, self.subscriptions.as_slice())
     }
 
     fn tick(&mut self, data_ix: usize, t: &Tick) -> Option<StrategyAction> {

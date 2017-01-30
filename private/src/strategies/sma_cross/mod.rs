@@ -10,7 +10,7 @@ use std::fmt::Debug;
 
 use futures::{Future, Complete};
 
-use tickgrinder_util::strategies::{StrategyManager, ManagedStrategy, Helper, StrategyAction};
+use tickgrinder_util::strategies::{StrategyManager, ManagedStrategy, Helper, StrategyAction, Tickstream};
 use tickgrinder_util::transport::command_server::CommandServer;
 use tickgrinder_util::transport::query_server::QueryServer;
 use tickgrinder_util::trading::broker::Broker;
@@ -24,13 +24,11 @@ pub struct SmaCross {}
 
 impl ManagedStrategy for SmaCross {
     /// Called when we are to start actively trading this strategy and initialize trading activity.
-    fn init(&mut self) {
-        self.cs.notice(Some("Startup"), "SMA Cross strategy is being initialized...");
-
-        let strat_clone = self.clone();
-        thread::spawn(move || {
-            // init_strat(strat_clone, get_broker_settings());
-        });
+    fn init(&mut self, helper: &mut Helper, subscriptions: &[Tickstream]) {
+        helper.cs.notice(Some("Startup"), "SMA Cross strategy is being initialized...");
+            let accounts = unwrap_log_panic(helper.broker.list_accounts().wait().unwrap(), &mut helper.cs);
+            let accounts_dbg = format!("Accounts on the broker: {:?}", accounts);
+            println!("{}", accounts_dbg);
     }
 
     fn tick(&mut self, helper: &mut Helper, data_ix: usize, t: &Tick) -> Option<StrategyAction> {
@@ -41,20 +39,6 @@ impl ManagedStrategy for SmaCross {
     /// before that happens.  Includes a future to complete once we're ready.
     fn abort(&mut self) {}
 }
-
-// /// The inner logic for this strategy.  Called once the strategy is initialized.  It will block indefinately as long as
-// /// the strategy remains active.
-// fn init_strat(strat: SmaCross, settings: HashMap<String, String>) {
-//     let mut cs = strat.cs;
-//     // cs.notice(Some("Startup"), "Creating connection to broker...");
-//     // let broker_res = ActiveBroker::init(settings).wait().unwrap();
-//     let mut broker = unwrap_log_panic(broker_res, &mut cs);
-//     cs.notice(Some("Startup"), "Successfully connected to broker.");
-
-//     let accounts = unwrap_log_panic(broker.list_accounts().wait().unwrap(), &mut cs);
-//     let accounts_dbg = format!("Accounts on the broker: {:?}", accounts);
-//     println!("{}", accounts_dbg);
-// }
 
 /// Unwraps a Result and returns the inner value if it is Ok; `panic!()`s after logging a critical error otherwise.
 fn unwrap_log_panic<T, E>(res: Result<T, E>, cs: &mut CommandServer) -> T where E:Debug {
