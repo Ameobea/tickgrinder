@@ -13,6 +13,7 @@ use uuid::Uuid;
 // use trading::broker::Broker;
 use transport::command_server::CommandServer;
 use transport::query_server::QueryServer;
+use transport::commands::Command;
 use trading::objects::BrokerAction;
 use trading::broker::Broker;
 use trading::tick::Tick;
@@ -238,6 +239,8 @@ impl Strategy for StrategyManager {
 pub enum StrategyAction {
     AddContingencyHandler(Box<ContingencyHandler>),
     RemoveContingencyManager(Uuid),
+    BrokerAction(BrokerAction),
+    PlatformCommand(Command),
 }
 
 pub enum ContingencyAction {

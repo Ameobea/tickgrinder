@@ -343,6 +343,10 @@ impl Broker for FXCMNative {
 
         Ok(Box::new(rx))
     }
+
+    fn send_message(&mut self, code: usize) {
+        unimplemented!();
+    }
 }
 
 fn login(log_env: *mut c_void) -> Result<*mut c_void, String> {

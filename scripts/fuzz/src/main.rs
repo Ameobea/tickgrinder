@@ -6,14 +6,13 @@ extern crate futures;
 
 use std::collections::HashMap;
 
-use uuid::Uuid;
-use futures::{Future, Stream};
-use futures::sync::mpsc::unbounded;
+use futures::{Future, Stream, Sink};
+use futures::sync::oneshot;
+use futures::sync::mpsc::{unbounded, Sender};
 
-use tickgrinder_util::trading::broker::Broker;
-use tickgrinder_util::strategies::{Strategy, ManagedStrategy, StrategyManager, Helper};
-use tickgrinder_util::transport::command_server::CommandServer;
-use tickgrinder_util::transport::query_server::QueryServer;
+use tickgrinder_util::trading::broker::{Broker, BrokerResult};
+use tickgrinder_util::strategies::{Strategy, StrategyManager, StrategyAction};
+
 use simbroker::SimBrokerClient;
 use private::strategies::fuzzer::Fuzzer;
 
@@ -21,7 +20,7 @@ use private::strategies::fuzzer::Fuzzer;
 struct FuzzerExecutor {}
 
 impl FuzzerExecutor {
-    fn exec(self, mut manager: StrategyManager, pairs: &[String]) {
+    fn exec(self, mut manager: StrategyManager, pairs: &[String], mut bufstream_tx: Sender<oneshot::Receiver<BrokerResult>>) {
         // subscribe to all the tickstreams as supplied in the configuration and combine the streams
         let (streams_tx, streams_rx) = unbounded();
         let mut symbol_enumeration = Vec::new(); // way to match symbols with their id
@@ -33,13 +32,37 @@ impl FuzzerExecutor {
                 .map(move |t| (i, t));
             streams_tx.send(rx).unwrap();
         }
-        let master_rx = streams_rx.flatten();
+        let mut master_rx_iter = streams_rx.flatten().wait();
         manager.helper.cs.notice(None, &format!("Subscribed to {} tickstreams", symbol_enumeration.len()));
 
+        // start the simulation loop off to populate the tickstreams
+        manager.helper.broker.send_message(0);
+
         // block this thread and funnel all messages from the tickstreams into the fuzzer
-        for msg in master_rx.wait() {
-            let (i, t) = msg.expect("Message was `Err` in `master_rx`!");
-            manager.tick(i, &t);
+        loop {
+            let (i, t) = master_rx_iter.next().unwrap().unwrap();
+            let response = manager.tick(i, &t);
+            // for now, only one command is returned by strategies every tick
+            let responses = if response.is_none() { 0 } else { 1 };
+
+            match response {
+                Some(strat_action) => {
+                    match strat_action {
+                        StrategyAction::BrokerAction(broker_action) => {
+                            println!("`execute()` on broker...");
+                            let fut = manager.helper.broker.execute(broker_action);
+                            println!("`bufstream_tx.send()`...");
+                            bufstream_tx = bufstream_tx.send(fut).wait().unwrap();
+                            println!("After `bufstream_tx.send()`.");
+                        },
+                         _ => unimplemented!(),
+                    }
+                },
+                None => (),
+            };
+
+            // manually drive progress on the inner event loop by abusing our custom message functionality
+            manager.helper.broker.send_message(responses);
         }
     }
 }
@@ -48,7 +71,10 @@ fn main() {
     let client = Box::new(SimBrokerClient::init(HashMap::new()).wait().unwrap().unwrap());
     let mut hm = HashMap::new();
     hm.insert(String::from("pairs"), String::from("TEST"));
+
+    // create a Fuzzer instance and grab some internals to use here
     let mut fuzzer = Fuzzer::new(hm.clone());
+    let bufstream_tx = fuzzer.events_tx.take().unwrap();
 
     // create a strategy manager to manage the fuzzer and initialize it
     let mut manager = StrategyManager::new(Box::new(fuzzer), client);
@@ -56,5 +82,5 @@ fn main() {
 
     // create a strategy executor for the fuzzer and initialize it to start the fuzzing process
     let executor = FuzzerExecutor{};
-    executor.exec(manager, &[String::from("TEST")]);
+    executor.exec(manager, &[String::from("TEST")], bufstream_tx);
 }

@@ -20,14 +20,16 @@ extern crate from_hashmap;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::collections::BinaryHeap;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::ops::{Index, IndexMut};
 use std::mem;
 
 use futures::{Future, Sink, oneshot, Oneshot, Complete};
 use futures::stream::Stream;
-use futures::sync::mpsc::{unbounded, channel, UnboundedReceiver, Sender, Receiver};
+use futures::sync::mpsc::{channel, UnboundedReceiver, Sender};
 use uuid::Uuid;
 
 use tickgrinder_util::trading::tick::*;
@@ -59,6 +61,8 @@ pub struct SimBroker {
     timestamp: u64,
     /// Receiving end of the channel over which the `SimBrokerClient` sends messages
     client_rx: Option<mpsc::Receiver<(BrokerAction, Complete<BrokerResult>)>>,
+    /// An atomic counter keeping track of how many pending client messages there are to process.
+    client_msg_count: Arc<AtomicUsize>,
     /// A handle to the sender for the channel through which push messages are sent
     push_stream_handle: Option<Sender<BrokerResult>>,
     /// A handle to the receiver for the channel through which push messages are received
@@ -74,7 +78,8 @@ unsafe impl Send for SimBroker {}
 
 impl SimBroker {
     pub fn new(
-        settings: SimBrokerSettings, cs: CommandServer, client_rx: mpsc::Receiver<(BrokerAction, Complete<BrokerResult>)>
+        settings: SimBrokerSettings, cs: CommandServer, client_rx: mpsc::Receiver<(BrokerAction, Complete<BrokerResult>)>,
+        message_count_atom: Arc<AtomicUsize>,
     ) -> Result<SimBroker, BrokerError> {
         let mut accounts = Accounts::new();
         // create with one account with the starting balance.
@@ -98,6 +103,7 @@ impl SimBroker {
             pq: SimulationQueue::new(),
             timestamp: 0,
             client_rx: Some(client_rx),
+            client_msg_count: message_count_atom,
             push_stream_handle: Some(client_push_tx),
             push_stream_recv: Some(client_push_rx.boxed()),
             cs: cs,
@@ -122,17 +128,24 @@ impl SimBroker {
     /// The assumption is that the client will do all its processing and have a chance to
     /// submit `BrokerActions` to the SimBroker before more processing more ticks, thus preserving the
     /// strict ordering by timestamp of events and fully simulating asynchronous operation.
-    pub fn init_sim_loop(mut self) {
+    pub fn init_sim_loop(&mut self) {
         // initialize the internal queue with values from attached tickstreams
         // all tickstreams should be added by this point
         self.pq.init(&mut self.symbols);
         self.cs.debug(None, "Internal simulation queue has been initialized.");
         self.logger.event_log(self.timestamp, "Starting the great simulation loop...");
+    }
 
-        // continue looping while the priority queue has new events to simulate
-        loop {
-            // first check if we have any messages from the client to process into the queue
-            while let Ok((action, complete,)) = self.client_rx.as_mut().unwrap().try_recv() {
+    /// Called by the fuzzer executor to drive progress on the simulation.
+    pub fn tick_sim_loop(&mut self, num_last_actions: usize) {
+        // first check if we have any messages from the client to process into the queue
+        { // borrow-b-gone
+            let rx = self.client_rx.as_mut().unwrap();
+            for _ in 0..num_last_actions {
+                // get the next message from the client receiver
+                println!("Blocking for message from client...");
+                let (action, complete) = rx.recv().expect("Error from client receiver!");
+                println!("Got message from client: {:?}", action);
                 // determine how long it takes the broker to process this message internally
                 let execution_delay = self.settings.get_delay(&action);
                 // insert this message into the internal queue adding on processing time
@@ -143,74 +156,73 @@ impl SimBroker {
                 self.logger.event_log(self.timestamp, &format!("Pushing new ActionComplete into pq: {:?}", qi.unit));
                 self.pq.push(qi);
             }
-
-            let item = self.pq.pop().unwrap();
-            self.timestamp = item.timestamp;
-            self.logger.event_log(self.timestamp, &format!("Popped new work unit from queue: {:?}", item.unit));
-
-            // then process the new item we took out of the queue
-            match item.unit {
-                // A tick arriving at the broker.  The client doesn't get to know until after network delay.
-                WorkUnit::NewTick(symbol_ix, tick) => {
-                    // update the price for the popped tick's symbol
-                    let price = (tick.bid, tick.ask);
-                    self.symbols[symbol_ix].price = price;
-                    // push the ClientTick event back into the queue + network delay
-                    self.pq.push(QueueItem {
-                        timestamp: tick.timestamp as u64 + self.settings.ping_ns,
-                        unit: WorkUnit::ClientTick(symbol_ix, tick),
-                    });
-                    // check to see if we have any actions to take on open positions and take them if we do
-                    self.logger.event_log(
-                        self.timestamp,
-                        &format!("Ticking positions in response to new tick: ({}, {:?})", symbol_ix, tick)
-                    );
-                    self.tick_positions(symbol_ix, (tick.bid, tick.ask,));
-                    // push the next future tick into the queue
-                    self.logger.event_log(self.timestamp, &format!("Pushing ClientTick into queue: ({}, {:?})", symbol_ix, tick));
-                    self.pq.push_next_tick(&mut self.symbols);
-                },
-                // A tick arriving at the client.  We now send it down the Client's channels and block
-                // until it is consumed.
-                WorkUnit::ClientTick(symbol_ix, tick) => {
-                    // TODO: Check to see if this does a copy and if it does, fine a way to eliminate it
-                    let mut inner_symbol = &mut self.symbols[symbol_ix];
-                    self.logger.event_log(self.timestamp, &format!("Sending tick to client: ({}, {:?})", symbol_ix, tick));
-                    // send the tick through the client stream, blocking until it is consumed by the client.
-                    inner_symbol.send_client(tick);
-                },
-                // The moment the broker finishes processing an action and the action takes place.
-                // Begins the network delay for the trip back to the client.
-                WorkUnit::ActionComplete(future, action) => {
-                    // process the message and re-insert the response into the queue
-                    assert_eq!(self.timestamp, item.timestamp);
-                    let res = self.exec_action(&action);
-                    // calculate when the response would be recieved by the client
-                    // then re-insert the response into the queue
-                    let res_time = item.timestamp + self.settings.ping_ns;
-                    let item = QueueItem {
-                        timestamp: res_time,
-                        unit: WorkUnit::Response(future, res),
-                    };
-                    self.pq.push(item);
-                },
-                // The moment a response reaches the client.
-                WorkUnit::Response(future, res) => {
-                    // fulfill the future with the result
-                    self.logger.event_log(self.timestamp, &format!("Fulfilling work unit {:?}'s oneshot", res));
-                    future.complete(res.clone());
-                    // send the push message through the channel, blocking until it's consumed by the client.
-                    self.push_msg(res);
-                },
-            }
         }
 
-        // if we reach here, that means we've run out of ticks to simulate from the input streams.
-        let ts_string = self.timestamp.to_string();
-        self.cs.notice(
-            Some(&ts_string),
-            "All input tickstreams have ran out of ticks; internal simulation loop stopped."
-        );
+        let item = self.pq.pop().unwrap();
+        self.timestamp = item.timestamp;
+        self.logger.event_log(self.timestamp, &format!("Popped new work unit from queue: {:?}", item.unit));
+
+        // then process the new item we took out of the queue
+        match item.unit {
+            // A tick arriving at the broker.  The client doesn't get to know until after network delay.
+            WorkUnit::NewTick(symbol_ix, tick) => {
+                // update the price for the popped tick's symbol
+                let price = (tick.bid, tick.ask);
+                self.symbols[symbol_ix].price = price;
+                // push the ClientTick event back into the queue + network delay
+                self.pq.push(QueueItem {
+                    timestamp: tick.timestamp as u64 + self.settings.ping_ns,
+                    unit: WorkUnit::ClientTick(symbol_ix, tick),
+                });
+                // check to see if we have any actions to take on open positions and take them if we do
+                self.logger.event_log(
+                    self.timestamp,
+                    &format!("Ticking positions in response to new tick: ({}, {:?})", symbol_ix, tick)
+                );
+                self.tick_positions(symbol_ix, (tick.bid, tick.ask,));
+                // push the next future tick into the queue
+                self.logger.event_log(self.timestamp, &format!("Pushing ClientTick into queue: ({}, {:?})", symbol_ix, tick));
+                self.pq.push_next_tick(&mut self.symbols);
+
+                // re-call ourself since all actions were internal
+                self.tick_sim_loop(0);
+            },
+            // A tick arriving at the client.  We now send it down the Client's channels and block
+            // until it is consumed.
+            WorkUnit::ClientTick(symbol_ix, tick) => {
+                // TODO: Check to see if this does a copy and if it does, fine a way to eliminate it
+                let mut inner_symbol = &mut self.symbols[symbol_ix];
+                self.logger.event_log(self.timestamp, &format!("Sending tick to client: ({}, {:?})", symbol_ix, tick));
+                // send the tick through the client stream, blocking until it is consumed by the client.
+                inner_symbol.send_client(tick);
+            },
+            // The moment the broker finishes processing an action and the action takes place.
+            // Begins the network delay for the trip back to the client.
+            WorkUnit::ActionComplete(future, action) => {
+                // process the message and re-insert the response into the queue
+                assert_eq!(self.timestamp, item.timestamp);
+                let res = self.exec_action(&action);
+                // calculate when the response would be recieved by the client
+                // then re-insert the response into the queue
+                let res_time = item.timestamp + self.settings.ping_ns;
+                let item = QueueItem {
+                    timestamp: res_time,
+                    unit: WorkUnit::Response(future, res),
+                };
+                self.pq.push(item);
+
+                // re-call ourself since all actions were internal
+                self.tick_sim_loop(0);
+            },
+            // The moment a response reaches the client.
+            WorkUnit::Response(future, res) => {
+                // fulfill the future with the result
+                self.logger.event_log(self.timestamp, &format!("Fulfilling work unit {:?}'s oneshot", res));
+                future.complete(res.clone());
+                // send the push message through the channel, blocking until it's consumed by the client.
+                self.push_msg(res);
+            },
+        }
     }
 
     /// Immediately sends a message over the broker's push channel.  Should only be called from within

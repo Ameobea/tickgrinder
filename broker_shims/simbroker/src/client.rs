@@ -1,9 +1,6 @@
 //! The frontend of the SimBroker that is exposed to clients.  It contains the real `SimBroker` instance
 //! internally, provides access to it via streams, and holds it in a thread during the simulation loop.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-
 use super::*;
 use futures::stream::BoxStream;
 use futures::sync::mpsc::Sender;
@@ -12,9 +9,11 @@ use futures::sync::mpsc::Sender;
 /// the underlying `SimBroker` instance while it's blocked on the simulation loop.
 pub struct SimBrokerClient {
     /// The internal `SimBroker` instance before being consumed in the simulation loop
-    simbroker: Option<SimBroker>,
+    simbroker: SimBroker,
     /// The channel over which messages are passed to the inner `SimBroker`
     inner_tx: mpsc::SyncSender<(BrokerAction, Complete<BrokerResult>)>,
+    /// An atomic used to keep track of the number of messages pending
+    msg_count_atom: Arc<AtomicUsize>,
     /// A handle to the receiver for the channel through which push messages are received
     push_stream_recv: Option<(Box<Stream<Item=BrokerResult, Error=()> + Send>, Arc<AtomicBool>,)>,
     /// Holds the tick channels that are distributed to the clients
@@ -28,8 +27,11 @@ impl Broker for SimBrokerClient {
         // TODO: convert FromHashmap to return a Result<SimbrokerSettings>
         let broker_settings = SimBrokerSettings::from_hashmap(settings);
         let cs = CommandServer::new(Uuid::new_v4(), "Simbroker");
-        let (tx, rx) = mpsc::sync_channel(0);
-        let mut sim = match SimBroker::new(broker_settings, cs, rx) {
+        // the channel to communicate commands to the consumed broker.
+        // has a buffer size of 32 to avoid blocking during the send cycle
+        let (tx, rx) = mpsc::sync_channel(32);
+        let client_msg_count = Arc::new(AtomicUsize::new(0));
+        let mut sim = match SimBroker::new(broker_settings, cs, rx, client_msg_count.clone()) {
             Ok(sim) => sim,
             Err(err) => {
                 c.complete(Err(err));
@@ -46,8 +48,9 @@ impl Broker for SimBrokerClient {
         }
 
         let mut client = SimBrokerClient {
-            simbroker: Some(sim),
+            simbroker: sim,
             inner_tx: tx,
+            msg_count_atom: client_msg_count,
             push_stream_recv: Some((push_stream_recv, Arc::new(AtomicBool::new(false)),)),
             tick_recvs: tick_hm,
         };
@@ -61,13 +64,7 @@ impl Broker for SimBrokerClient {
 
     fn get_ledger(&mut self, account_id: Uuid) -> Oneshot<Result<Ledger, BrokerError>> {
         let (complete, oneshot) = oneshot::<Result<Ledger, BrokerError>>();
-        let simbroker_res = self.get_simbroker();
-        if simbroker_res.is_err() {
-            complete.complete(Err(simbroker_res.err().unwrap()));
-            return oneshot
-        }
-        let simbroker = simbroker_res.unwrap();
-        let account = simbroker.get_ledger_clone(account_id);
+        let account = self.simbroker.get_ledger_clone(account_id);
         complete.complete(account);
 
         oneshot
@@ -75,13 +72,7 @@ impl Broker for SimBrokerClient {
 
     fn list_accounts(&mut self) -> Oneshot<Result<HashMap<Uuid, Account>, BrokerError>> {
         let (complete, oneshot) = oneshot::<Result<HashMap<Uuid, Account>, BrokerError>>();
-        let simbroker_res = self.get_simbroker();
-        if simbroker_res.is_err() {
-            complete.complete(Err(simbroker_res.err().unwrap()));
-            return oneshot
-        }
-        let simbroker = simbroker_res.unwrap();
-        complete.complete(Ok(simbroker.accounts.data.clone()));
+        complete.complete(Ok(self.simbroker.accounts.data.clone()));
 
         oneshot
     }
@@ -89,7 +80,9 @@ impl Broker for SimBrokerClient {
     fn execute(&mut self, action: BrokerAction) -> PendingResult {
         // push the message into the inner `SimBroker`'s simulation queue
         let (complete, oneshot) = oneshot::<BrokerResult>();
-        self.inner_tx.send((action, complete)).expect("Unable to send through inner_tx");
+        // increment the pending message counter
+        self.msg_count_atom.fetch_add(1, Ordering::SeqCst);
+        self.inner_tx.try_send((action, complete)).expect("Unable to send through inner_tx");
         oneshot
     }
 
@@ -154,30 +147,20 @@ impl Broker for SimBrokerClient {
         // return the new tail tickstream to the client with the assumption that it will be driven to completion there.
         Ok(new_tickstream.boxed())
     }
+
+    /// This usually allows for a custom message to be sent to the broker to fulfill a unique functionality not
+    /// covered by the rest of the trait functions.  For the simbroker, this is used to drive progress on the internal
+    /// simulation loop.
+    fn send_message(&mut self, code: usize) {
+        self.simbroker.tick_sim_loop(code);
+    }
 }
 
 impl SimBrokerClient {
-    /// Helper function that tries to get a mutable reference to the inner `SimBroker`, returning a `BrokerError`
-    /// if it has already been consumed in the simulation loop.
-    fn get_simbroker(&mut self) -> Result<&mut SimBroker, BrokerError> {
-        if self.simbroker.is_none() {
-            return Err(BrokerError::Message{
-                message: String::from("The SimBroker has already been initialized; you can't sub ticks now!"),
-            });
-        }
-        Ok(self.simbroker.as_mut().unwrap())
-    }
-
     /// Initializes the inner `SimBroker` and starts its simulation loop.  This essentially "turns on" the
     /// `SimBroker`.  After this is called, it's impossible to do things like add new symbols.
     pub fn init_sim_loop(&mut self) -> BrokerResult {
-        let simbroker_opt = self.simbroker.take();
-        if simbroker_opt.is_none() {
-            return Err(BrokerError::Message{
-                message: String::from("The SimBroker has already been initialized!"),
-            });
-        }
-        let simbroker = simbroker_opt.unwrap();
+        self.simbroker.init_sim_loop();
 
         // fork the push stream internally so we can drive progress on the tail while still getting clones during sim
         // remove the tickstream from the `Option`
@@ -250,12 +233,6 @@ impl SimBrokerClient {
             }
         });
 
-        // thread in which the SimBroker is blocked on the simulation event loop.  This drives the whole simulation
-        // process forward.
-        thread::spawn(move || {
-            simbroker.init_sim_loop();
-        });
-
         Ok(BrokerMessage::Success)
     }
 
@@ -263,8 +240,7 @@ impl SimBrokerClient {
     pub fn oneshot_price_set(
         &mut self, name: String, price: (usize, usize), is_fx: bool, decimal_precision: usize,
     ) -> BrokerResult {
-        let simbroker = self.get_simbroker()?;
-        simbroker.oneshot_price_set(name, price, is_fx, decimal_precision);
+        self.simbroker.oneshot_price_set(name, price, is_fx, decimal_precision);
         Ok(BrokerMessage::Success)
     }
 }

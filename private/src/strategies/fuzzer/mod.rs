@@ -2,23 +2,20 @@
 
 use std::collections::HashMap;
 use std::thread;
-use std::time::Duration;
 use std::sync::mpsc;
 
 use libc::c_void;
 use rand::{self, Rng};
 
-use futures::{Future, Stream, Sink, Complete, Canceled, BoxFuture};
-use futures::stream::{BufferUnordered, MapErr, BoxStream};
-use futures::sync::mpsc::{unbounded, channel, Sender, Receiver};
+use futures::{Future, Stream, Sink, Canceled};
+use futures::stream::BoxStream;
+use futures::sync::mpsc::{channel, Sender};
 use futures::sync::oneshot;
 
 use tickgrinder_util::strategies::{ManagedStrategy, Helper, StrategyAction, Tickstream};
-use tickgrinder_util::trading::broker::{Broker, BrokerResult};
+use tickgrinder_util::trading::broker::BrokerResult;
 use tickgrinder_util::trading::objects::BrokerAction;
 use tickgrinder_util::trading::tick::Tick;
-use tickgrinder_util::transport::command_server::CommandServer;
-use tickgrinder_util::transport::query_server::QueryServer;
 use tickgrinder_util::transport::textlog::get_logger_handle;
 use tickgrinder_util::conf::CONF;
 
@@ -52,8 +49,8 @@ impl Fuzzer {
         };
 
         // create the stream over which we receive callbacks from the broker
-        let buffer_size = 8;//pairs.len() * 2;
-        let (tx, rx) = channel(buffer_size);
+        let buffer_size = 2048; // let's hope that's big enough.
+        let (tx, rx) = channel(0);
 
         // map the output of the events buffer stream into a stdlib mpsc channel so we can try_get it
         let (mpsc_tx, mpsc_rx) = mpsc::sync_channel::<BrokerResult>(0);
@@ -71,6 +68,10 @@ impl Fuzzer {
             events_tx: Some(tx),
             events_rx: mpsc_rx,
         }
+    }
+
+    pub fn get_logger(&self) -> EventLogger {
+        self.logger.clone()
     }
 }
 
@@ -93,21 +94,20 @@ impl ManagedStrategy for Fuzzer {
         }
 
         self.logger.log_tick(t, data_ix);
-
-        match get_action(t, self.gen) {
-            Some(action) => {
-                let _ = self.logger.log_request(&action, t.timestamp);
-                let fut = helper.broker.execute(action);
-                // store the pending future into the buffered queue
-                let mut tx = self.events_tx.take().unwrap();
-                tx = tx.send(fut).wait().unwrap();
-                self.events_tx = Some(tx);
-                // self.logger.log_response(&res, id);
+        let action = get_action(t, self.gen);
+        match action {
+            Some(ref strategy_action) => {
+                match strategy_action {
+                    &StrategyAction::BrokerAction(ref broker_action) => {
+                        self.logger.log_request(broker_action, t.timestamp);
+                    },
+                    _ => unimplemented!(),
+                }
             },
             None => (),
         };
 
-        None
+        action
     }
 
     fn abort(&mut self) {
@@ -117,12 +117,11 @@ impl ManagedStrategy for Fuzzer {
 
 /// Called during each iteration of the fuzzer loop.  Picks a random action to take based on the
 /// internally held PRNG and executes it.
-pub fn get_action(t: &Tick, gen: *mut c_void) -> Option<BrokerAction> {
+pub fn get_action(t: &Tick, gen: *mut c_void) -> Option<StrategyAction> {
     let rand = unsafe { rand_int_range(gen, 0, 5) };
-    let action_opt: Option<BrokerAction> = match rand {
-        0 => Some(BrokerAction::Ping),
+    match rand {
+        0 => Some(StrategyAction::BrokerAction(BrokerAction::Ping)),
         1 => None, // TODO
-        // sleep for a few milliseconds, then do either do nothing or perform an action
         2 => {
             let action_or_no = unsafe { rand_int_range(gen, 0, 5) };
             if action_or_no > 3 {
@@ -133,9 +132,7 @@ pub fn get_action(t: &Tick, gen: *mut c_void) -> Option<BrokerAction> {
         },
         // do nothing at all in response to the tick
         _ => None,
-    };
-
-    action_opt
+    }
 }
 
 #[derive(Clone)]
@@ -157,7 +154,7 @@ impl EventLogger {
     /// Logs an event taking place during the fuzzing process.  Returns a number to be used to match
     /// the request to a response.
     pub fn log_request(&mut self, action: &BrokerAction, timestamp: u64) {
-        // println!("Sending request to broker: {:?}", action);
+        println!("Sending request to broker: {:?}", action);
         let tx = self.tx.take().unwrap();
         let new_tx = tx.send(format!("{} - REQUEST: {:?}", timestamp, action))
             .wait().expect("Unable to log request!");
@@ -165,6 +162,7 @@ impl EventLogger {
     }
 
     pub fn log_pushtream(&mut self, event: BrokerResult) {
+        println!("Got pushstream message: {:?}", event);
         let tx = self.tx.take().unwrap();
         let new_tx = tx.send(format!("PUSHSTREAM: {:?}", event))
             .wait().expect("Unable to log pushtream message!");
@@ -173,7 +171,7 @@ impl EventLogger {
 
     /// Logs a response received from the broker
     pub fn log_response(&mut self, res: &BrokerResult, id: usize) {
-        // println!("Got response from broker: {:?}", res);
+        println!("Got response from broker: {:?}", res);
         let tx = self.tx.take().unwrap();
         let new_tx = tx.send(format!("{} - RESPONSE: {:?}", id, res))
             .wait().expect("Unable to log response!");
@@ -182,7 +180,7 @@ impl EventLogger {
 
     /// Logs the fuzzer receiving a tick from the broker.  `i` is the index of that symbol.
     pub fn log_tick(&mut self, t: &Tick, i: usize) {
-        // println!("Received new tick from broker: {:?}", t);
+        println!("Received new tick from broker: {:?}", t);
         let tx = self.tx.take().unwrap();
         let new_tx = tx.send(format!("Received tick from symbol with index {}: {:?}", i, t))
             .wait().expect("Unable to log tick!");
@@ -191,7 +189,7 @@ impl EventLogger {
 
     /// Logs a plain old text message
     pub fn log_misc(&mut self, msg: String) {
-        // println!("Message: {}", msg);
+        println!("Message: {}", msg);
         let tx = self.tx.take().unwrap();
         let new_tx = tx.send(msg).wait().expect("Logging tick failed");
         self.tx = Some(new_tx);

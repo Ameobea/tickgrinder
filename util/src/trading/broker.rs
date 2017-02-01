@@ -35,6 +35,11 @@ pub trait Broker {
 
     /// Returns a stream of live ticks for a symbol.
     fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()> + Send>, BrokerError>;
+
+    /// Allows for unique functionality to be implemented for brokers that doesn't fit the rest of
+    /// the broker traits.  It's up to individual strategies/brokers to determine what these codes do
+    /// and implement their functionality.
+    fn send_message(&mut self, code: usize);
 }
 
 /// Utility type for a broker response that may fail
