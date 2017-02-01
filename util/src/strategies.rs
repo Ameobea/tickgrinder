@@ -1,13 +1,18 @@
 //! Defines the basis of the strategy system for the platform.  The main way of defining strategies has two parts:
-//! The `Strategy` which ingests data from all parts of the platform and is in charge of managing the
+//! The `Strategy` which accepts data from all parts of the platform and is in charge of managing the
 //! `TradingCondition`s on the tick processor and the `TradingConditon`s themselves which are the lowest level of
 //! independent control that the platform supports.  The state of each handler is only known to that handler and
-//! they can only communicate events back to their parent strategy via
+//! they can only communicate events back to their parent strategy via `ContingencyAction`s.
+//!
+//! Strategies are not responsible for driving their own progress or requesting/querying for data from external
+//! sources or tickstreams.  Instead, a strategy executor manages this externally leaving strategies only the task
+//! of processing the supplied data.
+//!
+//! TODO: Write readme file on the whole strategy system once it's (more) finalized
 
 use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
 
-use futures::stream::BoxStream;
 use uuid::Uuid;
 
 // use trading::broker::Broker;
@@ -15,9 +20,10 @@ use transport::command_server::CommandServer;
 use transport::query_server::QueryServer;
 use transport::commands::Command;
 use trading::objects::BrokerAction;
-use trading::broker::Broker;
-use trading::tick::Tick;
+use trading::broker::{Broker, BrokerResult};
+use trading::tick::{Tick, GenTick};
 
+/// Holds metadata about a tickstream.
 pub struct Tickstream {
     name: String,
     is_fx: bool,
@@ -43,8 +49,8 @@ pub trait ContingencyHandlerEventExecutor {
 }
 
 pub struct Handlers {
-    hm: HashMap<Uuid, usize>,
-    data: Vec<Box<ContingencyHandler>>,
+    pub hm: HashMap<Uuid, usize>,
+    pub data: Vec<Box<ContingencyHandler>>,
 }
 
 impl Handlers {
@@ -190,22 +196,34 @@ impl Helper {
     }
 }
 
+/// A type representing the data connected to a Tick provided by a `ManagedStrategy`.  Contains pre-defined
+/// variants for data received from the broker as well as a slot for user-defined data types.
+pub enum Merged<T> {
+    BrokerPushstream(BrokerResult),
+    BrokerTick(usize, Tick),
+    T(T),
+}
+
 /// Wrapper for a user-defined strategy providing a variety of helper methods and utility functions for the
 /// individual strategies.  This is passed off to a strategy executor that handles the act of actually ticking
 /// the user-defined strategy and driving the process forward.
-pub struct StrategyManager {
+pub struct StrategyManager<T> {
     pub helper: Helper,
     pub subscriptions: Vec<Tickstream>,
     /// The user-defined portion of the strategy container
-    pub strategy: Box<ManagedStrategy>,
+    pub strategy: Box<ManagedStrategy<Merged<T>>>,
+    pub tickstream_definitions: Vec<Tickstream>,
 }
 
-impl StrategyManager {
-    pub fn new(strategy: Box<ManagedStrategy>, broker: Box<Broker>) -> StrategyManager {
+impl<T> StrategyManager<T> {
+    pub fn new(
+        strategy: Box<ManagedStrategy<Merged<T>>>, broker: Box<Broker>, tickstream_definitions: Vec<Tickstream>
+    ) -> StrategyManager<T> {
         StrategyManager {
             helper: Helper::new(broker),
             subscriptions: Vec::new(),
             strategy: strategy,
+            tickstream_definitions: tickstream_definitions,
         }
     }
 }
@@ -213,21 +231,21 @@ impl StrategyManager {
 /// A strategy managed by a `StrategyManager`.  Every call to `tick()` contains a reference to the utility
 /// structure that supplies helper functions to the CommandServer, QueryServer, and other miscllanious
 /// platform utilities.
-pub trait ManagedStrategy {
+pub trait ManagedStrategy<T> {
     fn init(&mut self, helper: &mut Helper, subscriptions: &[Tickstream]);
 
-    fn tick(&mut self, helper: &mut Helper, data_ix: usize, t: &Tick) -> Option<StrategyAction>;
+    fn tick(&mut self, helper: &mut Helper, t: &GenTick<T>) -> Option<StrategyAction>;
 
     fn abort(&mut self);
 }
 
-impl Strategy for StrategyManager {
+impl<T> Strategy<Merged<T>> for StrategyManager<T> {
     fn init(&mut self) {
         self.strategy.init(&mut self.helper, self.subscriptions.as_slice())
     }
 
-    fn tick(&mut self, data_ix: usize, t: &Tick) -> Option<StrategyAction> {
-        self.strategy.tick(&mut self.helper, data_ix, t)
+    fn tick(&mut self, t: &GenTick<Merged<T>>) -> Option<StrategyAction> {
+        self.strategy.tick(&mut self.helper, t)
     }
 
     fn abort(&mut self) {
@@ -252,13 +270,13 @@ pub enum ContingencyAction {
 
 /// A user-defined piece of logic for controlling the creation, modification, and deletion of
 /// `ContingencyHandler`s on the tick parser.
-pub trait Strategy {
+pub trait Strategy<T> {
     /// Instruct the strategy to initialize itself, subscribing to data streams and communicating with the
     /// the rest of the platform as necessary.
     fn init(&mut self);
 
     /// Every time the strategy receives data
-    fn tick(&mut self, data_ix: usize, t: &Tick) -> Option<StrategyAction>;
+    fn tick(&mut self, t: &GenTick<T>) -> Option<StrategyAction>;
 
     // /// Indicates that the strategy should save a copy of its internal state of its internal state to
     // /// the database.  The supplied future should be resolved when the dump is complete.

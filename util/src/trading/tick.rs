@@ -1,5 +1,5 @@
 //! Structs and functions for creating and managing Ticks.  Ticks represent one
-//! price change in a timeseries.
+//! data point in a timeseries.
 
 use serde_json;
 
@@ -8,6 +8,13 @@ use test;
 
 use transport::query_server::QueryServer;
 
+/// A generic tick.  The data it holds is defined by the user.
+pub struct GenTick<T> {
+    pub timestamp: u64,
+    pub data: T,
+}
+
+/// A traditional tick containing a bid and ask in pips.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tick {
     pub bid: usize,

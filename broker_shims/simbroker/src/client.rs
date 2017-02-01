@@ -12,8 +12,6 @@ pub struct SimBrokerClient {
     simbroker: SimBroker,
     /// The channel over which messages are passed to the inner `SimBroker`
     inner_tx: mpsc::SyncSender<(BrokerAction, Complete<BrokerResult>)>,
-    /// An atomic used to keep track of the number of messages pending
-    msg_count_atom: Arc<AtomicUsize>,
     /// A handle to the receiver for the channel through which push messages are received
     push_stream_recv: Option<(Box<Stream<Item=BrokerResult, Error=()> + Send>, Arc<AtomicBool>,)>,
     /// Holds the tick channels that are distributed to the clients
@@ -50,7 +48,6 @@ impl Broker for SimBrokerClient {
         let mut client = SimBrokerClient {
             simbroker: sim,
             inner_tx: tx,
-            msg_count_atom: client_msg_count,
             push_stream_recv: Some((push_stream_recv, Arc::new(AtomicBool::new(false)),)),
             tick_recvs: tick_hm,
         };
