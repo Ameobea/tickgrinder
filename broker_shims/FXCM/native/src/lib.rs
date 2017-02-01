@@ -1,6 +1,5 @@
 //! Broker shim for FXCM.  Integrates directly with the C++ native FXCM API to map complete broker
 //! functionality through into Rust.
- 
 
 #![feature(libc, test)]
 
@@ -22,7 +21,7 @@ use std::sync::Mutex;
 use libc::{c_char, c_void, c_int, memchr};
 use uuid::Uuid;
 use futures::sync::oneshot;
-use futures::stream::Stream;
+use futures::stream::{Stream, BoxStream};
 use futures::sync::oneshot::Receiver;
 use futures::sync::mpsc::unbounded;
 
@@ -87,6 +86,7 @@ extern fn handle_message(env_ptr: *mut c_void, message: *mut ServerMessage) {
     unsafe {
         let state = &mut *(env_ptr as *mut helper_objects::HandlerState);
         let sender = &mut state.sender;
+        let timestamp = 0; // TODO: Use actual timestamps here
         let res: Option<BrokerResult> = match (*message).response {
             ServerResponse::POSITION_OPENED => {
                 unimplemented!();
@@ -128,7 +128,7 @@ extern fn handle_message(env_ptr: *mut c_void, message: *mut ServerMessage) {
         // libc::free((*message).payload);
 
         if res.is_some() {
-            let _ = sender.send(res.unwrap());
+            sender.send((timestamp, res.unwrap())).expect("Couldn't send message through sender in broker.");
         }
     }
 }
@@ -173,7 +173,7 @@ impl Broker for FXCMNative {
         let (ext_tx, ext_rx) = oneshot::channel::<Result<Self, BrokerError>>();
         thread::spawn(move || {
             // channel with which to receive messages from the server
-            let (tx, rx) = unbounded::<BrokerResult>();
+            let (tx, rx) = unbounded::<(u64, BrokerResult)>();
             let instance_id = String::from("FXCM Native Broker");
             let cs = CommandServer::new(Uuid::new_v4(), &instance_id);
             let state = Box::new(HandlerState {
@@ -261,7 +261,7 @@ impl Broker for FXCMNative {
         }
     }
 
-    fn get_stream(&mut self) -> Result<Box<Stream<Error=(), Item=Result<BrokerMessage, BrokerError>> + Send + 'static>, BrokerError> {
+    fn get_stream(&mut self) -> Result<BoxStream<(u64, BrokerResult), ()>, BrokerError> {
         if self.raw_rx.is_some() {
             Ok(self.raw_rx.take().unwrap())
         } else {

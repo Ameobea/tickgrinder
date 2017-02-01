@@ -10,11 +10,11 @@ use std::fmt::Debug;
 
 use futures::{Future, Complete};
 
-use tickgrinder_util::strategies::{StrategyManager, ManagedStrategy, Helper, StrategyAction, Tickstream};
+use tickgrinder_util::strategies::{StrategyManager, ManagedStrategy, Helper, StrategyAction, Tickstream, Merged};
 use tickgrinder_util::transport::command_server::CommandServer;
 use tickgrinder_util::transport::query_server::QueryServer;
 use tickgrinder_util::trading::broker::Broker;
-use tickgrinder_util::trading::tick::Tick;
+use tickgrinder_util::trading::tick::{Tick, GenTick};
 
 use ActiveBroker;
 use super::get_broker_settings;
@@ -22,7 +22,7 @@ use super::get_broker_settings;
 #[derive(Clone)]
 pub struct SmaCross {}
 
-impl ManagedStrategy for SmaCross {
+impl ManagedStrategy<()> for SmaCross {
     /// Called when we are to start actively trading this strategy and initialize trading activity.
     fn init(&mut self, helper: &mut Helper, subscriptions: &[Tickstream]) {
         helper.cs.notice(Some("Startup"), "SMA Cross strategy is being initialized...");
@@ -31,7 +31,7 @@ impl ManagedStrategy for SmaCross {
             println!("{}", accounts_dbg);
     }
 
-    fn tick(&mut self, helper: &mut Helper, data_ix: usize, t: &Tick) -> Option<StrategyAction> {
+    fn tick(&mut self, helper: &mut Helper, t: &GenTick<Merged<()>>) -> Option<StrategyAction> {
         unimplemented!();
     }
 

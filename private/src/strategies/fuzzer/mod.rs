@@ -12,10 +12,10 @@ use futures::stream::BoxStream;
 use futures::sync::mpsc::{channel, Sender};
 use futures::sync::oneshot;
 
-use tickgrinder_util::strategies::{ManagedStrategy, Helper, StrategyAction, Tickstream};
+use tickgrinder_util::strategies::{ManagedStrategy, Helper, StrategyAction, Tickstream, Merged};
 use tickgrinder_util::trading::broker::BrokerResult;
 use tickgrinder_util::trading::objects::BrokerAction;
-use tickgrinder_util::trading::tick::Tick;
+use tickgrinder_util::trading::tick::{Tick, GenTick};
 use tickgrinder_util::transport::textlog::get_logger_handle;
 use tickgrinder_util::conf::CONF;
 
@@ -75,23 +75,32 @@ impl Fuzzer {
     }
 }
 
-impl ManagedStrategy for Fuzzer {
+impl ManagedStrategy<()> for Fuzzer {
     #[allow(unused_variables)]
     fn init(&mut self, helper: &mut Helper, subscriptions: &[Tickstream]) {
         let mut logger = self.logger.clone();
         logger.log_misc(String::from("`init()` called"));
-        let pushstream_rx = helper.broker.get_stream().unwrap();
-        thread::spawn(move || {
-            for msg in pushstream_rx.wait() {
-                logger.log_pushtream(msg.unwrap());
-            }
-        });
+        // let pushstream_rx = helper.broker.get_stream().unwrap();
+        // thread::spawn(move || {
+        //     for msg in pushstream_rx.wait() {
+        //         logger.log_pushtream(msg.unwrap());
+        //     }
+        // });
     }
 
-    fn tick(&mut self, helper: &mut Helper, data_ix: usize, t: &Tick) -> Option<StrategyAction> {
+    fn tick(&mut self, helper: &mut Helper, gt: &GenTick<Merged<()>>) -> Option<StrategyAction> {
         while let Ok(msg) = self.events_rx.try_recv() {
             self.logger.log_misc(format!("EVENT: {:?}", msg));
         }
+
+        let (data_ix, ref t) = match gt.data {
+            Merged::BrokerTick(ix, t) => (ix, t),
+            Merged::BrokerPushstream(ref res) => {
+                self.logger.log_pushtream(gt.timestamp, res);
+                return None;
+            },
+            Merged::T(_) => panic!("Got custom type but we don't have one."),
+        };
 
         self.logger.log_tick(t, data_ix);
         let action = get_action(t, self.gen);
@@ -161,10 +170,10 @@ impl EventLogger {
         self.tx = Some(new_tx);
     }
 
-    pub fn log_pushtream(&mut self, event: BrokerResult) {
-        println!("Got pushstream message: {:?}", event);
+    pub fn log_pushtream(&mut self, timestamp: u64, res: &BrokerResult) {
+        println!("Got pushstream message: {:?}", res);
         let tx = self.tx.take().unwrap();
-        let new_tx = tx.send(format!("PUSHSTREAM: {:?}", event))
+        let new_tx = tx.send(format!("{} - PUSHSTREAM: {:?}", timestamp, res))
             .wait().expect("Unable to log pushtream message!");
         self.tx = Some(new_tx);
     }

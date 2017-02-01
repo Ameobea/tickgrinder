@@ -211,13 +211,13 @@ pub struct StrategyManager<T> {
     pub helper: Helper,
     pub subscriptions: Vec<Tickstream>,
     /// The user-defined portion of the strategy container
-    pub strategy: Box<ManagedStrategy<Merged<T>>>,
+    pub strategy: Box<ManagedStrategy<T>>,
     pub tickstream_definitions: Vec<Tickstream>,
 }
 
 impl<T> StrategyManager<T> {
     pub fn new(
-        strategy: Box<ManagedStrategy<Merged<T>>>, broker: Box<Broker>, tickstream_definitions: Vec<Tickstream>
+        strategy: Box<ManagedStrategy<T>>, broker: Box<Broker>, tickstream_definitions: Vec<Tickstream>
     ) -> StrategyManager<T> {
         StrategyManager {
             helper: Helper::new(broker),
@@ -225,6 +225,18 @@ impl<T> StrategyManager<T> {
             strategy: strategy,
             tickstream_definitions: tickstream_definitions,
         }
+    }
+
+    pub fn t_tick(&mut self, t: GenTick<T>) -> Option<StrategyAction> {
+        self.strategy.tick(&mut self.helper, &GenTick{timestamp: t.timestamp, data: Merged::T(t.data)})
+    }
+
+    pub fn broker_tick(&mut self, data_ix: usize, t: Tick) -> Option<StrategyAction> {
+        self.strategy.tick(&mut self.helper, &GenTick{timestamp: t.timestamp, data: Merged::BrokerTick(data_ix, t)})
+    }
+
+    pub fn pushstream_tick(&mut self, msg: BrokerResult, timestamp: u64) -> Option<StrategyAction> {
+        self.strategy.tick(&mut self.helper, &GenTick{timestamp: timestamp, data: Merged::BrokerPushstream(msg)})
     }
 }
 
@@ -234,7 +246,7 @@ impl<T> StrategyManager<T> {
 pub trait ManagedStrategy<T> {
     fn init(&mut self, helper: &mut Helper, subscriptions: &[Tickstream]);
 
-    fn tick(&mut self, helper: &mut Helper, t: &GenTick<T>) -> Option<StrategyAction>;
+    fn tick(&mut self, helper: &mut Helper, t: &GenTick<Merged<T>>) -> Option<StrategyAction>;
 
     fn abort(&mut self);
 }

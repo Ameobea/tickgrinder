@@ -13,7 +13,7 @@ pub struct SimBrokerClient {
     /// The channel over which messages are passed to the inner `SimBroker`
     inner_tx: mpsc::SyncSender<(BrokerAction, Complete<BrokerResult>)>,
     /// A handle to the receiver for the channel through which push messages are received
-    push_stream_recv: Option<(Box<Stream<Item=BrokerResult, Error=()> + Send>, Arc<AtomicBool>,)>,
+    push_stream_recv: Option<(Box<Stream<Item=(u64, BrokerResult), Error=()> + Send>, Arc<AtomicBool>,)>,
     /// Holds the tick channels that are distributed to the clients
     tick_recvs: HashMap<String, (BoxStream<Tick, ()>, Arc<AtomicBool>,)>,
 }
@@ -28,8 +28,7 @@ impl Broker for SimBrokerClient {
         // the channel to communicate commands to the consumed broker.
         // has a buffer size of 32 to avoid blocking during the send cycle
         let (tx, rx) = mpsc::sync_channel(32);
-        let client_msg_count = Arc::new(AtomicUsize::new(0));
-        let mut sim = match SimBroker::new(broker_settings, cs, rx, client_msg_count.clone()) {
+        let mut sim = match SimBroker::new(broker_settings, cs, rx) {
             Ok(sim) => sim,
             Err(err) => {
                 c.complete(Err(err));
@@ -77,14 +76,12 @@ impl Broker for SimBrokerClient {
     fn execute(&mut self, action: BrokerAction) -> PendingResult {
         // push the message into the inner `SimBroker`'s simulation queue
         let (complete, oneshot) = oneshot::<BrokerResult>();
-        // increment the pending message counter
-        self.msg_count_atom.fetch_add(1, Ordering::SeqCst);
         self.inner_tx.try_send((action, complete)).expect("Unable to send through inner_tx");
         oneshot
     }
 
     /// Maps a new channel through the pushtream, duplicating all messages sent to it.
-    fn get_stream(&mut self) -> Result<Box<Stream<Item=BrokerResult, Error=()> + Send>, BrokerError> {
+    fn get_stream(&mut self) -> Result<Box<Stream<Item=(u64, BrokerResult), Error=()> + Send>, BrokerError> {
         let (fork_tx, fork_rx) = channel(0);
         // move out the forked tx and the `AtomicBool` indicating whether or not it's consumed
         let (strm, old_bool) = self.push_stream_recv.take().unwrap();

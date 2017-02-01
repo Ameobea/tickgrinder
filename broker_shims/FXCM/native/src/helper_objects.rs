@@ -7,6 +7,7 @@ use std::sync::Mutex;
 use libc::{c_char, c_void, uint64_t, c_double, c_int};
 use futures::sync::mpsc::UnboundedSender;
 use futures::Stream;
+use futures::stream::BoxStream;
 
 use tickgrinder_util::transport::command_server::CommandServer;
 use tickgrinder_util::trading::broker::*;
@@ -66,7 +67,7 @@ pub struct ClientMessage {
 pub struct FXCMNative {
     pub settings_hash: HashMap<String, String>,
     pub server_environment: *mut c_void,
-    pub raw_rx: Option<Box<Stream<Error=(), Item=Result<BrokerMessage, BrokerError>> + Send + 'static>>,
+    pub raw_rx: Option<BoxStream<(u64, BrokerResult), ()>>,
     pub tickstream_obj: Mutex<Tickstream>,
 }
 
@@ -128,7 +129,7 @@ pub struct SubbedPair {
 
 /// Holds the state for the `handle_message` function
 pub struct HandlerState {
-    pub sender: UnboundedSender<BrokerResult>,
+    pub sender: UnboundedSender<(u64, BrokerResult)>,
     pub cs: CommandServer,
 }
 

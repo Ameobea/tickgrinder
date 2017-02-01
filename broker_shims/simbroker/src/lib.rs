@@ -21,7 +21,6 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::collections::BinaryHeap;
 use std::sync::{Arc, mpsc};
-use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::ops::{Index, IndexMut};
@@ -61,12 +60,10 @@ pub struct SimBroker {
     timestamp: u64,
     /// Receiving end of the channel over which the `SimBrokerClient` sends messages
     client_rx: Option<mpsc::Receiver<(BrokerAction, Complete<BrokerResult>)>>,
-    /// An atomic counter keeping track of how many pending client messages there are to process.
-    client_msg_count: Arc<AtomicUsize>,
     /// A handle to the sender for the channel through which push messages are sent
-    push_stream_handle: Option<Sender<BrokerResult>>,
+    push_stream_handle: Option<Sender<(u64, BrokerResult)>>,
     /// A handle to the receiver for the channel through which push messages are received
-    push_stream_recv: Option<Box<Stream<Item=BrokerResult, Error=()> + Send>>,
+    push_stream_recv: Option<Box<Stream<Item=(u64, BrokerResult), Error=()> + Send>>,
     /// The CommandServer used for logging
     pub cs: CommandServer,
     /// Holds a logger used to log detailed data to flatfile if the `superlog` feature id enabled and an empty struct otherwise.
@@ -79,7 +76,6 @@ unsafe impl Send for SimBroker {}
 impl SimBroker {
     pub fn new(
         settings: SimBrokerSettings, cs: CommandServer, client_rx: mpsc::Receiver<(BrokerAction, Complete<BrokerResult>)>,
-        message_count_atom: Arc<AtomicUsize>,
     ) -> Result<SimBroker, BrokerError> {
         let mut accounts = Accounts::new();
         // create with one account with the starting balance.
@@ -90,7 +86,7 @@ impl SimBroker {
         };
         accounts.insert(Uuid::new_v4(), account);
         // TODO: Make sure that 0 is the right buffer size for this channel
-        let (client_push_tx, client_push_rx) = channel::<BrokerResult>(0);
+        let (client_push_tx, client_push_rx) = channel::<(u64, BrokerResult)>(0);
 
         // try to deserialize the "tickstreams" parameter of the input settings to get a list of tickstreams register
         let tickstreams: Vec<(String, TickGenerators, bool, usize)> = serde_json::from_str(&settings.tickstreams)
@@ -103,7 +99,6 @@ impl SimBroker {
             pq: SimulationQueue::new(),
             timestamp: 0,
             client_rx: Some(client_rx),
-            client_msg_count: message_count_atom,
             push_stream_handle: Some(client_push_tx),
             push_stream_recv: Some(client_push_rx.boxed()),
             cs: cs,
@@ -230,7 +225,7 @@ impl SimBroker {
     fn push_msg(&mut self, msg: BrokerResult) {
         self.logger.event_log(self.timestamp, &format!("`push_msg()` sending message to client: {:?}", msg));
         let sender = mem::replace(&mut self.push_stream_handle, None).unwrap();
-        let new_sender = sender.send(msg).wait().expect("Unable to push_msg");
+        let new_sender = sender.send((self.timestamp, msg)).wait().expect("Unable to push_msg");
         mem::replace(&mut self.push_stream_handle, Some(new_sender));
     }
 
