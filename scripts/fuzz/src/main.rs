@@ -55,11 +55,11 @@ impl SimbrokerDriver {
                 Some(strat_action) => {
                     match strat_action {
                         StrategyAction::BrokerAction(broker_action) => {
-                            println!("`execute()` on broker...");
+                            // println!("`execute()` on broker...");
                             let fut = manager.helper.broker.execute(broker_action);
-                            println!("`bufstream_tx.send()`...");
+                            // println!("`bufstream_tx.send()`...");
                             bufstream_tx = bufstream_tx.send(fut).wait().unwrap();
-                            println!("After `bufstream_tx.send()`.");
+                            // println!("After `bufstream_tx.send()`.");
                         },
                          _ => unimplemented!(),
                     }

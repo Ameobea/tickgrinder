@@ -6,7 +6,9 @@ use std::io::{BufRead, BufReader};
 use std::thread;
 
 
-use futures::sync::mpsc::{unbounded, UnboundedReceiver};
+use futures::sync::mpsc::channel;
+use futures::{Future, Stream, Sink};
+use futures::stream::BoxStream;
 use trading::tick::Tick;
 use conf::CONF;
 
@@ -20,11 +22,11 @@ pub struct FlatfileReader {
 impl TickGenerator for FlatfileReader {
     fn get(
         &mut self, mut map: Box<TickMap + Send>, cmd_handle: CommandStream
-    )-> Result<UnboundedReceiver<Tick>, String> {
+    )-> Result<BoxStream<Tick, ()>, String> {
         // small atomic communication bus between the handle listener and worker threads
         let internal_message: Arc<Mutex<TickstreamCommand>> = Arc::new(Mutex::new(TickstreamCommand::Stop));
         let got_mail = Arc::new(AtomicBool::new(false));
-        let (sender, receiver) = unbounded::<Tick>();
+        let (mut sender, receiver) = channel::<Tick>(1);
 
         // spawn the worker thread that does the blocking
         let mut _got_mail = got_mail.clone();
@@ -50,7 +52,7 @@ impl TickGenerator for FlatfileReader {
                 // apply the map
                 let t_mod = map.map(tick);
                 if t_mod.is_some() {
-                    sender.send(tick).unwrap();
+                    sender = sender.send(tick).wait().expect("Unable to send through sender in `get` in flatfile_reader!");
                 }
             }
         }).thread().clone();
@@ -58,11 +60,11 @@ impl TickGenerator for FlatfileReader {
         // spawn the handle listener thread that awaits commands
         spawn_listener_thread(_got_mail, cmd_handle, internal_message, reader_handle);
 
-        Ok(receiver)
+        Ok(receiver.boxed())
     }
 
-    fn get_raw(&mut self) -> Result<UnboundedReceiver<Tick>, String> {
-        let (tx, rx) = unbounded();
+    fn get_raw(&mut self) -> Result<BoxStream<Tick, ()>, String> {
+        let (mut tx, rx) = channel(1);
 
         let start_time = self.start_time;
         let symbol = self.symbol.clone();
@@ -76,11 +78,11 @@ impl TickGenerator for FlatfileReader {
             });
 
             for tick in iter {
-                tx.send(tick).unwrap();
+                tx = tx.send(tick).wait().expect("Unable to send through tx in `get_raw` in flatfile_reader!");
             }
         });
 
-        Ok(rx)
+        Ok(rx.boxed())
     }
 }
 

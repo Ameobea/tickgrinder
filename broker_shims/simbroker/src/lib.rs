@@ -26,9 +26,9 @@ use std::thread;
 use std::ops::{Index, IndexMut};
 use std::mem;
 
-use futures::{Future, Sink, oneshot, Oneshot, Complete};
-use futures::stream::Stream;
-use futures::sync::mpsc::{channel, UnboundedReceiver, Sender};
+use futures::{Future, Stream, Sink, oneshot, Oneshot, Complete};
+use futures::stream::BoxStream;
+use futures::sync::mpsc::{channel, Sender};
 use uuid::Uuid;
 
 use tickgrinder_util::trading::tick::*;
@@ -138,9 +138,9 @@ impl SimBroker {
             let rx = self.client_rx.as_mut().unwrap();
             for _ in 0..num_last_actions {
                 // get the next message from the client receiver
-                println!("Blocking for message from client...");
+                // println!("Blocking for message from client...");
                 let (action, complete) = rx.recv().expect("Error from client receiver!");
-                println!("Got message from client: {:?}", action);
+                // println!("Got message from client: {:?}", action);
                 // determine how long it takes the broker to process this message internally
                 let execution_delay = self.settings.get_delay(&action);
                 // insert this message into the internal queue adding on processing time
@@ -151,6 +151,10 @@ impl SimBroker {
                 self.logger.event_log(self.timestamp, &format!("Pushing new ActionComplete into pq: {:?}", qi.unit));
                 self.pq.push(qi);
             }
+        }
+
+        if self.timestamp % 100000 == 0 {
+            self.cs.notice(None, &format!("{} ticks processed", self.timestamp));
         }
 
         let item = self.pq.pop().unwrap();
@@ -746,11 +750,11 @@ impl SimBroker {
     /// Registers a data source into the SimBroker.  Ticks from the supplied generator will be
     /// used to upate the SimBroker's internal prices and transmitted to connected clients.
     pub fn register_tickstream(
-        &mut self, name: String, raw_tickstream: UnboundedReceiver<Tick>, is_fx: bool, decimal_precision: usize
+        &mut self, name: String, raw_tickstream: BoxStream<Tick, ()>, is_fx: bool, decimal_precision: usize
     ) -> BrokerResult {
         // allocate space for open positions of the new symbol in `Accounts`
         self.accounts.add_symbol();
-        let mut sym = Symbol::new_from_stream(raw_tickstream.boxed(), is_fx, decimal_precision, name.clone());
+        let mut sym = Symbol::new_from_stream(raw_tickstream, is_fx, decimal_precision, name.clone());
         // get the first element out of the tickstream and set the next tick equal to it
         let first_tick = sym.next().unwrap().unwrap();
         self.cs.debug(None, &format!("Set first tick for tickstream {}: {:?}", name, &first_tick));

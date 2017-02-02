@@ -44,7 +44,7 @@ pub fn get_logger_handle(dirname: String, chunk_size: usize) -> Sender<String> {
 
         // buffer up chunk_size log lines before writing to disk
         for msg in rx.chunks(chunk_size).wait() {
-            println!("Logging message chunk...");
+            // println!("Logging message chunk...");
             let text: String = match msg {
                 Ok(lines) => lines.as_slice().join("\n") + "\n",
                 // World is likely dropping due to a crash or shutdown

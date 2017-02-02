@@ -163,7 +163,7 @@ impl EventLogger {
     /// Logs an event taking place during the fuzzing process.  Returns a number to be used to match
     /// the request to a response.
     pub fn log_request(&mut self, action: &BrokerAction, timestamp: u64) {
-        println!("Sending request to broker: {:?}", action);
+        // println!("Sending request to broker: {:?}", action);
         let tx = self.tx.take().unwrap();
         let new_tx = tx.send(format!("{} - REQUEST: {:?}", timestamp, action))
             .wait().expect("Unable to log request!");
@@ -171,7 +171,7 @@ impl EventLogger {
     }
 
     pub fn log_pushtream(&mut self, timestamp: u64, res: &BrokerResult) {
-        println!("Got pushstream message: {:?}", res);
+        // println!("Got pushstream message: {:?}", res);
         let tx = self.tx.take().unwrap();
         let new_tx = tx.send(format!("{} - PUSHSTREAM: {:?}", timestamp, res))
             .wait().expect("Unable to log pushtream message!");
@@ -180,7 +180,7 @@ impl EventLogger {
 
     /// Logs a response received from the broker
     pub fn log_response(&mut self, res: &BrokerResult, id: usize) {
-        println!("Got response from broker: {:?}", res);
+        // println!("Got response from broker: {:?}", res);
         let tx = self.tx.take().unwrap();
         let new_tx = tx.send(format!("{} - RESPONSE: {:?}", id, res))
             .wait().expect("Unable to log response!");
@@ -189,7 +189,7 @@ impl EventLogger {
 
     /// Logs the fuzzer receiving a tick from the broker.  `i` is the index of that symbol.
     pub fn log_tick(&mut self, t: &Tick, i: usize) {
-        println!("Received new tick from broker: {:?}", t);
+        // println!("Received new tick from broker: {:?}", t);
         let tx = self.tx.take().unwrap();
         let new_tx = tx.send(format!("Received tick from symbol with index {}: {:?}", i, t))
             .wait().expect("Unable to log tick!");
@@ -198,7 +198,7 @@ impl EventLogger {
 
     /// Logs a plain old text message
     pub fn log_misc(&mut self, msg: String) {
-        println!("Message: {}", msg);
+        // println!("Message: {}", msg);
         let tx = self.tx.take().unwrap();
         let new_tx = tx.send(msg).wait().expect("Logging tick failed");
         self.tx = Some(new_tx);

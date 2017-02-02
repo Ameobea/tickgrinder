@@ -8,6 +8,7 @@ use std::sync::atomic::{Ordering, AtomicBool};
 use test;
 
 use futures::sync::mpsc::UnboundedReceiver;
+use futures::stream::BoxStream;
 
 use trading::tick::Tick;
 use transport::redis::get_client as get_redis_client;
@@ -117,10 +118,10 @@ pub trait TickGenerator {
     /// Returns a stream that resolves to new Ticks
     fn get(
         &mut self, map: Box<TickMap + Send>, cmd_handle: CommandStream
-    ) -> Result<UnboundedReceiver<Tick>, String>;
+    ) -> Result<BoxStream<Tick, ()>, String>;
 
     /// Returns a stream that yields the generator's ticks without any map or command handler.
-    fn get_raw(&mut self) -> Result<UnboundedReceiver<Tick>, String>;
+    fn get_raw(&mut self) -> Result<BoxStream<Tick, ()>, String>;
 }
 
 /// Represents an endpoint through which ticks generated in a Backtest can be sent.

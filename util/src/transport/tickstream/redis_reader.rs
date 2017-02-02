@@ -2,8 +2,9 @@
 
 use std::thread;
 
-use futures::Stream;
-use futures::sync::mpsc::{unbounded, UnboundedReceiver};
+use futures::sync::mpsc::channel;
+use futures::{Future, Stream, Sink};
+use futures::stream::BoxStream;
 
 use trading::tick::Tick;
 use transport::redis::sub_channel;
@@ -18,7 +19,7 @@ pub struct RedisReader {
 impl TickGenerator for RedisReader {
     fn get(
         &mut self, mut map: Box<TickMap + Send>, cmd_handle: CommandStream
-    ) -> Result<UnboundedReceiver<Tick>, String> {
+    ) -> Result<BoxStream<Tick, ()>, String> {
         let host = self.redis_host.clone();
         let input_channel = self.channel.clone();
 
@@ -28,7 +29,7 @@ impl TickGenerator for RedisReader {
         let got_mail = Arc::new(AtomicBool::new(false));
         let mut _got_mail = got_mail.clone();
 
-        let (tx, rx) = unbounded::<Tick>();
+        let (mut tx, rx) = channel::<Tick>(1);
 
         let reader_handle = thread::spawn(move || {
             let in_rx = sub_channel(host.as_str(), input_channel.as_str());
@@ -43,7 +44,7 @@ impl TickGenerator for RedisReader {
                 // apply map
                 let t_mod = map.map(t);
                 if t_mod.is_some() {
-                    tx.send(t_mod.unwrap()).unwrap();
+                    tx = tx.send(t_mod.unwrap()).wait().expect("Unable to send through tx in `get` redis_reader!");
                 }
             }
         }).thread().clone();
@@ -51,11 +52,11 @@ impl TickGenerator for RedisReader {
         // spawn the handle listener thread that awaits commands
         spawn_listener_thread(_got_mail, cmd_handle, internal_message, reader_handle);
 
-        Ok(rx)
+        Ok(rx.boxed())
     }
 
-    fn get_raw(&mut self) -> Result<UnboundedReceiver<Tick>, String> {
-        let (tx, rx) = unbounded();
+    fn get_raw(&mut self) -> Result<BoxStream<Tick, ()>, String> {
+        let (mut tx, rx) = channel(1);
 
         let input_channel = self.channel.clone();
         thread::spawn(move || {
@@ -63,11 +64,11 @@ impl TickGenerator for RedisReader {
 
             for t_string in in_rx.wait() {
                 let t = Tick::from_json_string(t_string.unwrap());
-                tx.send(t).unwrap();
+                tx = tx.send(t).wait().expect("Unable to send through tx in `get_raw` in redis_reader!");
             }
         });
 
-        Ok(rx)
+        Ok(rx.boxed())
     }
 }
 

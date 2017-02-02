@@ -6,7 +6,9 @@ use std::sync::atomic::AtomicBool;
 use rand::{thread_rng, ThreadRng};
 use rand::distributions::{IndependentSample, Range};
 
-use futures::sync::mpsc::{unbounded, UnboundedReceiver};
+use futures::sync::mpsc::channel;
+use futures::{Future, Stream, Sink};
+use futures::stream::BoxStream;
 
 use trading::tick::Tick;
 
@@ -17,8 +19,8 @@ pub struct RandomReader {}
 impl TickGenerator for RandomReader {
     fn get(
         &mut self, mut map: Box<TickMap + Send>, cmd_handle: CommandStream
-    ) -> Result<UnboundedReceiver<Tick>, String> {
-        let (tx, rx) = unbounded::<Tick>();
+    ) -> Result<BoxStream<Tick, ()>, String> {
+        let (mut tx, rx) = channel::<Tick>(1);
         let mut timestamp = 0;
 
         // small atomic communication bus between the handle listener and worker threads
@@ -43,7 +45,7 @@ impl TickGenerator for RandomReader {
                 // apply the map
                 let mod_t = map.map(tick);
                 if mod_t.is_some() {
-                    tx.send(mod_t.unwrap()).expect("Unable to send tick to sink in random_reader.rs");
+                    tx = tx.send(mod_t.unwrap()).wait().expect("Unable to send tick to sink in random_reader.rs");
                 }
             }
         }).thread().clone();
@@ -51,23 +53,23 @@ impl TickGenerator for RandomReader {
         // spawn the handle listener thread that awaits commands
         spawn_listener_thread(_got_mail, cmd_handle, internal_message, reader_handle);
 
-        Ok(rx)
+        Ok(rx.boxed())
     }
 
-    fn get_raw(&mut self) -> Result<UnboundedReceiver<Tick>, String> {
-        let (tx, rx) = unbounded();
+    fn get_raw(&mut self) -> Result<BoxStream<Tick, ()>, String> {
+        let (mut tx, rx) = channel(1);
         let mut timestamp = 0;
 
         thread::spawn(move || {
             let mut rng = thread_rng();
             loop {
                 let t = get_rand_tick(&mut rng, timestamp);
-                tx.send(t).unwrap();
+                tx = tx.send(t).wait().expect("Unable to send through tx in `get_raw` in random_reader!");
                 timestamp += 1;
             }
         });
 
-        Ok(rx)
+        Ok(rx.boxed())
     }
 }
 
