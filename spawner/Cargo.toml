@@ -3,3 +3,8 @@ name = "spawner"
 version = "0.1.0"
 authors = ["Casey Primozic <me@ameo.link>"]
 description = "Instance spawner and management system for the TickGrinder algorithmic trading platform"
+
+[profile.release]
+opt-level = 3
+debug = true
+debug-assertions = false

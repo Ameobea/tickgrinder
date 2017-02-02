@@ -8,3 +8,8 @@ cursive = { git = "https://github.com/gyscos/Cursive.git", default-features = fa
 serde_json = "0.8.4"
 indoc = "^0.1"
 termion = "1.1.1"
+
+[profile.release]
+opt-level = 3
+debug = true
+debug-assertions = false

@@ -25,6 +25,9 @@ pub enum BrokerAction {
     Disconnect,
 }
 
+// TODO: Change these values to avoid containing timestamps and instead have timestamps returned
+// for all the values but separately from the enum itself.
+
 /// A response from a broker indicating the result of an action.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BrokerMessage {

@@ -13,7 +13,7 @@ pub struct SimBrokerClient {
     /// The channel over which messages are passed to the inner `SimBroker`
     inner_tx: mpsc::SyncSender<(BrokerAction, Complete<BrokerResult>)>,
     /// A handle to the receiver for the channel through which push messages are received
-    push_stream_recv: Option<(Box<Stream<Item=(u64, BrokerResult), Error=()> + Send>, Arc<AtomicBool>,)>,
+    push_stream_recv: Option<(BoxStream<(u64, BrokerResult), ()>, Arc<AtomicBool>,)>,
     /// Holds the tick channels that are distributed to the clients
     tick_recvs: HashMap<String, (BoxStream<Tick, ()>, Arc<AtomicBool>,)>,
 }
@@ -81,7 +81,7 @@ impl Broker for SimBrokerClient {
     }
 
     /// Maps a new channel through the pushtream, duplicating all messages sent to it.
-    fn get_stream(&mut self) -> Result<Box<Stream<Item=(u64, BrokerResult), Error=()> + Send>, BrokerError> {
+    fn get_stream(&mut self) -> Result<BoxStream<(u64, BrokerResult), ()>, BrokerError> {
         let (fork_tx, fork_rx) = channel(0);
         // move out the forked tx and the `AtomicBool` indicating whether or not it's consumed
         let (strm, old_bool) = self.push_stream_recv.take().unwrap();
@@ -109,7 +109,7 @@ impl Broker for SimBrokerClient {
         Ok(new_tail.boxed())
     }
 
-    fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()> + Send>, BrokerError> {
+    fn sub_ticks(&mut self, symbol: String) -> Result<BoxStream<Tick, ()>, BrokerError> {
         if self.tick_recvs.get(&symbol).is_none() {
             return Err(BrokerError::NoSuchSymbol);
         }

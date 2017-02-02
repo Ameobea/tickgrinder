@@ -7,3 +7,8 @@ description = "Contains the user-defined strategies, indicators, and other custo
 [lib]
 name = "private"
 crate-type = ["dylib"]
+
+[profile.release]
+opt-level = 3
+debug = true
+debug-assertions = false

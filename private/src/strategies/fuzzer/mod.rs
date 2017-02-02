@@ -11,11 +11,13 @@ use futures::{Future, Stream, Sink, Canceled};
 use futures::stream::BoxStream;
 use futures::sync::mpsc::{channel, Sender};
 use futures::sync::oneshot;
+use uuid::Uuid;
 
 use tickgrinder_util::strategies::{ManagedStrategy, Helper, StrategyAction, Tickstream, Merged};
 use tickgrinder_util::trading::broker::BrokerResult;
-use tickgrinder_util::trading::objects::BrokerAction;
+use tickgrinder_util::trading::objects::{BrokerAction, BrokerMessage, Account, Ledger};
 use tickgrinder_util::trading::tick::{Tick, GenTick};
+use tickgrinder_util::trading::trading_condition::TradingAction;
 use tickgrinder_util::transport::textlog::get_logger_handle;
 use tickgrinder_util::conf::CONF;
 
@@ -26,11 +28,36 @@ extern {
     fn rand_int_range(void_rng: *mut c_void, min: i32, max: i32) -> u32;
 }
 
+fn random_bool(void_rng: *mut c_void) -> bool {
+    if unsafe { rand_int_range(void_rng, 0, 1) } == 1 { true } else { false }
+}
+
+pub struct FuzzerState {
+    account_uuid: Option<Uuid>,
+    account: Option<Account>,
+}
+
+impl FuzzerState {
+    pub fn new() -> FuzzerState {
+        FuzzerState {
+            account_uuid: None,
+            account: None,
+        }
+    }
+}
+
+impl FuzzerState {
+    pub fn get_ledger(&mut self) -> &mut Ledger {
+        &mut self.account.as_mut().unwrap().ledger
+    }
+}
+
 pub struct Fuzzer {
     pub gen: *mut c_void,
     pub logger: EventLogger,
     pub events_tx: Option<Sender<oneshot::Receiver<BrokerResult>>>,
     pub events_rx: mpsc::Receiver<BrokerResult>,
+    pub state: FuzzerState,
 }
 
 impl Fuzzer {
@@ -67,6 +94,7 @@ impl Fuzzer {
             logger: EventLogger::new(),
             events_tx: Some(tx),
             events_rx: mpsc_rx,
+            state: FuzzerState::new(),
         }
     }
 
@@ -80,12 +108,11 @@ impl ManagedStrategy<()> for Fuzzer {
     fn init(&mut self, helper: &mut Helper, subscriptions: &[Tickstream]) {
         let mut logger = self.logger.clone();
         logger.log_misc(String::from("`init()` called"));
-        // let pushstream_rx = helper.broker.get_stream().unwrap();
-        // thread::spawn(move || {
-        //     for msg in pushstream_rx.wait() {
-        //         logger.log_pushtream(msg.unwrap());
-        //     }
-        // });
+        let accounts = helper.broker.list_accounts().wait().expect("Unable to get accounts.").unwrap();
+        for (uuid, account) in accounts.iter() {
+            self.state.account_uuid = Some(*uuid);
+            self.state.account = Some(account.clone());
+        }
     }
 
     fn tick(&mut self, helper: &mut Helper, gt: &GenTick<Merged<()>>) -> Option<StrategyAction> {
@@ -97,13 +124,14 @@ impl ManagedStrategy<()> for Fuzzer {
             Merged::BrokerTick(ix, t) => (ix, t),
             Merged::BrokerPushstream(ref res) => {
                 self.logger.log_pushtream(gt.timestamp, res);
+                handle_pushstream(&mut self.state, res, self.gen);
                 return None;
             },
             Merged::T(_) => panic!("Got custom type but we don't have one."),
         };
 
         self.logger.log_tick(t, data_ix);
-        let action = get_action(t, self.gen);
+        let action = get_action(&mut self.state, t, self.gen);
         match action {
             Some(ref strategy_action) => {
                 match strategy_action {
@@ -126,21 +154,76 @@ impl ManagedStrategy<()> for Fuzzer {
 
 /// Called during each iteration of the fuzzer loop.  Picks a random action to take based on the
 /// internally held PRNG and executes it.
-pub fn get_action(t: &Tick, gen: *mut c_void) -> Option<StrategyAction> {
-    let rand = unsafe { rand_int_range(gen, 0, 5) };
+pub fn get_action(state: &mut FuzzerState, t: &Tick, rng: *mut c_void) -> Option<StrategyAction> {
+    let rand = unsafe { rand_int_range(rng, 0, 5) };
     match rand {
         0 => Some(StrategyAction::BrokerAction(BrokerAction::Ping)),
-        1 => None, // TODO
-        2 => {
-            let action_or_no = unsafe { rand_int_range(gen, 0, 5) };
+        1 => { // random market open order
+            let price = unsafe { rand_int_range(rng, 25, 75) } as usize;
+            let order = TradingAction::MarketOrder{
+                symbol: String::from("TEST"),
+                long: random_bool(rng),
+                size: unsafe { rand_int_range(rng, 0, 5) as usize },
+                stop: if random_bool(rng) { Some(price + unsafe { rand_int_range(rng, 0, 5) as usize }) } else { None },
+                max_range: None,
+                take_profit: if random_bool(rng) { Some(price + unsafe { rand_int_range(rng, 0, 5) as usize }) } else { None },
+            };
+            Some(StrategyAction::BrokerAction(BrokerAction::TradingAction{
+                account_uuid: state.account_uuid.unwrap(),
+                action: order
+            }))
+        },
+        2 => { // add one more level of chaos to this beautifully deterministic system
+            let action_or_no = unsafe { rand_int_range(rng, 0, 5) };
             if action_or_no > 3 {
-                get_action(t, gen)
+                get_action(state, t, rng)
             } else {
                 None
             }
         },
         // do nothing at all in response to the tick
         _ => None,
+    }
+}
+
+/// Process a pushstream message
+pub fn handle_pushstream(state: &mut FuzzerState, msg: &BrokerResult, rng: *mut c_void) {
+    match msg {
+        &Ok(ref evt) => {
+            match evt {
+                // update our internal view of the account whenever an order/position is opened/modified
+                // TODO: Store cancelled orders in SimBroker
+                &BrokerMessage::OrderPlaced{order_id, ref order, timestamp: _} => {
+                    state.get_ledger().pending_positions.insert(order_id, order.clone()).unwrap();
+                },
+                &BrokerMessage::OrderModified{order_id, ref order, timestamp: _} => {
+                    let ledger = state.get_ledger();
+                    assert!(ledger.pending_positions.get(&order_id).is_some());
+                    ledger.pending_positions.insert(order_id, order.clone()).unwrap();
+                },
+                &BrokerMessage::OrderCancelled{order_id, ref order, timestamp: _} => {
+                    let cancelled_order = state.get_ledger().pending_positions.remove(&order_id).unwrap();
+                    assert_eq!(&cancelled_order, order);
+                }
+                &BrokerMessage::PositionOpened{ref position_id, ref position, timestamp: _} => {
+                    let ledger = state.get_ledger();
+                    ledger.pending_positions.remove(position_id).unwrap();
+                    ledger.open_positions.insert(*position_id, position.clone()).unwrap();
+                },
+                &BrokerMessage::PositionModified{position_id, ref position, timestamp: _} => {
+                    let ledger = state.get_ledger();
+                    assert!(ledger.open_positions.get(&position_id).is_some());
+                    ledger.open_positions.insert(position_id, position.clone()).unwrap();
+                },
+                &BrokerMessage::PositionClosed{position_id, ref position, reason: _, timestamp: _} => {
+                    let ledger = state.get_ledger();
+                    ledger.open_positions.remove(&position_id).unwrap();
+                    ledger.closed_positions.insert(position_id, position.clone()).unwrap();
+                },
+                _ => (),
+            }
+        },
+        &Err(_) => (),
     }
 }
 
