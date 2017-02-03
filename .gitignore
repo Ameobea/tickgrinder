@@ -5,3 +5,4 @@ vgcore.*
 Cargo.lock
 *.dump
 callgrind.*
+*.so

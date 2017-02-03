@@ -27,38 +27,38 @@ release:
 	if [[ ! -f configurator/settings.json ]]; then cd configurator && cargo run; fi;
 
 	# build the platform's utility library and copy into dist/lib
-	cd util && cargo build --release
+	cd util && CARGO_INCREMENTAL=1 cargo build --release
 	cp util/target/release/libtickgrinder_util.so dist/lib
 
 	# build the broker shims
-	cd broker_shims/simbroker && cargo build --release
+	cd broker_shims/simbroker && CARGO_INCREMENTAL=1 cargo build --release
 	cp broker_shims/simbroker/target/release/libsimbroker.so dist/lib
 	cd broker_shims/FXCM/native/native && ./build.sh
 	cp broker_shims/FXCM/native/native/dist/* dist/lib
-	cd broker_shims/FXCM/native && cargo build --release
+	cd broker_shims/FXCM/native && CARGO_INCREMENTAL=1 cargo build --release
 	cp broker_shims/FXCM/native/target/release/libfxcm.so dist/lib
 
 	# build the private library containing user-specific code as well as the small C++ wrapper
 	cd private/src/strategies/fuzzer/extern && ./build.sh
 	cp private/src/strategies/fuzzer/extern/librand_bindings.so dist/lib
-	cd private && cargo build --release
+	cd private && CARGO_INCREMENTAL=1 cargo build --release
 	cp private/target/release/libprivate.so dist/lib
 
 	# build all modules and copy their binaries into the dist directory
-	cd backtester && cargo build --release
+	cd backtester && CARGO_INCREMENTAL=1 cargo build --release
 	cp backtester/target/release/backtester dist
-	cd spawner && cargo build --release
+	cd spawner && CARGO_INCREMENTAL=1 cargo build --release
 	cp spawner/target/release/spawner dist
-	cd tick_parser && cargo build --release
+	cd tick_parser && CARGO_INCREMENTAL=1 cargo build --release
 	cp tick_parser/target/release/tick_processor dist
 
 	# build the FXCM native data downloader
-	cd data_downloaders/fxcm_native && cargo build --release
+	cd data_downloaders/fxcm_native && CARGO_INCREMENTAL=1 cargo build --release
 	cp data_downloaders/fxcm_native/target/release/fxcm_native dist/fxcm_native_downloader
 
-	cd optimizer && cargo build --release
+	cd optimizer && CARGO_INCREMENTAL=1 cargo build --release
 	cp optimizer/target/release/optimizer dist
-	cd logger && cargo build --release
+	cd logger && CARGO_INCREMENTAL=1 cargo build --release
 	cp logger/target/release/logger dist
 	cd mm && npm install
 	cp ./mm dist -r
@@ -68,7 +68,7 @@ dev:
 	cd dist && ln -s ../mm/ ./mm
 
 	# build the simbroker in superlog mode
-	cd broker_shims/simbroker && RUSTFLAGS="-L ../../util/target/release/deps -L ../../dist/lib -C prefer-dynamic" cargo build --features="superlog"
+	cd broker_shims/simbroker && RUSTFLAGS="-L ../../util/target/release/deps -L ../../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build --features="superlog"
 	cp broker_shims/simbroker/target/debug/libsimbroker.so dist/lib
 
 dev_release:
@@ -76,7 +76,7 @@ dev_release:
 	cd dist && ln -s ../mm/ ./mm
 
 	# build the simbroker in superlog mode
-	cd broker_shims/simbroker && RUSTFLAGS="-L ../../util/target/release/deps -L ../../dist/lib -C prefer-dynamic" cargo build --release --features="superlog"
+	cd broker_shims/simbroker && RUSTFLAGS="-L ../../util/target/release/deps -L ../../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build --release --features="superlog"
 	cp broker_shims/simbroker/target/release/libsimbroker.so dist/lib
 
 debug:
@@ -88,44 +88,44 @@ debug:
 	fi;
 
 	# build the configurator
-	cd configurator && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cd configurator && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 
 	# Run the configurator if no settings exist from a previous run
 	if [[ ! -f configurator/settings.json ]]; then cd configurator && cargo run; fi;
 
 	# build the platform's utility library and copy into dist/lib
-	cd util && cargo build
+	cd util && CARGO_INCREMENTAL=1 cargo build
 	cp util/target/debug/libtickgrinder_util.so dist/lib
 
 	# build the broker shims
-	cd broker_shims/simbroker && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build
+	cd broker_shims/simbroker && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp broker_shims/simbroker/target/debug/libsimbroker.so dist/lib
 	cd broker_shims/FXCM/native/native && ./build.sh
 	cp broker_shims/FXCM/native/native/dist/* dist/lib
-	cd broker_shims/FXCM/native && RUSTFLAGS="-L ../../../util/target/debug/deps -L ../../../dist/lib -C prefer-dynamic" cargo build
+	cd broker_shims/FXCM/native && RUSTFLAGS="-L ../../../util/target/debug/deps -L ../../../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp broker_shims/FXCM/native/target/debug/libfxcm.so dist/lib
 
 	# build the private library containing user-specific code as well as the small C++ wrapper
 	cd private/src/strategies/fuzzer/extern && ./build.sh
 	cp private/src/strategies/fuzzer/extern/librand_bindings.so dist/lib
-	cd private && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cd private && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp private/target/debug/libprivate.so dist/lib
 
 	# build all modules and copy their binaries into the dist directory
-	cd backtester && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cd backtester && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp backtester/target/debug/backtester dist
-	cd spawner && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cd spawner && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp spawner/target/debug/spawner dist
-	cd tick_parser && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cd tick_parser && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp tick_parser/target/debug/tick_processor dist
 
 	# build the FXCM native data downloader
-	cd data_downloaders/fxcm_native && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build
+	cd data_downloaders/fxcm_native && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp data_downloaders/fxcm_native/target/debug/fxcm_native dist/fxcm_native_downloader
 
-	cd optimizer && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cd optimizer && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp optimizer/target/debug/optimizer dist
-	cd logger && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cd logger && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp logger/target/debug/logger dist
 	cd mm && npm install
 	cp ./mm dist -r
@@ -157,17 +157,17 @@ test:
 
 	cd configurator && LD_LIBRARY_PATH="../../dist/lib" RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	# build the platform's utility library and copy into dist/lib
-	cd util && cargo build && cargo test --no-fail-fast
+	cd util && CARGO_INCREMENTAL=1 cargo build && cargo test --no-fail-fast
 	cp util/target/debug/libtickgrinder_util.so dist/lib
 
 	# build and test the broker shims
 	cd broker_shims/simbroker && LD_LIBRARY_PATH=../../util/target/debug/deps \
 		RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test && \
-		RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build
+		RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp broker_shims/simbroker/target/debug/libsimbroker.so dist/lib
 	cd broker_shims/FXCM/native/native && ./build.sh
 	cp broker_shims/FXCM/native/native/dist/* dist/lib
-	cd broker_shims/FXCM/native && RUSTFLAGS="-L ../../../util/target/debug/deps -L ../../../dist/lib -C prefer-dynamic" cargo build && \
+	cd broker_shims/FXCM/native && RUSTFLAGS="-L ../../../util/target/debug/deps -L ../../../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build && \
 		LD_LIBRARY_PATH=native/dist:../../../util/target/debug/deps \
 		RUSTFLAGS="-L ../../../util/target/debug/deps -L ../../../dist/lib -C prefer-dynamic" cargo test -- --nocapture
 	cp broker_shims/FXCM/native/target/debug/libfxcm.so dist/lib
@@ -175,7 +175,7 @@ test:
 	# build private and its corresponding c++ wrapper library
 	cd private/src/strategies/fuzzer/extern && ./build.sh
 	cp private/src/strategies/fuzzer/extern/librand_bindings.so dist/lib
-	cd private && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
+	cd private && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cd private && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 
 	cd optimizer && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
@@ -197,15 +197,15 @@ bench:
 	fi;
 
 	# build the platform's utility library and copy into dist/lib
-	cd util && cargo build --release && cargo bench
+	cd util && CARGO_INCREMENTAL=1 cargo build --release && cargo bench
 	cp util/target/release/libtickgrinder_util.so dist/lib
 
 	# build the broker shims
-	cd broker_shims/simbroker && cargo build --release && cargo bench
+	cd broker_shims/simbroker && CARGO_INCREMENTAL=1 cargo build --release && cargo bench
 	cp broker_shims/simbroker/target/release/libsimbroker.so dist/lib
 	cd broker_shims/FXCM/native/native && ./build.sh
 	cp broker_shims/FXCM/native/native/dist/* dist/lib
-	cd broker_shims/FXCM/native && cargo build --release
+	cd broker_shims/FXCM/native && CARGO_INCREMENTAL=1 cargo build --release
 	cp broker_shims/FXCM/native/target/release/libfxcm.so dist/lib
 
 	# build private and its corresponding c++ wrapper library

@@ -546,6 +546,7 @@ impl Accounts {
             if pos_uuid == cancelled_uuid {
                 let removed = self.positions[symbol_ix].pending.remove(i);
                 self.logger.cache_log(CacheAction::OrderCancelled, removed.acct_uuid, cancelled_uuid, &removed.pos);
+                return;
             }
         }
 
@@ -555,6 +556,8 @@ impl Accounts {
     /// This is called when a new position is opened manually, indicating that it should be removed from the pending
     /// cache and added to the open cache.
     pub fn position_opened(&mut self, pos: &Position, pos_uuid: Uuid) {
+        assert!(pos.execution_time.is_some());
+        assert!(pos.execution_price.is_some());
         let mut removed_pos = None;
         let mut i = 0;
         { // borrow-b-gone
@@ -583,6 +586,8 @@ impl Accounts {
     /// This is called when a position is opened without a pre-existing pending order; it simply adds the position to
     /// the open cache without trying to close a pending position.
     pub fn position_opened_immediate(&mut self, pos: &Position, pos_uuid: Uuid, account_uuid: Uuid) {
+        assert!(pos.execution_time.is_some());
+        assert!(pos.execution_price.is_some());
         let cached_pos = CachedPosition {pos_uuid: pos_uuid, acct_uuid: account_uuid, pos: pos.clone()};
         self.logger.cache_log(CacheAction::PositionOpenedImmediate, account_uuid, pos_uuid, pos);
         self.positions[pos.symbol_id].open.push(cached_pos);

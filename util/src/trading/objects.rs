@@ -79,7 +79,11 @@ pub enum BrokerError {
     InvalidModificationAmount,
     InvalidStopValue,
     InvalidTakeProfitValue,
-    MalformedPosition,
+    ExitWithoutEntry,
+    MissingExecutionData,
+    MissingExitData,
+    InvalidExecutionTime,
+    InvalidExitTime,
     NoDataAvailable,
 }
 
@@ -311,7 +315,7 @@ impl Position {
             }
         } else {
             if self.stop.is_some() && self.stop.unwrap() <= ask {
-                return Some( (ask, PositionClosureReason::TakeProfit) )
+                return Some( (ask, PositionClosureReason::TakeProfit) );
             } else if self.take_profit.is_some() && self.take_profit.unwrap() >= bid {
                 return Some( (bid, PositionClosureReason::TakeProfit) );
             }
@@ -329,9 +333,9 @@ impl Position {
             let price = *self.price.as_ref().unwrap();
             match self.stop {
                 Some(stop) => {
-                    if self.long && price < stop {
+                    if self.long && price <= stop {
                         return Err(BrokerError::InvalidStopValue);
-                    } else if !self.long && price > stop {
+                    } else if !self.long && price >= stop {
                         return Err(BrokerError::InvalidStopValue);
                     }
                 }
@@ -340,9 +344,9 @@ impl Position {
 
             match self.take_profit {
                 Some(tp) => {
-                    if self.long && price > tp {
+                    if self.long && price >= tp {
                         return Err(BrokerError::InvalidTakeProfitValue);
-                    } else if !self.long && price < tp {
+                    } else if !self.long && price <= tp {
                         return Err(BrokerError::InvalidTakeProfitValue);
                     }
                 },
@@ -351,27 +355,27 @@ impl Position {
         }
 
         // make sure that the position doesn't have an exit price unless it has an execution price.
-        if self.execution_price.is_none() && self.exit_price.is_none() {
-            return Err(BrokerError::MalformedPosition);
+        if self.execution_price.is_none() && self.exit_price.is_some() {
+            return Err(BrokerError::ExitWithoutEntry);
         }
 
         // make sure we have times paired with our execution/exit prices
         if (self.execution_price.is_some() && self.execution_time.is_none()) ||
            (self.execution_price.is_none() && self.execution_time.is_some())
         {
-            return Err(BrokerError::MalformedPosition);
+            return Err(BrokerError::MissingExecutionData);
         }
 
         if (self.exit_price.is_some() && self.exit_time.is_none()) ||
            (self.exit_price.is_none() && self.exit_time.is_some())
         {
-            return Err(BrokerError::MalformedPosition);
+            return Err(BrokerError::MissingExitData);
         }
 
         // make sure that execution times are >= order creation times if they exist
         match self.execution_time {
             Some(execution_time) => if execution_time < self.creation_time {
-                return Err(BrokerError::MalformedPosition);
+                return Err(BrokerError::InvalidExecutionTime);
             },
             None => (),
         };
@@ -379,7 +383,7 @@ impl Position {
         // make sure that exit times are after entry times if they exist
         match self.exit_time {
             Some(exit_time) => if exit_time < *self.execution_time.as_ref().unwrap() {
-                return Err(BrokerError::MalformedPosition);
+                return Err(BrokerError::InvalidExitTime);
             },
             None => (),
         };

@@ -680,7 +680,7 @@ impl SimBroker {
                         hm_pos.execution_price = Some(open_price);
                         hm_pos.execution_time = Some(self.timestamp);
 
-                        Some(ledger.open_position(pos_uuid, pos.clone()))
+                        Some(ledger.open_position(pos_uuid, hm_pos))
                     },
                     None => None,
                 };
@@ -688,23 +688,30 @@ impl SimBroker {
 
             i += 1;
 
-            if push_msg_opt.is_some() {
-                // remove from the pending cache
-                let swapped_pos = self.accounts.positions[symbol_id].pending.remove(i-1);
-                let push_msg = push_msg_opt.unwrap();
-                // this should always succeed
-                if push_msg.is_err() {
-                    let err_msg = format!("Error while trying to open position during tick check: {:?}, {:?}", &swapped_pos, push_msg);
-                    self.logger.error_log(&err_msg);
-                }
-                // assert!(push_msg.is_ok());
-                // add it to the open cache
-                self.accounts.positions[symbol_id].open.push(swapped_pos);
-                // send the push message to the client
-                self.push_msg(Ok(push_msg.unwrap()));
-                push_msg_count += 1;
-                // decrement i since we modified the cache
-                i -= 1;
+            match push_msg_opt {
+                Some(Ok(BrokerMessage::PositionOpened{position_id: _, position: ref hm_pos, timestamp: _})) => {
+                    // remove from the pending cache
+                    let mut cached_pos = self.accounts.positions[symbol_id].pending.remove(i-1);
+                    // update the cached position with the one with execution data
+                    cached_pos.pos = hm_pos.clone();
+                    let push_msg = push_msg_opt.as_ref().unwrap();
+                    // this should always succeed
+                    if push_msg.is_err() {
+                        let err_msg = format!("Error while trying to open position during tick check: {:?}, {:?}", &cached_pos.pos, push_msg);
+                        self.logger.error_log(&err_msg);
+                    }
+                    // assert!(push_msg.is_ok());
+                    // add it to the open cache
+                    self.accounts.positions[symbol_id].open.push(cached_pos);
+                    // send the push message to the client
+                    self.push_msg(Ok(push_msg.as_ref().unwrap().clone()));
+                    push_msg_count += 1;
+                    // decrement i since we modified the cache
+                    i -= 1;
+                },
+                Some(Err(err)) => self.logger.error_log(&format!("Push message from opening pending position was error: {:?}", err)),
+                Some(Ok(msg)) => self.logger.error_log(&format!("Received unexpected response type when opening pending position: {:?}", msg)),
+                None => (),
             }
         }
 
