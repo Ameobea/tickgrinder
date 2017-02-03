@@ -45,6 +45,8 @@ pub use self::client::*;
 mod superlog;
 use superlog::SuperLogger;
 
+// TODO: Deterministic `Uuid`s from PRNG
+
 /// A simulated broker that is used as the endpoint for trading activity in backtests.  This is the broker backend
 /// that creates/ingests streams that interact with the client.
 pub struct SimBroker {
@@ -77,7 +79,8 @@ impl SimBroker {
     pub fn new(
         settings: SimBrokerSettings, cs: CommandServer, client_rx: mpsc::Receiver<(BrokerAction, Complete<BrokerResult>)>,
     ) -> Result<SimBroker, BrokerError> {
-        let mut accounts = Accounts::new();
+        let logger = SuperLogger::new();
+        let mut accounts = Accounts::new(logger.clone());
         // create with one account with the starting balance.
         let account = Account {
             uuid: Uuid::new_v4(),
@@ -102,7 +105,7 @@ impl SimBroker {
             push_stream_handle: Some(client_push_tx),
             push_stream_recv: Some(client_push_rx.boxed()),
             cs: cs,
-            logger: SuperLogger::new(),
+            logger: logger,
         };
 
         // create an actual tickstream for each of the definitions and subscribe to all of them
@@ -131,8 +134,9 @@ impl SimBroker {
         self.logger.event_log(self.timestamp, "Starting the great simulation loop...");
     }
 
-    /// Called by the fuzzer executor to drive progress on the simulation.
-    pub fn tick_sim_loop(&mut self, num_last_actions: usize) {
+    /// Called by the fuzzer executor to drive progress on the simulation.  Returns the number of client
+    /// actions (tickstream ticks + pushstream messages) that were sent to the client during this tick.
+    pub fn tick_sim_loop(&mut self, num_last_actions: usize) -> usize {
         // first check if we have any messages from the client to process into the queue
         { // borrow-b-gone
             let rx = self.client_rx.as_mut().unwrap();
@@ -160,6 +164,7 @@ impl SimBroker {
         let item = self.pq.pop().unwrap();
         self.timestamp = item.timestamp;
         self.logger.event_log(self.timestamp, &format!("Popped new work unit from queue: {:?}", item.unit));
+        let mut client_event_count = 0;
 
         // then process the new item we took out of the queue
         match item.unit {
@@ -178,13 +183,10 @@ impl SimBroker {
                     self.timestamp,
                     &format!("Ticking positions in response to new tick: ({}, {:?})", symbol_ix, tick)
                 );
-                self.tick_positions(symbol_ix, (tick.bid, tick.ask,));
+                client_event_count += self.tick_positions(symbol_ix, (tick.bid, tick.ask,));
                 // push the next future tick into the queue
                 self.logger.event_log(self.timestamp, &format!("Pushing ClientTick into queue: ({}, {:?})", symbol_ix, tick));
                 self.pq.push_next_tick(&mut self.symbols);
-
-                // re-call ourself since all actions were internal
-                self.tick_sim_loop(0);
             },
             // A tick arriving at the client.  We now send it down the Client's channels and block
             // until it is consumed.
@@ -194,6 +196,7 @@ impl SimBroker {
                 self.logger.event_log(self.timestamp, &format!("Sending tick to client: ({}, {:?})", symbol_ix, tick));
                 // send the tick through the client stream, blocking until it is consumed by the client.
                 inner_symbol.send_client(tick);
+                client_event_count += 1;
             },
             // The moment the broker finishes processing an action and the action takes place.
             // Begins the network delay for the trip back to the client.
@@ -209,9 +212,6 @@ impl SimBroker {
                     unit: WorkUnit::Response(future, res),
                 };
                 self.pq.push(item);
-
-                // re-call ourself since all actions were internal
-                self.tick_sim_loop(0);
             },
             // The moment a response reaches the client.
             WorkUnit::Response(future, res) => {
@@ -220,8 +220,11 @@ impl SimBroker {
                 future.complete(res.clone());
                 // send the push message through the channel, blocking until it's consumed by the client.
                 self.push_msg(res);
+                client_event_count += 1;
             },
         }
+
+        client_event_count
     }
 
     /// Immediately sends a message over the broker's push channel.  Should only be called from within
@@ -305,13 +308,19 @@ impl SimBroker {
             exit_time: None,
         };
 
+        // make sure the supplied parameters are sane
+        let _ = order.check_sanity()?;
+
         // check if we're able to open this position right away at market price
         match order.is_open_satisfied(bid, ask) {
             // if this order is fillable right now, open it.
             Some(entry_price) => {
                 let res = self.market_open(account_uuid, symbol_ix, long, size, stop, take_profit, Some(0));
                 // this should always succeed
-                assert!(res.is_ok());
+                if res.is_err() {
+                    self.logger.error_log(&format!("Error while trying to place order: {:?}, {:?}", &order, res));
+                }
+                // assert!(res.is_ok());
                 return res
             },
             None => (),
@@ -376,6 +385,9 @@ impl SimBroker {
             exit_time: None,
         };
 
+        // make sure the supplied parameters are sane
+        let _ = pos.check_sanity()?;
+
         let pos_value = self.get_position_value(&pos)?;
         let pos_uuid = Uuid::new_v4();
 
@@ -402,9 +414,12 @@ impl SimBroker {
         }
 
         // that should never fail
-        assert!(res.is_ok());
+        if res.is_err() {
+            self.logger.error_log(&format!("Error while trying to open position: {:?}, {:?}", &pos, res));
+        }
+        // assert!(res.is_ok());
         // add the position to the cache for checking when to close it
-        self.accounts.position_opened(&pos, pos_uuid);
+        self.accounts.position_opened_immediate(&pos, pos_uuid, account_id);
 
         res
     }
@@ -499,7 +514,10 @@ impl SimBroker {
                         account.ledger.open_position(pos_uuid, order.clone())
                     };
                     // that should always succeed
-                    assert!(res.is_ok());
+                    if res.is_err() {
+                        self.logger.error_log(&format!("Error while trying to modify order: {:?}, {:?}", &order, res));
+                    }
+                    // assert!(res.is_ok());
                     // notify the cache that the position was opened
                     self.accounts.position_opened(&order, pos_uuid);
                     return res;
@@ -637,11 +655,15 @@ impl SimBroker {
 
     /// Called every price update the broker receives.  It simulates some kind of market activity on the simulated exchange
     /// that triggers a price update for that symbol.  This function checks all pending and open positions and determines
-    /// if they need to be opened, closed, or modified in any way due to this update.  All actions that take place here are
-    /// guarenteed to succeed since they are simulated as taking place within the brokerage itself.  All `BrokerMessage`s
-    /// generated by any actions that take place are sent through the supplied push stream handle to the client.
-    pub fn tick_positions(&mut self, symbol_id: usize, price: (usize, usize)) {
+    /// if they need to be opened, closed, or modified in any way due to this update.
+    ///
+    /// All actions that take place here are guarenteed to succeed since they are simulated as taking place within the
+    /// brokerage itself.  All `BrokerMessage`s generated by any actions that take place are sent through the supplied
+    /// push stream handle to the client.  The returned value is how many push messages were sent to the client
+    /// during this tick.
+    pub fn tick_positions(&mut self, symbol_id: usize, price: (usize, usize)) -> usize {
         let (bid, ask) = price;
+        let mut push_msg_count = 0;
         // check if any pending orders should be closed, modified, or opened
         // manually keep track of the index because we remove things from the vector dynamically
         let mut i = 0;
@@ -664,21 +686,26 @@ impl SimBroker {
                 };
             }
 
+            i += 1;
+
             if push_msg_opt.is_some() {
                 // remove from the pending cache
-                let swapped_pos = self.accounts.positions[symbol_id].pending.remove(i);
-                // add it to the open cache
-                self.accounts.positions[symbol_id].open.push(swapped_pos);
+                let swapped_pos = self.accounts.positions[symbol_id].pending.remove(i-1);
                 let push_msg = push_msg_opt.unwrap();
                 // this should always succeed
-                assert!(push_msg.is_ok());
+                if push_msg.is_err() {
+                    let err_msg = format!("Error while trying to open position during tick check: {:?}, {:?}", &swapped_pos, push_msg);
+                    self.logger.error_log(&err_msg);
+                }
+                // assert!(push_msg.is_ok());
+                // add it to the open cache
+                self.accounts.positions[symbol_id].open.push(swapped_pos);
                 // send the push message to the client
                 self.push_msg(Ok(push_msg.unwrap()));
+                push_msg_count += 1;
                 // decrement i since we modified the cache
                 i -= 1;
             }
-
-            i += 1;
         }
 
         // check if any open positions should be closed or modified
@@ -693,7 +720,8 @@ impl SimBroker {
                         // if the position should be closed, remove it from the cache.
                         let mut ledger = &mut self.accounts.data.get_mut(&acct_uuid).unwrap().ledger;
                         // remove from the hashmap
-                        let mut real_pos = ledger.open_positions.remove(&pos_uuid).unwrap();
+                        let mut real_pos = ledger.open_positions.remove(&pos_uuid)
+                            .expect("Tried to remove position from the open positions hashmap but nothing was there");
                         real_pos.exit_price = Some(closure_price);
                         real_pos.exit_time = Some(self.timestamp);
 
@@ -703,20 +731,27 @@ impl SimBroker {
                 };
             }
 
+            i += 1;
+
             if push_msg_opt.is_some() {
                 // remove from the open cache
-                let _ = self.accounts.positions[symbol_id].open.remove(i);
+                let cached_pos = self.accounts.positions[symbol_id].open.remove(i-1);
                 let push_msg = push_msg_opt.unwrap();
                 // this should always succeed
-                assert!(push_msg.is_ok());
+                if push_msg.is_err() {
+                    let err_msg = format!("Error while trying to close position during tick check: {:?}, {:?}", cached_pos.pos, push_msg);
+                    self.logger.error_log(&err_msg);
+                }
+                // assert!(push_msg.is_ok());
                 // send the push message to the client
                 self.push_msg(push_msg);
+                push_msg_count += 1;
                 // decrement i since we modified the cache
                 i -= 1;
             }
-
-            i += 1;
         }
+
+        push_msg_count
     }
 
     /// Sets the price for a symbol.  If no Symbol currently exists with that designation, a new one

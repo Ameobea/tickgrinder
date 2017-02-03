@@ -21,7 +21,9 @@ use private::strategies::fuzzer::Fuzzer;
 struct SimbrokerDriver {}
 
 impl SimbrokerDriver {
-    fn exec(self, mut manager: StrategyManager<()>, pairs: &[String], mut bufstream_tx: Sender<oneshot::Receiver<BrokerResult>>) {
+    pub fn exec(
+        self, mut manager: StrategyManager<()>, pairs: &[String], mut bufstream_tx: Sender<oneshot::Receiver<BrokerResult>>
+    ) {
         // subscribe to all the tickstreams as supplied in the configuration and combine the streams
         let (streams_tx, streams_rx) = unbounded();
         let mut symbol_enumeration = Vec::new(); // way to match symbols with their id
@@ -42,34 +44,53 @@ impl SimbrokerDriver {
         manager.helper.broker.send_message(0);
 
         // block this thread and funnel all messages from the tickstreams into the fuzzer
+        let mut client_msg_count; // how many notifications from the simbroker this tick
+        let mut client_res_count = 0; // how many respones we're sending back in response to this tick
         loop {
-            let response = match merged_rx_iter.next().unwrap().unwrap() {
-                MergedItem::First((ix, tick)) => manager.broker_tick(ix, tick),
-                MergedItem::Second((timestamp, res)) => manager.pushstream_tick(res, timestamp),
-                MergedItem::Both(_, _) => panic!("We got a both."),
-            };
-            // for now, only one command is returned by strategies every tick
-            let responses = if response.is_none() { 0 } else { 1 };
-
-            match response {
-                Some(strat_action) => {
-                    match strat_action {
-                        StrategyAction::BrokerAction(broker_action) => {
-                            // println!("`execute()` on broker...");
-                            let fut = manager.helper.broker.execute(broker_action);
-                            // println!("`bufstream_tx.send()`...");
-                            bufstream_tx = bufstream_tx.send(fut).wait().unwrap();
-                            // println!("After `bufstream_tx.send()`.");
-                        },
-                         _ => unimplemented!(),
-                    }
-                },
-                None => (),
-            };
-
             // manually drive progress on the inner event loop by abusing our custom message functionality
-            manager.helper.broker.send_message(responses);
+            client_msg_count = manager.helper.broker.send_message(client_res_count);
+            client_res_count = 0;
+
+            for _ in 0..client_msg_count {
+                let response = match merged_rx_iter.next().unwrap().unwrap() {
+                    MergedItem::First((ix, tick)) => manager.broker_tick(ix, tick),
+                    MergedItem::Second((timestamp, res)) => manager.pushstream_tick(res, timestamp),
+                    MergedItem::Both((_, _), (_, _)) => panic!("Received both in simbroker driver."),
+                };
+
+                let (new_bufstream_tx, responses) = SimbrokerDriver::handle_response(response, &mut manager, bufstream_tx);
+                bufstream_tx = new_bufstream_tx;
+                client_res_count += responses;
+            }
         }
+    }
+
+    /// Handles the `StrategyAction` returned by the strategy (if there is one) and returns the number
+    /// of actions that were processed and a new `bufstream_tx` (since it's consumed during `send()`).
+    fn handle_response(
+        response: Option<StrategyAction>, manager: &mut StrategyManager<()>, bufstream_tx: Sender<oneshot::Receiver<BrokerResult>>
+    ) -> (Sender<oneshot::Receiver<BrokerResult>>, usize) {
+        // for now, only one command is returned by strategies every tick
+        let responses = if response.is_none() { 0 } else { 1 };
+        let new_bufstream_tx;
+
+        match response {
+            Some(strat_action) => {
+                match strat_action {
+                    StrategyAction::BrokerAction(broker_action) => {
+                        // println!("`execute()` on broker...");
+                        let fut = manager.helper.broker.execute(broker_action);
+                        // println!("`bufstream_tx.send()`...");
+                        new_bufstream_tx = bufstream_tx.send(fut).wait().unwrap();
+                        // println!("After `bufstream_tx.send()`.");
+                    },
+                     _ => unimplemented!(),
+                }
+            },
+            None => new_bufstream_tx = bufstream_tx,
+        };
+
+        (new_bufstream_tx, responses)
     }
 }
 

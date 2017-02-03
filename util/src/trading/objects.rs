@@ -77,6 +77,9 @@ pub enum BrokerError {
     NoSuchAccount,
     NoSuchSymbol,
     InvalidModificationAmount,
+    InvalidStopValue,
+    InvalidTakeProfitValue,
+    MalformedPosition,
     NoDataAvailable,
 }
 
@@ -315,5 +318,73 @@ impl Position {
         }
 
         None
+    }
+
+    /// Verifies the values of a position to make sure that they make sense.  For example, the stop should
+    /// not be larger than the entry price if we're long, there should be no exit price if there's no entry
+    /// price, etc.
+    pub fn check_sanity(&self) -> Result<(), BrokerError> {
+        // check validity of stop/take profit values if they exist.
+        if self.price.is_some() {
+            let price = *self.price.as_ref().unwrap();
+            match self.stop {
+                Some(stop) => {
+                    if self.long && price < stop {
+                        return Err(BrokerError::InvalidStopValue);
+                    } else if !self.long && price > stop {
+                        return Err(BrokerError::InvalidStopValue);
+                    }
+                }
+                None => (),
+            }
+
+            match self.take_profit {
+                Some(tp) => {
+                    if self.long && price > tp {
+                        return Err(BrokerError::InvalidTakeProfitValue);
+                    } else if !self.long && price < tp {
+                        return Err(BrokerError::InvalidTakeProfitValue);
+                    }
+                },
+                None => (),
+            };
+        }
+
+        // make sure that the position doesn't have an exit price unless it has an execution price.
+        if self.execution_price.is_none() && self.exit_price.is_none() {
+            return Err(BrokerError::MalformedPosition);
+        }
+
+        // make sure we have times paired with our execution/exit prices
+        if (self.execution_price.is_some() && self.execution_time.is_none()) ||
+           (self.execution_price.is_none() && self.execution_time.is_some())
+        {
+            return Err(BrokerError::MalformedPosition);
+        }
+
+        if (self.exit_price.is_some() && self.exit_time.is_none()) ||
+           (self.exit_price.is_none() && self.exit_time.is_some())
+        {
+            return Err(BrokerError::MalformedPosition);
+        }
+
+        // make sure that execution times are >= order creation times if they exist
+        match self.execution_time {
+            Some(execution_time) => if execution_time < self.creation_time {
+                return Err(BrokerError::MalformedPosition);
+            },
+            None => (),
+        };
+
+        // make sure that exit times are after entry times if they exist
+        match self.exit_time {
+            Some(exit_time) => if exit_time < *self.execution_time.as_ref().unwrap() {
+                return Err(BrokerError::MalformedPosition);
+            },
+            None => (),
+        };
+
+        // no issue
+        Ok(())
     }
 }

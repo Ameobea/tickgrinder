@@ -127,7 +127,7 @@ impl ManagedStrategy<()> for Fuzzer {
                 handle_pushstream(&mut self.state, res, self.gen);
                 return None;
             },
-            Merged::T(_) => panic!("Got custom type but we don't have one."),
+            Merged::T(_) => panic!("Got custom type but we don't have one defined."),
         };
 
         self.logger.log_tick(t, data_ix);
@@ -194,12 +194,12 @@ pub fn handle_pushstream(state: &mut FuzzerState, msg: &BrokerResult, rng: *mut 
                 // update our internal view of the account whenever an order/position is opened/modified
                 // TODO: Store cancelled orders in SimBroker
                 &BrokerMessage::OrderPlaced{order_id, ref order, timestamp: _} => {
-                    state.get_ledger().pending_positions.insert(order_id, order.clone()).unwrap();
+                    state.get_ledger().pending_positions.insert(order_id, order.clone());
                 },
                 &BrokerMessage::OrderModified{order_id, ref order, timestamp: _} => {
                     let ledger = state.get_ledger();
                     assert!(ledger.pending_positions.get(&order_id).is_some());
-                    ledger.pending_positions.insert(order_id, order.clone()).unwrap();
+                    ledger.pending_positions.insert(order_id, order.clone());
                 },
                 &BrokerMessage::OrderCancelled{order_id, ref order, timestamp: _} => {
                     let cancelled_order = state.get_ledger().pending_positions.remove(&order_id).unwrap();
@@ -207,18 +207,18 @@ pub fn handle_pushstream(state: &mut FuzzerState, msg: &BrokerResult, rng: *mut 
                 }
                 &BrokerMessage::PositionOpened{ref position_id, ref position, timestamp: _} => {
                     let ledger = state.get_ledger();
-                    ledger.pending_positions.remove(position_id).unwrap();
-                    ledger.open_positions.insert(*position_id, position.clone()).unwrap();
+                    let _ = ledger.pending_positions.remove(position_id);
+                    ledger.open_positions.insert(*position_id, position.clone());
                 },
                 &BrokerMessage::PositionModified{position_id, ref position, timestamp: _} => {
                     let ledger = state.get_ledger();
                     assert!(ledger.open_positions.get(&position_id).is_some());
-                    ledger.open_positions.insert(position_id, position.clone()).unwrap();
+                    ledger.open_positions.insert(position_id, position.clone());
                 },
                 &BrokerMessage::PositionClosed{position_id, ref position, reason: _, timestamp: _} => {
                     let ledger = state.get_ledger();
                     ledger.open_positions.remove(&position_id).unwrap();
-                    ledger.closed_positions.insert(position_id, position.clone()).unwrap();
+                    ledger.closed_positions.insert(position_id, position.clone());
                 },
                 _ => (),
             }

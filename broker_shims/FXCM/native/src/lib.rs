@@ -344,7 +344,7 @@ impl Broker for FXCMNative {
         Ok(Box::new(rx))
     }
 
-    fn send_message(&mut self, code: usize) {
+    fn send_message(&mut self, code: usize) -> usize {
         unimplemented!();
     }
 }

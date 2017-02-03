@@ -145,8 +145,8 @@ impl Broker for SimBrokerClient {
     /// This usually allows for a custom message to be sent to the broker to fulfill a unique functionality not
     /// covered by the rest of the trait functions.  For the simbroker, this is used to drive progress on the internal
     /// simulation loop.
-    fn send_message(&mut self, code: usize) {
-        self.simbroker.tick_sim_loop(code);
+    fn send_message(&mut self, code: usize) -> usize {
+        self.simbroker.tick_sim_loop(code)
     }
 }
 

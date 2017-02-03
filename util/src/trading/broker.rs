@@ -39,7 +39,7 @@ pub trait Broker {
     /// Allows for unique functionality to be implemented for brokers that doesn't fit the rest of
     /// the broker traits.  It's up to individual strategies/brokers to determine what these codes do
     /// and implement their functionality.
-    fn send_message(&mut self, code: usize);
+    fn send_message(&mut self, code: usize) -> usize;
 }
 
 /// Utility type for a broker response that may fail

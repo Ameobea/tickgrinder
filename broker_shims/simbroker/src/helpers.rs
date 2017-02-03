@@ -8,6 +8,7 @@ use std::slice::{Iter, IterMut};
 use std::fmt::{self, Formatter, Debug};
 
 use super::*;
+use superlog::CacheAction;
 
 /// Returns a struct given the struct's field:value pairs in a `HashMap`.  If the provided `HashMap`
 /// doesn't contain a field, then the default is used.
@@ -450,6 +451,7 @@ impl SimulationQueue {
 }
 
 /// The units stored in the cache; contains the position and some data to easily locate it in the main HashMap.
+#[derive(Debug)]
 pub struct CachedPosition {
     pub pos_uuid: Uuid,
     pub acct_uuid: Uuid,
@@ -480,13 +482,15 @@ pub struct Accounts {
     pub data: HashMap<Uuid, Account>,
     /// Contains copies of all pending and open positions for all accounts along with the account's Uuid
     pub positions: Vec<Positions>,
+    pub logger: SuperLogger,
 }
 
 impl Accounts {
-    pub fn new() -> Accounts {
+    pub fn new(logger: SuperLogger) -> Accounts {
         Accounts {
             data: HashMap::new(),
             positions: Vec::new(),
+            logger: logger,
         }
     }
 
@@ -514,18 +518,21 @@ impl Accounts {
 
     /// This is called when a new order is placed, indicating that it should be added to the pending cache.
     pub fn order_placed(&mut self, order: &Position, order_uuid: Uuid, account_uuid: Uuid) {
-        self.positions[order.symbol_id].pending.push(CachedPosition {
+        let cached_pos = CachedPosition {
             pos_uuid: order_uuid,
             acct_uuid: account_uuid,
             pos: order.clone(),
-        });
+        };
+        self.logger.cache_log(CacheAction::OrderPlaced, account_uuid, order_uuid, order);
+        self.positions[order.symbol_id].pending.push(cached_pos);
     }
 
     /// This is called when a pending position is manually modified but not closed, indicating that its cache
     /// value should be updated to the new supplied version.
     pub fn order_modified(&mut self, updated_order: &Position, supplied_uuid: Uuid) {
-        for &mut CachedPosition { pos_uuid, acct_uuid: _, ref mut pos } in &mut self.positions[updated_order.symbol_id].pending {
+        for &mut CachedPosition { pos_uuid, acct_uuid, ref mut pos } in &mut self.positions[updated_order.symbol_id].pending {
             if pos_uuid == supplied_uuid {
+                self.logger.cache_log(CacheAction::OrderModified{old_order: pos}, acct_uuid, pos_uuid, updated_order);
                 *pos = updated_order.clone();
             }
         }
@@ -537,7 +544,8 @@ impl Accounts {
         for i in 0..self.positions[symbol_ix].pending.len() {
             let pos_uuid = self.positions[symbol_ix].pending[i].pos_uuid;
             if pos_uuid == cancelled_uuid {
-                self.positions[symbol_ix].pending.remove(i);
+                let removed = self.positions[symbol_ix].pending.remove(i);
+                self.logger.cache_log(CacheAction::OrderCancelled, removed.acct_uuid, cancelled_uuid, &removed.pos);
             }
         }
 
@@ -557,6 +565,7 @@ impl Accounts {
                     let mut cached_pos = pending_cache.remove(i);
                     cached_pos.pos = pos.clone();
                     cached_pos.pos_uuid = pos_uuid;
+                    self.logger.cache_log(CacheAction::OrderFilled, cached_pos.acct_uuid, cached_pos.pos_uuid, &cached_pos.pos);
                     removed_pos = Some(cached_pos);
                     break;
                 }
@@ -571,10 +580,19 @@ impl Accounts {
         }
     }
 
+    /// This is called when a position is opened without a pre-existing pending order; it simply adds the position to
+    /// the open cache without trying to close a pending position.
+    pub fn position_opened_immediate(&mut self, pos: &Position, pos_uuid: Uuid, account_uuid: Uuid) {
+        let cached_pos = CachedPosition {pos_uuid: pos_uuid, acct_uuid: account_uuid, pos: pos.clone()};
+        self.logger.cache_log(CacheAction::PositionOpenedImmediate, account_uuid, pos_uuid, pos);
+        self.positions[pos.symbol_id].open.push(cached_pos);
+    }
+
     /// This is called when an open position is modified in some way, indicating that its cached value should be changed.
     pub fn position_modified(&mut self, updated_pos: &Position, supplied_uuid: Uuid) {
-        for &mut CachedPosition { pos_uuid, acct_uuid: _, ref mut pos } in &mut self.positions[updated_pos.symbol_id].open {
+        for &mut CachedPosition { pos_uuid, acct_uuid, ref mut pos } in &mut self.positions[updated_pos.symbol_id].open {
             if pos_uuid == supplied_uuid {
+                self.logger.cache_log(CacheAction::PositionModified{old_pos: pos}, acct_uuid, pos_uuid, updated_pos);
                 *pos = updated_pos.clone();
             }
         }
@@ -585,7 +603,8 @@ impl Accounts {
         let mut open_cache = &mut self.positions[pos.symbol_id].open;
         for i in 0..open_cache.len() {
             if open_cache[i].pos_uuid == pos_uuid {
-                let _ = open_cache.remove(i);
+                let removed_pos = open_cache.remove(i);
+                self.logger.cache_log(CacheAction::PositionClosed, removed_pos.acct_uuid, removed_pos.pos_uuid, pos);
                 return
             }
         }
