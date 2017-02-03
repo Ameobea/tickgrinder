@@ -155,7 +155,7 @@ impl ManagedStrategy<()> for Fuzzer {
 /// Called during each iteration of the fuzzer loop.  Picks a random action to take based on the
 /// internally held PRNG and executes it.
 pub fn get_action(state: &mut FuzzerState, t: &Tick, rng: *mut c_void) -> Option<StrategyAction> {
-    let rand = unsafe { rand_int_range(rng, 0, 5) };
+    let rand = unsafe { rand_int_range(rng, 0, 20) };
     match rand {
         0 => Some(StrategyAction::BrokerAction(BrokerAction::Ping)),
         1 => { // random market open order
@@ -173,13 +173,79 @@ pub fn get_action(state: &mut FuzzerState, t: &Tick, rng: *mut c_void) -> Option
                 action: order
             }))
         },
-        2 => { // add one more level of chaos to this beautifully deterministic system
+        2 => { // add one more level of chaos to this beautifully yet deterministic system
             let action_or_no = unsafe { rand_int_range(rng, 0, 5) };
             if action_or_no > 3 {
                 get_action(state, t, rng)
             } else {
                 None
             }
+        },
+        3 => { // random limit order
+            let price = unsafe { rand_int_range(rng, 25, 75) } as usize;
+            let order = TradingAction::LimitOrder{
+                symbol: String::from("TEST"),
+                long: random_bool(rng),
+                size: unsafe { rand_int_range(rng, 0, 5) as usize },
+                stop: if random_bool(rng) { Some(price + unsafe { rand_int_range(rng, 0, 5) as usize }) } else { None },
+                take_profit: if random_bool(rng) { Some(price + unsafe { rand_int_range(rng, 0, 5) as usize }) } else { None },
+                entry_price: price,
+            };
+
+            Some(StrategyAction::BrokerAction(BrokerAction::TradingAction{
+                account_uuid: state.account_uuid.unwrap(),
+                action: order,
+            }))
+        },
+        8 | 9 => { // maybe close part of or all of an open position at market
+            let account_uuid = state.account_uuid.unwrap();
+            let ledger = state.get_ledger();
+            let open_pos_count = ledger.open_positions.len();
+            // the more positions open, the higher the chance that we close one.
+            let roll = unsafe { rand_int_range(rng, 0, (open_pos_count + 5) as i32) } as usize;
+            if roll >= open_pos_count {
+                return None;
+            }
+
+            let mut i = 0;
+            for (uuid, pos) in ledger.pending_positions.iter() {
+                if i == roll {
+                    return Some(StrategyAction::BrokerAction(BrokerAction::TradingAction{
+                        account_uuid: account_uuid,
+                        action: TradingAction::MarketClose{
+                            uuid: *uuid,
+                            size: unsafe { rand_int_range(rng, 0, pos.size as i32 + 2) } as usize,
+                        }
+                    }));
+                }
+
+                i += 1;
+            }
+
+            // do nothing if we have no open positions
+            None
+        },
+        10 | 11 => { // maybe close an open position with a limit close
+            None // TODO
+        }
+        15 => { // cancel a pending order
+            // only go forward half the time
+            if random_bool(rng) {
+                return None;
+            }
+
+            // TODO: This may be a source of indeterminism; check into that.
+            //       It almost certainly will be until the deterministic Uuid generation is implemented.
+            let account_uuid = state.account_uuid.unwrap();
+            for (uuid, _) in state.get_ledger().pending_positions.iter() {
+                // cancel the first order returned by the iterator
+                return Some(StrategyAction::BrokerAction(BrokerAction::TradingAction{
+                    account_uuid: account_uuid,
+                    action: TradingAction::CancelOrder{uuid: *uuid},
+                }))
+            }
+
+            None // there were no pending orders to cancel
         },
         // do nothing at all in response to the tick
         _ => None,

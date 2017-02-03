@@ -31,8 +31,7 @@ use std::str::FromStr;
 
 use uuid::Uuid;
 use futures::Future;
-use futures::stream::Stream;
-use futures::sync::mpsc::UnboundedReceiver;
+use futures::stream::{Stream, BoxStream};
 use serde_json::to_string;
 
 use tickgrinder_util::transport::command_server::CommandServer;
@@ -244,7 +243,7 @@ impl Backtester {
 
         // modify the source tickstream to add delay between the ticks or add some other kind of
         // advanced functionality to the way they're outputted
-        let tickstream: Result<UnboundedReceiver<Tick>, String> = match definition.backtest_type {
+        let tickstream: Result<BoxStream<Tick, ()>, String> = match definition.backtest_type {
             BacktestType::Fast{delay_ms} => src.get(
                 Box::new(FastMap{delay_ms: delay_ms}), handle_rx
             ),
