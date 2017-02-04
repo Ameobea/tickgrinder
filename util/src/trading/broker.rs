@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 
-use uuid::Uuid;
 use futures::sync::oneshot::Receiver;
 use futures::stream::Stream;
 
@@ -18,13 +17,6 @@ pub trait Broker {
     /// Takes a Key:Value HashMap containing configuration settings.
     fn init(settings: HashMap<String, String>) -> Receiver<Result<Self, BrokerError>> where Self:Sized;
 
-    /// Returns a list of all accounts the user has on the broker.
-    fn list_accounts(&mut self) -> Receiver<Result<HashMap<Uuid, Account>, BrokerError>>;
-
-    /// Returns a Ledger containing the Broker's version of all current and closed
-    /// trades and positions as well as balance and portfolio state.
-    fn get_ledger(&mut self, account_id: Uuid) -> Receiver<Result<Ledger, BrokerError>>;
-
     /// Executes a BrokerAction on the broker, returning its response.
     fn execute(&mut self, action: BrokerAction) -> PendingResult;
 
@@ -35,11 +27,6 @@ pub trait Broker {
 
     /// Returns a stream of live ticks for a symbol.
     fn sub_ticks(&mut self, symbol: String) -> Result<Box<Stream<Item=Tick, Error=()> + Send>, BrokerError>;
-
-    /// Allows for unique functionality to be implemented for brokers that doesn't fit the rest of
-    /// the broker traits.  It's up to individual strategies/brokers to determine what these codes do
-    /// and implement their functionality.
-    fn send_message(&mut self, code: usize) -> usize;
 }
 
 /// Utility type for a broker response that may fail

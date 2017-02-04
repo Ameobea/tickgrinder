@@ -6,6 +6,7 @@ use serde_json;
 use std::intrinsics::unlikely;
 use std::slice::{Iter, IterMut};
 use std::fmt::{self, Formatter, Debug};
+use std::collections::hash_map;
 
 use super::*;
 use superlog::CacheAction;
@@ -75,6 +76,12 @@ fn simbroker_settings_hashmap_population() {
     hm.insert(String::from("ping_ns"), String::from("2000"));
     let settings = SimBrokerSettings::from_hashmap(hm);
     assert_eq!(settings.ping_ns, 2000);
+}
+
+/// An item to be communicated to the client.
+pub enum TickOutput {
+    Tick(usize, Tick),
+    Pushstream(u64, BrokerResult),
 }
 
 /// Contains metadata about a particular tickstream and the symbol of the ticks
@@ -516,6 +523,14 @@ impl Accounts {
         self.data.get_mut(k)
     }
 
+    pub fn iter(&self) -> hash_map::Iter<Uuid, Account> {
+        self.data.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
     /// This is called when a new order is placed, indicating that it should be added to the pending cache.
     pub fn order_placed(&mut self, order: &Position, order_uuid: Uuid, account_uuid: Uuid) {
         let cached_pos = CachedPosition {
@@ -630,4 +645,18 @@ pub fn convert_decimals(in_price: usize, in_decimals: usize, out_decimals: usize
     } else {
         unreachable!()
     }
+}
+
+/// Creates a new deterministly random byte given a PRNG source.
+pub fn rand_byte(prng: *mut c_void) -> u8 {
+    unsafe { rand_int_range(prng, 0, 255) as u8 }
+}
+
+/// Generates a new deterministly random Uuid from the interior PRNG source.
+pub fn gen_uuid(r: *mut c_void) -> Uuid {
+    let bytes = [rand_byte(r), rand_byte(r), rand_byte(r), rand_byte(r), rand_byte(r), rand_byte(r), rand_byte(r),
+                 rand_byte(r), rand_byte(r), rand_byte(r), rand_byte(r), rand_byte(r), rand_byte(r), rand_byte(r),
+                 rand_byte(r), rand_byte(r)
+                ];
+    Uuid::from_bytes(&bytes).expect("Unable to generate random UUID!")
 }

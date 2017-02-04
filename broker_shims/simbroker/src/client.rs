@@ -58,21 +58,6 @@ impl Broker for SimBrokerClient {
         o
     }
 
-    fn get_ledger(&mut self, account_id: Uuid) -> Oneshot<Result<Ledger, BrokerError>> {
-        let (complete, oneshot) = oneshot::<Result<Ledger, BrokerError>>();
-        let account = self.simbroker.get_ledger_clone(account_id);
-        complete.complete(account);
-
-        oneshot
-    }
-
-    fn list_accounts(&mut self) -> Oneshot<Result<HashMap<Uuid, Account>, BrokerError>> {
-        let (complete, oneshot) = oneshot::<Result<HashMap<Uuid, Account>, BrokerError>>();
-        complete.complete(Ok(self.simbroker.accounts.data.clone()));
-
-        oneshot
-    }
-
     fn execute(&mut self, action: BrokerAction) -> PendingResult {
         // push the message into the inner `SimBroker`'s simulation queue
         let (complete, oneshot) = oneshot::<BrokerResult>();
@@ -140,13 +125,6 @@ impl Broker for SimBrokerClient {
 
         // return the new tail tickstream to the client with the assumption that it will be driven to completion there.
         Ok(new_tickstream.boxed())
-    }
-
-    /// This usually allows for a custom message to be sent to the broker to fulfill a unique functionality not
-    /// covered by the rest of the trait functions.  For the simbroker, this is used to drive progress on the internal
-    /// simulation loop.
-    fn send_message(&mut self, code: usize) -> usize {
-        self.simbroker.tick_sim_loop(code)
     }
 }
 

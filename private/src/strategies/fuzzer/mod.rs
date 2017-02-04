@@ -222,11 +222,40 @@ pub fn get_action(state: &mut FuzzerState, t: &Tick, rng: *mut c_void) -> Option
                 i += 1;
             }
 
-            // do nothing if we have no open positions
-            None
+            None // do nothing if we have no open positions
         },
         10 | 11 => { // maybe close an open position with a limit close
-            None // TODO
+            let account_uuid = state.account_uuid.unwrap();
+            let ledger = state.get_ledger();
+            let open_pos_count = ledger.open_positions.len();
+            // the more positions open, the higher the chance that we close one.
+            let roll = unsafe { rand_int_range(rng, 0, (open_pos_count + 5) as i32) } as usize;
+            if roll >= open_pos_count {
+                return None;
+            }
+
+            let roll = unsafe { rand_int_range(rng, 0, 15) } as i32;
+            let mut i = 0;
+            for (uuid, pos) in ledger.pending_positions.iter() {
+                if i == roll {
+                    return Some(StrategyAction::BrokerAction(BrokerAction::TradingAction{
+                        account_uuid: account_uuid,
+                        action: TradingAction::LimitClose{
+                            uuid: *uuid,
+                            size: unsafe { rand_int_range(rng, 0, pos.size as i32 + 1) } as usize,
+                            exit_price: if t.bid as i32 >= roll && random_bool(rng) {
+                                (t.bid as i32 - roll) as usize
+                            } else {
+                                (t.bid as i32 + roll) as usize
+                            },
+                        }
+                    }));
+                }
+
+                i += 1;
+            }
+
+            None // do nothing if we have no open positions
         }
         15 => { // cancel a pending order
             // only go forward half the time

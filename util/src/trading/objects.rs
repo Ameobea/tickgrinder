@@ -9,7 +9,7 @@ use trading::trading_condition::{TradingAction};
 use trading::broker::*;
 
 /// An account
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Account {
     pub uuid: Uuid,
     pub ledger: Ledger,
@@ -22,6 +22,8 @@ pub enum BrokerAction {
     TradingAction{ account_uuid: Uuid, action: TradingAction },
     /// Returns a Pong with the timestamp the broker received the message
     Ping,
+    GetLedger{account_uuid: Uuid},
+    ListAccounts,
     Disconnect,
 }
 
@@ -66,6 +68,8 @@ pub enum BrokerMessage {
         timestamp: u64,
     },
     Pong{time_received: u64},
+    AccountListing{accounts: Vec<Account>},
+    Ledger{ledger: Ledger},
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -99,7 +103,7 @@ pub enum PositionClosureReason {
 
 /// The platform's internal representation of the current state of an account.
 /// Contains information about past trades as well as current positions.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ledger {
     pub balance: usize,
     pub pending_positions: HashMap<Uuid, Position>,
@@ -118,12 +122,11 @@ impl Ledger {
     }
 
     /// Attempts to open a pending position in the ledger with the supplied position.
-    pub fn place_order(&mut self, pos: Position, margin_requirement: usize) -> BrokerResult {
+    pub fn place_order(&mut self, pos: Position, margin_requirement: usize, uuid: Uuid) -> BrokerResult {
         if margin_requirement > self.balance {
             return Err(BrokerError::InsufficientBuyingPower)
         }
         self.balance -= margin_requirement;
-        let uuid = Uuid::new_v4();
         self.pending_positions.insert(uuid, pos.clone());
         let creation_time = pos.creation_time;
         Ok(BrokerMessage::OrderPlaced{

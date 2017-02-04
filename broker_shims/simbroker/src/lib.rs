@@ -16,6 +16,8 @@ extern crate serde_derive;
 extern crate tickgrinder_util;
 #[macro_use]
 extern crate from_hashmap;
+extern crate libc;
+extern crate rand;
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -25,17 +27,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::ops::{Index, IndexMut};
 use std::mem;
+use libc::c_void;
 
 use futures::{Future, Stream, Sink, oneshot, Oneshot, Complete};
 use futures::stream::BoxStream;
 use futures::sync::mpsc::{channel, Sender};
 use uuid::Uuid;
+use rand::Rng;
 
 use tickgrinder_util::trading::tick::*;
 pub use tickgrinder_util::trading::broker::*;
 use tickgrinder_util::trading::trading_condition::*;
 use tickgrinder_util::transport::command_server::CommandServer;
 use tickgrinder_util::transport::tickstream::{TickGenerator, TickGenerators};
+use tickgrinder_util::conf::CONF;
 
 mod tests;
 mod helpers;
@@ -45,7 +50,12 @@ pub use self::client::*;
 mod superlog;
 use superlog::SuperLogger;
 
-// TODO: Deterministic `Uuid`s from PRNG
+// link with the libboost_random wrapper
+#[link(name="rand_bindings")]
+extern {
+    fn init_rng(seed: u32) -> *mut c_void;
+    fn rand_int_range(void_rng: *mut c_void, min: i32, max: i32) -> u32;
+}
 
 /// A simulated broker that is used as the endpoint for trading activity in backtests.  This is the broker backend
 /// that creates/ingests streams that interact with the client.
@@ -70,6 +80,8 @@ pub struct SimBroker {
     pub cs: CommandServer,
     /// Holds a logger used to log detailed data to flatfile if the `superlog` feature id enabled and an empty struct otherwise.
     logger: SuperLogger,
+    /// A source of deterministic PRNG to be used to generating Uuids.
+    prng: *mut c_void,
 }
 
 // .-.
@@ -81,19 +93,36 @@ impl SimBroker {
     ) -> Result<SimBroker, BrokerError> {
         let logger = SuperLogger::new();
         let mut accounts = Accounts::new(logger.clone());
+
+        // set up the deterministicly random data generator if it's enabled in the config
+        let seed: u32 = if CONF.fuzzer_deterministic_rng {
+            let mut sum = 0;
+            // convert the seed string into an integer for seeding the fuzzer
+            for c in CONF.fuzzer_seed.chars() {
+                sum += c as u32;
+            }
+            sum
+        } else {
+            let mut rng = rand::thread_rng();
+            rng.gen()
+        };
+        let rng = unsafe { init_rng(seed) };
+        let uuid = gen_uuid(rng);
+
         // create with one account with the starting balance.
         let account = Account {
-            uuid: Uuid::new_v4(),
+            uuid: uuid,
             ledger: Ledger::new(settings.starting_balance),
             live: false,
         };
-        accounts.insert(Uuid::new_v4(), account);
+        accounts.insert(uuid, account);
         // TODO: Make sure that 0 is the right buffer size for this channel
         let (client_push_tx, client_push_rx) = channel::<(u64, BrokerResult)>(0);
 
         // try to deserialize the "tickstreams" parameter of the input settings to get a list of tickstreams register
         let tickstreams: Vec<(String, TickGenerators, bool, usize)> = serde_json::from_str(&settings.tickstreams)
             .map_err(|_| BrokerError::Message{message: String::from("Unable to deserialize the input tickstreams into a vector!")})?;
+
 
         let mut sim = SimBroker {
             accounts: accounts,
@@ -106,6 +135,7 @@ impl SimBroker {
             push_stream_recv: Some(client_push_rx.boxed()),
             cs: cs,
             logger: logger,
+            prng: rng,
         };
 
         // create an actual tickstream for each of the definitions and subscribe to all of them
@@ -136,7 +166,7 @@ impl SimBroker {
 
     /// Called by the fuzzer executor to drive progress on the simulation.  Returns the number of client
     /// actions (tickstream ticks + pushstream messages) that were sent to the client during this tick.
-    pub fn tick_sim_loop(&mut self, num_last_actions: usize) -> usize {
+    pub fn tick_sim_loop(&mut self, num_last_actions: usize, buffer: Vec<TickOutput>) -> usize {
         // first check if we have any messages from the client to process into the queue
         { // borrow-b-gone
             let rx = self.client_rx.as_mut().unwrap();
@@ -229,11 +259,11 @@ impl SimBroker {
 
     /// Immediately sends a message over the broker's push channel.  Should only be called from within
     /// the SimBroker's internal event handling loop since it immediately sends the message.
-    fn push_msg(&mut self, msg: BrokerResult) {
-        self.logger.event_log(self.timestamp, &format!("`push_msg()` sending message to client: {:?}", msg));
-        let sender = mem::replace(&mut self.push_stream_handle, None).unwrap();
-        let new_sender = sender.send((self.timestamp, msg)).wait().expect("Unable to push_msg");
-        mem::replace(&mut self.push_stream_handle, Some(new_sender));
+    fn push_msg(&mut self, _: BrokerResult) {
+        // self.logger.event_log(self.timestamp, &format!("`push_msg()` sending message to client: {:?}", msg));
+        // let sender = mem::replace(&mut self.push_stream_handle, None).unwrap();
+        // let new_sender = sender.send((self.timestamp, msg)).wait().expect("Unable to push_msg");
+        // mem::replace(&mut self.push_stream_handle, Some(new_sender));
     }
 
     /// Actually carries out the action of the supplied BrokerAction (simulates it being received and processed)
@@ -278,6 +308,19 @@ impl SimBroker {
                     },
                 }
             },
+            &BrokerAction::GetLedger{account_uuid} => {
+                match self.accounts.get(&account_uuid) {
+                    Some(acct) => Ok(BrokerMessage::Ledger{ledger: acct.ledger.clone()}),
+                    None => Err(BrokerError::NoSuchAccount),
+                }
+            },
+            &BrokerAction::ListAccounts => {
+                let mut res = Vec::with_capacity(self.accounts.len());
+                for (_, acct) in self.accounts.iter() {
+                    res.push(acct.clone());
+                }
+                Ok(BrokerMessage::AccountListing{accounts: res})
+            }
             &BrokerAction::Disconnect => unimplemented!(),
         }
     }
@@ -333,7 +376,7 @@ impl SimBroker {
             Entry::Occupied(mut o) => {
                 let account = o.get_mut();
                 let margin_requirement = pos_value / self.settings.leverage;
-                account.ledger.place_order(order.clone(), margin_requirement)
+                account.ledger.place_order(order.clone(), margin_requirement, gen_uuid(self.prng))
             },
             Entry::Vacant(_) => {
                 Err(BrokerError::NoSuchAccount)
@@ -389,7 +432,7 @@ impl SimBroker {
         let _ = pos.check_sanity()?;
 
         let pos_value = self.get_position_value(&pos)?;
-        let pos_uuid = Uuid::new_v4();
+        let pos_uuid = gen_uuid(self.prng);
 
         let res;
         { // borrow-b-gone
