@@ -79,6 +79,7 @@ fn simbroker_settings_hashmap_population() {
 }
 
 /// An item to be communicated to the client.
+#[derive(Clone)]
 pub enum TickOutput {
     Tick(usize, Tick),
     Pushstream(u64, BrokerResult),

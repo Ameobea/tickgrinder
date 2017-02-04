@@ -211,21 +211,6 @@ impl Broker for FXCMNative {
         ext_rx
     }
 
-    fn list_accounts(&mut self) -> Receiver<Result<HashMap<Uuid, Account>, BrokerError>> {
-        let msg = ClientMessage {
-            command: ServerCommand::LIST_ACCOUNTS,
-            payload: NULL,
-        };
-
-        unsafe { push_client_message(msg, self.server_environment) };
-
-        unimplemented!();
-    }
-
-    fn get_ledger(&mut self, account_id: Uuid) -> Receiver<Result<Ledger, BrokerError>> {
-        unimplemented!();
-    }
-
     #[allow(unused_variables)]
     fn execute(&mut self, action: BrokerAction) -> PendingResult {
         match action {
@@ -257,6 +242,12 @@ impl Broker for FXCMNative {
                     },
                 }
             },
+            BrokerAction::GetLedger{account_uuid} => {
+                unimplemented!(); // TODO
+            },
+            BrokerAction::ListAccounts => {
+                unimplemented!(); // TODO
+            }
             BrokerAction::Disconnect => unimplemented!(),
         }
     }
@@ -342,10 +333,6 @@ impl Broker for FXCMNative {
         unsafe { push_client_message(msg, self.server_environment) };
 
         Ok(Box::new(rx))
-    }
-
-    fn send_message(&mut self, code: usize) -> usize {
-        unimplemented!();
     }
 }
 

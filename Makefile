@@ -30,6 +30,10 @@ release:
 	cd util && CARGO_INCREMENTAL=1 cargo build --release
 	cp util/target/release/libtickgrinder_util.so dist/lib
 
+	# Build and install the small libboost rand wrapper
+	cd private/src/strategies/fuzzer/extern && ./build.sh
+	cp private/src/strategies/fuzzer/extern/librand_bindings.so dist/lib
+
 	# build the broker shims
 	cd broker_shims/simbroker && CARGO_INCREMENTAL=1 cargo build --release
 	cp broker_shims/simbroker/target/release/libsimbroker.so dist/lib
@@ -38,9 +42,7 @@ release:
 	cd broker_shims/FXCM/native && CARGO_INCREMENTAL=1 cargo build --release
 	cp broker_shims/FXCM/native/target/release/libfxcm.so dist/lib
 
-	# build the private library containing user-specific code as well as the small C++ wrapper
-	cd private/src/strategies/fuzzer/extern && ./build.sh
-	cp private/src/strategies/fuzzer/extern/librand_bindings.so dist/lib
+	# build the private library containing user-specific code
 	cd private && CARGO_INCREMENTAL=1 cargo build --release
 	cp private/target/release/libprivate.so dist/lib
 
@@ -97,6 +99,10 @@ debug:
 	cd util && CARGO_INCREMENTAL=1 cargo build
 	cp util/target/debug/libtickgrinder_util.so dist/lib
 
+	# Build and install the small libboost rand wrapper
+	cd private/src/strategies/fuzzer/extern && ./build.sh
+	cp private/src/strategies/fuzzer/extern/librand_bindings.so dist/lib
+
 	# build the broker shims
 	cd broker_shims/simbroker && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp broker_shims/simbroker/target/debug/libsimbroker.so dist/lib
@@ -106,8 +112,6 @@ debug:
 	cp broker_shims/FXCM/native/target/debug/libfxcm.so dist/lib
 
 	# build the private library containing user-specific code as well as the small C++ wrapper
-	cd private/src/strategies/fuzzer/extern && ./build.sh
-	cp private/src/strategies/fuzzer/extern/librand_bindings.so dist/lib
 	cd private && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp private/target/debug/libprivate.so dist/lib
 
@@ -160,6 +164,10 @@ test:
 	cd util && CARGO_INCREMENTAL=1 cargo build && cargo test --no-fail-fast
 	cp util/target/debug/libtickgrinder_util.so dist/lib
 
+	# Build and install the small libboost rand wrapper
+	cd private/src/strategies/fuzzer/extern && ./build.sh
+	cp private/src/strategies/fuzzer/extern/librand_bindings.so dist/lib
+
 	# build and test the broker shims
 	cd broker_shims/simbroker && LD_LIBRARY_PATH=../../util/target/debug/deps \
 		RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test && \
@@ -172,9 +180,7 @@ test:
 		RUSTFLAGS="-L ../../../util/target/debug/deps -L ../../../dist/lib -C prefer-dynamic" cargo test -- --nocapture
 	cp broker_shims/FXCM/native/target/debug/libfxcm.so dist/lib
 
-	# build private and its corresponding c++ wrapper library
-	cd private/src/strategies/fuzzer/extern && ./build.sh
-	cp private/src/strategies/fuzzer/extern/librand_bindings.so dist/lib
+	# build private
 	cd private && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cd private && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 
@@ -200,6 +206,10 @@ bench:
 	cd util && CARGO_INCREMENTAL=1 cargo build --release && cargo bench
 	cp util/target/release/libtickgrinder_util.so dist/lib
 
+	# Build and install the small libboost rand wrapper
+	cd private/src/strategies/fuzzer/extern && ./build.sh
+	cp private/src/strategies/fuzzer/extern/librand_bindings.so dist/lib
+
 	# build the broker shims
 	cd broker_shims/simbroker && CARGO_INCREMENTAL=1 cargo build --release && cargo bench
 	cp broker_shims/simbroker/target/release/libsimbroker.so dist/lib
@@ -208,9 +218,7 @@ bench:
 	cd broker_shims/FXCM/native && CARGO_INCREMENTAL=1 cargo build --release
 	cp broker_shims/FXCM/native/target/release/libfxcm.so dist/lib
 
-	# build private and its corresponding c++ wrapper library
-	cd private/src/strategies/fuzzer/extern && ./build.sh
-	cp private/src/strategies/fuzzer/extern/librand_bindings.so dist/lib
+	# build private
 	cd private && LD_LIBRARY_PATH="../dist/lib" cargo bench
 
 	cd optimizer && LD_LIBRARY_PATH="../dist/lib" cargo bench

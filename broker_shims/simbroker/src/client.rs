@@ -16,6 +16,8 @@ pub struct SimBrokerClient {
     push_stream_recv: Option<(BoxStream<(u64, BrokerResult), ()>, Arc<AtomicBool>,)>,
     /// Holds the tick channels that are distributed to the clients
     tick_recvs: HashMap<String, (BoxStream<Tick, ()>, Arc<AtomicBool>,)>,
+    /// True if the simulation loop has been started
+    in_loop: bool,
 }
 
 impl Broker for SimBrokerClient {
@@ -49,9 +51,8 @@ impl Broker for SimBrokerClient {
             inner_tx: tx,
             push_stream_recv: Some((push_stream_recv, Arc::new(AtomicBool::new(false)),)),
             tick_recvs: tick_hm,
+            in_loop: false,
         };
-        // init the simulation loop in another thread
-        client.init_sim_loop().expect("Unable to start the simulation loop!");
 
         c.complete(Ok(client));
 
@@ -59,9 +60,16 @@ impl Broker for SimBrokerClient {
     }
 
     fn execute(&mut self, action: BrokerAction) -> PendingResult {
-        // push the message into the inner `SimBroker`'s simulation queue
         let (complete, oneshot) = oneshot::<BrokerResult>();
-        self.inner_tx.try_send((action, complete)).expect("Unable to send through inner_tx");
+        if !self.in_loop {
+            // if the simulation loop hasn't been initialized yet, execute it immediately
+            let res = self.simbroker.exec_action(&action);
+            complete.complete(res);
+        } else {
+            // if it has, push the message into the inner `SimBroker`'s simulation queue
+            self.inner_tx.try_send((action, complete)).expect("Unable to send through inner_tx");
+        }
+
         oneshot
     }
 
@@ -205,7 +213,15 @@ impl SimBrokerClient {
             }
         });
 
+        // set out status to in simulation so that commands get processed into the queue instead of executed immediately
+        self.in_loop = true;
+
         Ok(BrokerMessage::Success)
+    }
+
+    /// Ticks the inner `SimBroker`'s event loop.
+    pub fn tick_sim_loop(&mut self, num_last_actions: usize, buffer: &mut Vec<TickOutput>) -> usize {
+        self.simbroker.tick_sim_loop(num_last_actions, buffer)
     }
 
     /// Calls same function on inner `SimBroker`

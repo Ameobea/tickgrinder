@@ -14,24 +14,24 @@ use tickgrinder_util::strategies::{StrategyManager, ManagedStrategy, Helper, Str
 use tickgrinder_util::transport::command_server::CommandServer;
 use tickgrinder_util::transport::query_server::QueryServer;
 use tickgrinder_util::trading::broker::Broker;
+use tickgrinder_util::trading::objects::BrokerAction;
 use tickgrinder_util::trading::tick::{Tick, GenTick};
 
-use ActiveBroker;
 use super::get_broker_settings;
 
 #[derive(Clone)]
 pub struct SmaCross {}
 
-impl ManagedStrategy<()> for SmaCross {
+impl<B: Broker> ManagedStrategy<B, ()> for SmaCross {
     /// Called when we are to start actively trading this strategy and initialize trading activity.
-    fn init(&mut self, helper: &mut Helper, subscriptions: &[Tickstream]) {
+    fn init(&mut self, helper: &mut Helper<B>, subscriptions: &[Tickstream]) {
         helper.cs.notice(Some("Startup"), "SMA Cross strategy is being initialized...");
-            let accounts = unwrap_log_panic(helper.broker.list_accounts().wait().unwrap(), &mut helper.cs);
+            let accounts = unwrap_log_panic(helper.broker.execute(BrokerAction::ListAccounts).wait().unwrap(), &mut helper.cs);
             let accounts_dbg = format!("Accounts on the broker: {:?}", accounts);
             println!("{}", accounts_dbg);
     }
 
-    fn tick(&mut self, helper: &mut Helper, t: &GenTick<Merged<()>>) -> Option<StrategyAction> {
+    fn tick(&mut self, helper: &mut Helper<B>, t: &GenTick<Merged<()>>) -> Option<StrategyAction> {
         unimplemented!();
     }
 

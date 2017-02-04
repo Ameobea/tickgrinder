@@ -20,7 +20,7 @@ use transport::command_server::CommandServer;
 use transport::query_server::QueryServer;
 use transport::commands::Command;
 use trading::objects::BrokerAction;
-use trading::broker::{Broker, BrokerResult};
+use trading::broker::BrokerResult;
 use trading::tick::{Tick, GenTick};
 
 /// Holds metadata about a tickstream.
@@ -32,8 +32,8 @@ pub struct Tickstream {
 
 /// Wrapper for the interior of a tick processor providing a variety of helper methods and utility functions
 /// for management of the handled contingencies and communication with the rest of the platform.
-pub struct ContingencyHandlerManager {
-    pub helper: Helper,
+pub struct ContingencyHandlerManager<B> {
+    pub helper: Helper<B>,
     /// Holds the signatures and raw `Stream`s of all subscribed tickstreams.
     pub tickstreams: Vec<Tickstream>,
     /// hold which contained contingency handlers are subscribed to which tickstreams
@@ -125,8 +125,8 @@ impl<'a> IndexMut<&'a Uuid> for Handlers {
     }
 }
 
-impl ContingencyHandlerManager {
-    pub fn new(executor: Box<ContingencyHandlerEventExecutor>, broker: Box<Broker>) -> ContingencyHandlerManager {
+impl<B> ContingencyHandlerManager<B> {
+    pub fn new(executor: Box<ContingencyHandlerEventExecutor>, broker: B) -> ContingencyHandlerManager<B> {
         ContingencyHandlerManager {
             helper: Helper::new(broker),
             tickstreams: Vec::new(),
@@ -180,14 +180,14 @@ pub trait ContingencyHandler {
     fn get_subscriptions(&self) -> Vec<usize>;
 }
 
-pub struct Helper {
+pub struct Helper<B> {
     pub cs: CommandServer,
     pub qs: QueryServer,
-    pub broker: Box<Broker>,
+    pub broker: B,
 }
 
-impl Helper {
-    pub fn new(broker: Box<Broker>) -> Helper {
+impl<B> Helper<B> {
+    pub fn new(broker: B) -> Helper<B> {
         Helper {
             cs: CommandServer::new(Uuid::new_v4(), "Strategy Helper Utility"),
             qs: QueryServer::new(4),
@@ -207,18 +207,18 @@ pub enum Merged<T> {
 /// Wrapper for a user-defined strategy providing a variety of helper methods and utility functions for the
 /// individual strategies.  This is passed off to a strategy executor that handles the act of actually ticking
 /// the user-defined strategy and driving the process forward.
-pub struct StrategyManager<T> {
-    pub helper: Helper,
+pub struct StrategyManager<B, T> {
+    pub helper: Helper<B>,
     pub subscriptions: Vec<Tickstream>,
     /// The user-defined portion of the strategy container
-    pub strategy: Box<ManagedStrategy<T>>,
+    pub strategy: Box<ManagedStrategy<B, T>>,
     pub tickstream_definitions: Vec<Tickstream>,
 }
 
-impl<T> StrategyManager<T> {
+impl<B, T> StrategyManager<B, T> {
     pub fn new(
-        strategy: Box<ManagedStrategy<T>>, broker: Box<Broker>, tickstream_definitions: Vec<Tickstream>
-    ) -> StrategyManager<T> {
+        strategy: Box<ManagedStrategy<B, T>>, broker: B, tickstream_definitions: Vec<Tickstream>
+    ) -> StrategyManager<B, T> {
         StrategyManager {
             helper: Helper::new(broker),
             subscriptions: Vec::new(),
@@ -243,15 +243,15 @@ impl<T> StrategyManager<T> {
 /// A strategy managed by a `StrategyManager`.  Every call to `tick()` contains a reference to the utility
 /// structure that supplies helper functions to the CommandServer, QueryServer, and other miscllanious
 /// platform utilities.
-pub trait ManagedStrategy<T> {
-    fn init(&mut self, helper: &mut Helper, subscriptions: &[Tickstream]);
+pub trait ManagedStrategy<B, T> {
+    fn init(&mut self, helper: &mut Helper<B>, subscriptions: &[Tickstream]);
 
-    fn tick(&mut self, helper: &mut Helper, t: &GenTick<Merged<T>>) -> Option<StrategyAction>;
+    fn tick(&mut self, helper: &mut Helper<B>, t: &GenTick<Merged<T>>) -> Option<StrategyAction>;
 
     fn abort(&mut self);
 }
 
-impl<T> Strategy<Merged<T>> for StrategyManager<T> {
+impl<B, T> Strategy<Merged<T>> for StrategyManager<B, T> {
     fn init(&mut self) {
         self.strategy.init(&mut self.helper, self.subscriptions.as_slice())
     }

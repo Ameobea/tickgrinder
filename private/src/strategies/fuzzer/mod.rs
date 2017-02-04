@@ -14,7 +14,7 @@ use futures::sync::oneshot;
 use uuid::Uuid;
 
 use tickgrinder_util::strategies::{ManagedStrategy, Helper, StrategyAction, Tickstream, Merged};
-use tickgrinder_util::trading::broker::BrokerResult;
+use tickgrinder_util::trading::broker::{Broker, BrokerResult};
 use tickgrinder_util::trading::objects::{BrokerAction, BrokerMessage, Account, Ledger};
 use tickgrinder_util::trading::tick::{Tick, GenTick};
 use tickgrinder_util::trading::trading_condition::TradingAction;
@@ -103,19 +103,25 @@ impl Fuzzer {
     }
 }
 
-impl ManagedStrategy<()> for Fuzzer {
+impl<B: Broker> ManagedStrategy<B, ()> for Fuzzer {
     #[allow(unused_variables)]
-    fn init(&mut self, helper: &mut Helper, subscriptions: &[Tickstream]) {
+    fn init(&mut self, helper: &mut Helper<B>, subscriptions: &[Tickstream]) {
         let mut logger = self.logger.clone();
         logger.log_misc(String::from("`init()` called"));
-        let accounts = helper.broker.list_accounts().wait().expect("Unable to get accounts.").unwrap();
-        for (uuid, account) in accounts.iter() {
-            self.state.account_uuid = Some(*uuid);
-            self.state.account = Some(account.clone());
+        let res = helper.broker.execute(BrokerAction::ListAccounts).wait().expect("Unable to get accounts.");
+        match res {
+            Ok(BrokerMessage::AccountListing{accounts}) => {
+                for account in accounts.iter() {
+                    self.state.account_uuid = Some(account.uuid);
+                    self.state.account = Some(account.clone());
+                }
+            },
+            Ok(_) => panic!("Received weird response type from ListAccounts!"),
+            Err(_) => panic!("ListAccounts returned an error!"),
         }
     }
 
-    fn tick(&mut self, helper: &mut Helper, gt: &GenTick<Merged<()>>) -> Option<StrategyAction> {
+    fn tick(&mut self, helper: &mut Helper<B>, gt: &GenTick<Merged<()>>) -> Option<StrategyAction> {
         while let Ok(msg) = self.events_rx.try_recv() {
             self.logger.log_misc(format!("EVENT: {:?}", msg));
         }
