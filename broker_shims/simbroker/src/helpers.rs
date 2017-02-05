@@ -8,6 +8,8 @@ use std::slice::{Iter, IterMut};
 use std::fmt::{self, Formatter, Debug};
 use std::collections::hash_map;
 
+use futures::{Future, Sink};
+
 use super::*;
 use superlog::CacheAction;
 

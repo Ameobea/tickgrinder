@@ -21,10 +21,7 @@ use private::strategies::fuzzer::Fuzzer;
 struct SimbrokerDriver {}
 
 impl SimbrokerDriver {
-    pub fn exec(
-        self, mut manager: StrategyManager<SimBrokerClient, ()>, _: &[String],
-        mut bufstream_tx: Sender<oneshot::Receiver<BrokerResult>>
-    ) {
+    pub fn exec(self, mut manager: StrategyManager<SimBrokerClient, ()>, _: &[String]) {
         // block this thread and funnel all messages from the tickstreams into the fuzzer
         let mut client_msg_count; // how many notifications from the simbroker this tick
         let mut client_res_count = 0; // how many respones we're sending back in response to this tick
@@ -41,8 +38,7 @@ impl SimbrokerDriver {
                     &TickOutput::Pushstream(timestamp, ref res) => manager.pushstream_tick(res.clone(), timestamp),
                 };
 
-                let (new_bufstream_tx, responses) = SimbrokerDriver::handle_response(response, &mut manager, bufstream_tx);
-                bufstream_tx = new_bufstream_tx;
+                let responses = SimbrokerDriver::handle_response(response, &mut manager);
                 client_res_count += responses;
             }
         }
@@ -51,30 +47,25 @@ impl SimbrokerDriver {
     /// Handles the `StrategyAction` returned by the strategy (if there is one) and returns the number
     /// of actions that were processed and a new `bufstream_tx` (since it's consumed during `send()`).
     fn handle_response(
-        response: Option<StrategyAction>, manager: &mut StrategyManager<SimBrokerClient, ()>,
-        bufstream_tx: Sender<oneshot::Receiver<BrokerResult>>
-    ) -> (Sender<oneshot::Receiver<BrokerResult>>, usize) {
+        response: Option<StrategyAction>, manager: &mut StrategyManager<SimBrokerClient, ()>
+    ) -> usize {
         // for now, only one command is returned by strategies every tick
         let responses = if response.is_none() { 0 } else { 1 };
-        let new_bufstream_tx;
 
         match response {
             Some(strat_action) => {
                 match strat_action {
                     StrategyAction::BrokerAction(broker_action) => {
-                        // println!("`execute()` on broker...");
-                        let fut = manager.helper.broker.execute(broker_action);
-                        // println!("`bufstream_tx.send()`...");
-                        new_bufstream_tx = bufstream_tx.send(fut).wait().unwrap();
-                        // println!("After `bufstream_tx.send()`.");
+                        let _ = manager.helper.broker.execute(broker_action);
+                        // TODO: Handle this in our own bufstream
                     },
                      _ => unimplemented!(),
                 }
             },
-            None => new_bufstream_tx = bufstream_tx,
+            None => (),
         };
 
-        (new_bufstream_tx, responses)
+        responses
     }
 }
 
@@ -85,7 +76,6 @@ fn main() {
 
     // create a Fuzzer instance and grab some internals to use here
     let mut fuzzer = Fuzzer::new(hm.clone());
-    let bufstream_tx = fuzzer.events_tx.take().unwrap();
 
     // create a strategy manager to manage the fuzzer and initialize it, then initialize the simbroker simulation loop
     let mut manager: StrategyManager<SimBrokerClient, ()> = StrategyManager::new(Box::new(fuzzer), client, Vec::new());
@@ -94,5 +84,5 @@ fn main() {
 
     // create a strategy executor for the fuzzer and initialize it to start the fuzzing process
     let executor = SimbrokerDriver{};
-    executor.exec(manager, &[String::from("TEST")], bufstream_tx);
+    executor.exec(manager, &[String::from("TEST")]);
 }

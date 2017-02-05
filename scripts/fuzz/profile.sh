@@ -1,1 +1,1 @@
-valgrind --tool=callgrind $(find target | rg target/debug/deps/fuzz- --no-line-number)
+LD_LIBRARY_PATH=../../dist/lib valgrind --tool=callgrind target/release/fuzz

@@ -1,16 +1,12 @@
 //! Broker fuzzer.  See README.md for a full description.
 
 use std::collections::HashMap;
-use std::thread;
-use std::sync::mpsc;
 
 use libc::c_void;
 use rand::{self, Rng};
 
-use futures::{Future, Stream, Sink, Canceled};
-use futures::stream::BoxStream;
-use futures::sync::mpsc::{channel, Sender};
-use futures::sync::oneshot;
+use futures::{Future, Sink};
+use futures::sync::mpsc::Sender;
 use uuid::Uuid;
 
 use tickgrinder_util::strategies::{ManagedStrategy, Helper, StrategyAction, Tickstream, Merged};
@@ -55,13 +51,11 @@ impl FuzzerState {
 pub struct Fuzzer {
     pub gen: *mut c_void,
     pub logger: EventLogger,
-    pub events_tx: Option<Sender<oneshot::Receiver<BrokerResult>>>,
-    pub events_rx: mpsc::Receiver<BrokerResult>,
     pub state: FuzzerState,
 }
 
 impl Fuzzer {
-    pub fn new(conf: HashMap<String, String>) -> Fuzzer {
+    pub fn new(_: HashMap<String, String>) -> Fuzzer {
         // convert the seed string into an integer we can use to seen the PNRG if deterministic fuzzing is enabled
         let seed: u32 = if CONF.fuzzer_deterministic_rng {
             let mut sum = 0;
@@ -75,25 +69,9 @@ impl Fuzzer {
             rng.gen()
         };
 
-        // create the stream over which we receive callbacks from the broker
-        let buffer_size = 2048; // let's hope that's big enough.
-        let (tx, rx) = channel(0);
-
-        // map the output of the events buffer stream into a stdlib mpsc channel so we can try_get it
-        let (mpsc_tx, mpsc_rx) = mpsc::sync_channel::<BrokerResult>(0);
-        thread::spawn(move || {
-            let mod_rx: BoxStream<oneshot::Receiver<BrokerResult>, Canceled> = rx.map_err(|()| Canceled).boxed();
-            let buf_rx = mod_rx.buffer_unordered(buffer_size);
-            for msg in buf_rx.wait() {
-                mpsc_tx.send(msg.unwrap()).unwrap();
-            }
-        });
-
         Fuzzer {
             gen: unsafe { init_rng(seed)},
             logger: EventLogger::new(),
-            events_tx: Some(tx),
-            events_rx: mpsc_rx,
             state: FuzzerState::new(),
         }
     }
@@ -121,11 +99,7 @@ impl<B: Broker> ManagedStrategy<B, ()> for Fuzzer {
         }
     }
 
-    fn tick(&mut self, helper: &mut Helper<B>, gt: &GenTick<Merged<()>>) -> Option<StrategyAction> {
-        while let Ok(msg) = self.events_rx.try_recv() {
-            self.logger.log_misc(format!("EVENT: {:?}", msg));
-        }
-
+    fn tick(&mut self, _: &mut Helper<B>, gt: &GenTick<Merged<()>>) -> Option<StrategyAction> {
         let (data_ix, ref t) = match gt.data {
             Merged::BrokerTick(ix, t) => (ix, t),
             Merged::BrokerPushstream(ref res) => {
@@ -208,7 +182,7 @@ pub fn get_action(state: &mut FuzzerState, t: &Tick, rng: *mut c_void) -> Option
             let ledger = state.get_ledger();
             let open_pos_count = ledger.open_positions.len();
             // the more positions open, the higher the chance that we close one.
-            let roll = unsafe { rand_int_range(rng, 0, (open_pos_count + 5) as i32) } as usize;
+            let roll = unsafe { rand_int_range(rng, 0, (open_pos_count + 1) as i32) } as usize;
             if roll >= open_pos_count {
                 return None;
             }
@@ -288,7 +262,7 @@ pub fn get_action(state: &mut FuzzerState, t: &Tick, rng: *mut c_void) -> Option
 }
 
 /// Process a pushstream message
-pub fn handle_pushstream(state: &mut FuzzerState, msg: &BrokerResult, rng: *mut c_void) {
+pub fn handle_pushstream(state: &mut FuzzerState, msg: &BrokerResult, _: *mut c_void) {
     match msg {
         &Ok(ref evt) => {
             match evt {

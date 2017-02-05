@@ -308,7 +308,7 @@ impl Position {
     pub fn is_close_satisfied(&self, bid: usize, ask: usize) -> Option<(usize, PositionClosureReason)> {
         // only meant to be used for open positions
         assert!(self.execution_price.is_some());
-        assert_eq!(self.exit_price, None);
+        assert!(self.exit_price.is_none());
 
         if self.long {
             if self.stop.is_some() && self.stop.unwrap() >= bid {

@@ -2,6 +2,7 @@
 //! internally, provides access to it via streams, and holds it in a thread during the simulation loop.
 
 use super::*;
+use futures::{Sink, Future};
 use futures::stream::BoxStream;
 use futures::sync::mpsc::Sender;
 

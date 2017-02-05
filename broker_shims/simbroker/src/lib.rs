@@ -29,7 +29,7 @@ use std::ops::{Index, IndexMut};
 use std::mem;
 use libc::c_void;
 
-use futures::{Future, Stream, Sink, oneshot, Oneshot, Complete};
+use futures::{Stream, oneshot, Oneshot, Complete};
 use futures::stream::BoxStream;
 use futures::sync::mpsc::{channel, Sender};
 use uuid::Uuid;
@@ -436,10 +436,9 @@ impl SimBroker {
         let pos_value = self.get_position_value(&pos)?;
         let pos_uuid = gen_uuid(self.prng);
 
-        let res;
-        { // borrow-b-gone
+        let res = {
             let account_ = self.accounts.entry(account_id);
-            res = match account_ {
+            match account_ {
                 Entry::Occupied(mut occ) => {
                     let mut account = occ.get_mut();
                     // subtract the cost of the position from our balance
@@ -455,8 +454,8 @@ impl SimBroker {
                 Entry::Vacant(_) => {
                     return Err(BrokerError::NoSuchAccount);
                 }
-            };
-        }
+            }
+        };
 
         // that should never fail
         if res.is_err() {
@@ -481,8 +480,7 @@ impl SimBroker {
             // TODO: Add configuration setting to optionally return an error
         }
 
-        let pos;
-        { // borrow-b-gone
+        let pos = {
             let account = match self.accounts.entry(account_id) {
                 Entry::Occupied(o) => o.into_mut(),
                 Entry::Vacant(_) => {
@@ -490,16 +488,16 @@ impl SimBroker {
                 },
             };
 
-            pos = match account.ledger.open_positions.entry(position_uuid) {
+            match account.ledger.open_positions.entry(position_uuid) {
                 Entry::Occupied(o) => o.get().clone(),
                 Entry::Vacant(_) => {
                     return Err(BrokerError::NoSuchPosition);
                 }
-            };
-        }
+            }
+        };
 
         let pos_value = self.get_position_value(&pos)?;
-        let res = { // borrow-b-gone
+        let res = {
             let account = self.accounts.get_mut(&account_id).unwrap();
 
             let modification_cost = (pos_value / pos.size) * size;
@@ -715,10 +713,9 @@ impl SimBroker {
         // manually keep track of the index because we remove things from the vector dynamically
         let mut i = 0;
         while i < self.accounts.positions[symbol_id].pending.len() {
-            let push_msg_opt;
-            { // borrow-b-gone
+            let push_msg_opt = {
                 let &CachedPosition { pos_uuid, acct_uuid, ref pos } = &self.accounts.positions[symbol_id].pending[i];
-                push_msg_opt = match pos.is_open_satisfied(bid, ask) {
+                match pos.is_open_satisfied(bid, ask) {
                     Some(open_price) => {
                         // if the position should be opened, remove it from the pending `HashMap` and the cache and open it.
                         let mut ledger = &mut self.accounts.data.get_mut(&acct_uuid).unwrap().ledger;
@@ -730,8 +727,8 @@ impl SimBroker {
                         Some(ledger.open_position(pos_uuid, hm_pos))
                     },
                     None => None,
-                };
-            }
+                }
+            };
 
             i += 1;
 
@@ -743,11 +740,11 @@ impl SimBroker {
                     cached_pos.pos = hm_pos.clone();
                     let push_msg = push_msg_opt.as_ref().unwrap();
                     // this should always succeed
-                    if push_msg.is_err() {
-                        let err_msg = format!("Error while trying to open position during tick check: {:?}, {:?}", &cached_pos.pos, push_msg);
-                        self.logger.error_log(&err_msg);
-                    }
-                    // assert!(push_msg.is_ok());
+                    // if push_msg.is_err() {
+                    //     let err_msg = format!("Error while trying to open position during tick check: {:?}, {:?}", &cached_pos.pos, push_msg);
+                    //     self.logger.error_log(&err_msg);
+                    // }
+                    assert!(push_msg.is_ok());
                     // add it to the open cache
                     self.accounts.positions[symbol_id].open.push(cached_pos);
                     // send the push message to the client
@@ -768,38 +765,34 @@ impl SimBroker {
         // check if any open positions should be closed or modified
         let mut i = 0;
         while i < self.accounts.positions[symbol_id].open.len() {
-            let push_msg_opt;
-            { // borrow-b-gone
+            let push_msg_opt: Option<(usize, BrokerResult)> = {
                 let &CachedPosition { pos_uuid, acct_uuid, ref pos } = &self.accounts.positions[symbol_id].open[i];
-                push_msg_opt = match pos.is_close_satisfied(bid, ask) {
+                match pos.is_close_satisfied(bid, ask) {
                     Some((closure_price, closure_reason)) => {
                         let pos_value = self.get_position_value(&pos).expect("Unable to get position value for pending position!");
                         // if the position should be closed, remove it from the cache.
                         let mut ledger = &mut self.accounts.data.get_mut(&acct_uuid).unwrap().ledger;
-                        // remove from the hashmap
-                        let mut real_pos = ledger.open_positions.remove(&pos_uuid)
-                            .expect("Tried to remove position from the open positions hashmap but nothing was there");
-                        real_pos.exit_price = Some(closure_price);
-                        real_pos.exit_time = Some(self.timestamp);
 
-                        Some(ledger.close_position(pos_uuid, pos_value, self.timestamp, closure_reason))
+                        Some((closure_price, ledger.close_position(pos_uuid, pos_value, self.timestamp, closure_reason)))
                     },
                     None => None,
-                };
-            }
+                }
+            };
 
             i += 1;
 
             if push_msg_opt.is_some() {
+                let (closure_price, push_msg) = push_msg_opt.unwrap();
                 // remove from the open cache
-                let cached_pos = self.accounts.positions[symbol_id].open.remove(i-1);
-                let push_msg = push_msg_opt.unwrap();
+                let mut cached_pos = self.accounts.positions[symbol_id].open.remove(i-1);
+                cached_pos.pos.exit_price = Some(closure_price);
+                cached_pos.pos.exit_time = Some(self.timestamp);
                 // this should always succeed
-                if push_msg.is_err() {
-                    let err_msg = format!("Error while trying to close position during tick check: {:?}, {:?}", cached_pos.pos, push_msg);
-                    self.logger.error_log(&err_msg);
-                }
-                // assert!(push_msg.is_ok());
+                // if push_msg.is_err() {
+                //     let err_msg = format!("Error while trying to close position during tick check: {:?}, {:?}", cached_pos.pos, push_msg);
+                //     self.logger.error_log(&err_msg);
+                // }
+                assert!(push_msg.is_ok());
                 // send the push message to the client
                 self.push_msg(push_msg.clone());
                 // put the new tick into the buffer to be returned to the client
