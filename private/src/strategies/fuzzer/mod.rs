@@ -177,7 +177,7 @@ pub fn get_action(state: &mut FuzzerState, t: &Tick, rng: *mut c_void) -> Option
                 action: order,
             }))
         },
-        8 | 9 => { // maybe close part of or all of an open position at market
+        8 ... 11 => { // maybe close part of or all of an open position at market
             let account_uuid = state.account_uuid.unwrap();
             let ledger = state.get_ledger();
             let open_pos_count = ledger.open_positions.len();
@@ -204,7 +204,7 @@ pub fn get_action(state: &mut FuzzerState, t: &Tick, rng: *mut c_void) -> Option
 
             None // do nothing if we have no open positions
         },
-        10 | 11 => { // maybe close an open position with a limit close
+        12 ... 15 => { // maybe close an open position with a limit close
             let account_uuid = state.account_uuid.unwrap();
             let ledger = state.get_ledger();
             let open_pos_count = ledger.open_positions.len();
@@ -237,7 +237,7 @@ pub fn get_action(state: &mut FuzzerState, t: &Tick, rng: *mut c_void) -> Option
 
             None // do nothing if we have no open positions
         }
-        15 => { // cancel a pending order
+        16 => { // cancel a pending order
             // only go forward half the time
             if random_bool(rng) {
                 return None;
@@ -256,6 +256,12 @@ pub fn get_action(state: &mut FuzzerState, t: &Tick, rng: *mut c_void) -> Option
 
             None // there were no pending orders to cancel
         },
+        17 => { // Get a copy of the ledger and make sure it's the same as the one we have
+            Some(StrategyAction::BrokerAction(BrokerAction::GetLedger{account_uuid: state.account_uuid.unwrap()}))
+        },
+        18 => { // Request an account listing
+            Some(StrategyAction::BrokerAction(BrokerAction::ListAccounts))
+        }
         // do nothing at all in response to the tick
         _ => None,
     }
@@ -295,6 +301,15 @@ pub fn handle_pushstream(state: &mut FuzzerState, msg: &BrokerResult, _: *mut c_
                     ledger.open_positions.remove(&position_id).unwrap();
                     ledger.closed_positions.insert(position_id, position.clone());
                 },
+                &BrokerMessage::Ledger{ref ledger} => {
+                    assert_eq!(*ledger, state.account.as_ref().unwrap().ledger);
+                },
+                &BrokerMessage::LedgerBalanceChange{account_uuid, new_balance} => {
+                    if account_uuid == state.account_uuid.unwrap() {
+                        let mut ledger = &mut state.account.as_mut().unwrap().ledger;
+                        ledger.balance = new_balance;
+                    }
+                }
                 _ => (),
             }
         },

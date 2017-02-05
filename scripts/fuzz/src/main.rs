@@ -6,11 +6,9 @@ extern crate futures;
 
 use std::collections::HashMap;
 
-use futures::{Future, Sink};
-use futures::sync::oneshot;
-use futures::sync::mpsc::Sender;
+use futures::Future;
 
-use tickgrinder_util::trading::broker::{Broker, BrokerResult};
+use tickgrinder_util::trading::broker::Broker;
 use tickgrinder_util::trading::tick::Tick;
 use tickgrinder_util::strategies::{Strategy, StrategyManager, StrategyAction};
 
@@ -75,7 +73,7 @@ fn main() {
     hm.insert(String::from("pairs"), String::from("TEST"));
 
     // create a Fuzzer instance and grab some internals to use here
-    let mut fuzzer = Fuzzer::new(hm.clone());
+    let fuzzer = Fuzzer::new(hm.clone());
 
     // create a strategy manager to manage the fuzzer and initialize it, then initialize the simbroker simulation loop
     let mut manager: StrategyManager<SimBrokerClient, ()> = StrategyManager::new(Box::new(fuzzer), client, Vec::new());

@@ -36,6 +36,10 @@ pub enum BrokerMessage {
     Success,
     Failure,
     Notice,
+    LedgerBalanceChange{
+        account_uuid: Uuid,
+        new_balance: usize,
+    },
     OrderPlaced{
         order_id: Uuid,
         order: Position,

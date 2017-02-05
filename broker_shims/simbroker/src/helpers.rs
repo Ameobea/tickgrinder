@@ -124,6 +124,8 @@ pub enum WorkUnit {
     ActionComplete(Complete<BrokerResult>, BrokerAction),
     /// Simulates a message from the broker being received by a client.
     Response(Complete<BrokerResult>, BrokerResult),
+    /// A message from the broker without a corresponding action
+    Notification(BrokerResult),
 }
 
 impl PartialEq for WorkUnit {
@@ -160,6 +162,14 @@ impl PartialEq for WorkUnit {
                     },
                     _ => false,
                 }
+            },
+            WorkUnit::Notification(ref self_res) => {
+                match *other {
+                    WorkUnit::Notification(ref other_res) => {
+                        self_res == other_res
+                    },
+                    _ => false,
+                }
             }
         }
     }
@@ -179,6 +189,9 @@ impl Debug for WorkUnit {
             },
             WorkUnit::Response(_, ref self_res) => {
                 write!(f, "Response(_, {:?})", self_res)
+            },
+            WorkUnit::Notification(ref self_res) => {
+                write!(f, "Notification({:?})", self_res)
             }
         }
     }

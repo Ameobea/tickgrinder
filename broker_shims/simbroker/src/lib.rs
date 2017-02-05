@@ -123,7 +123,6 @@ impl SimBroker {
         let tickstreams: Vec<(String, TickGenerators, bool, usize)> = serde_json::from_str(&settings.tickstreams)
             .map_err(|_| BrokerError::Message{message: String::from("Unable to deserialize the input tickstreams into a vector!")})?;
 
-
         let mut sim = SimBroker {
             accounts: accounts,
             settings: settings,
@@ -226,6 +225,7 @@ impl SimBroker {
                 self.logger.event_log(self.timestamp, &format!("Sending tick to client: ({}, {:?})", symbol_ix, tick));
                 // send the tick through the client stream, blocking until it is consumed by the client.
                 inner_symbol.send_client(tick);
+                // put the message into the result buffer and increment its length
                 buffer[client_event_count] = TickOutput::Tick(symbol_ix, tick);
                 client_event_count += 1;
             },
@@ -251,9 +251,20 @@ impl SimBroker {
                 future.complete(res.clone());
                 // send the push message through the channel, blocking until it's consumed by the client.
                 self.push_msg(res.clone());
+                // put the message into the result buffer and increment its length
                 buffer[client_event_count] = TickOutput::Pushstream(self.timestamp, res);
                 client_event_count += 1;
             },
+            // The moment a spurious notification reaches the client.  Network delay is already taken intou account,
+            // so we can deliver it immediately.
+            WorkUnit::Notification(res) => {
+                self.logger.event_log(self.timestamp, &format!("Delivering spurious notification to client: {:?}", res));
+                // send the push message through the channel, blocking until it's consumed by the client.
+                self.push_msg(res.clone());
+                // put the message into the result buffer and increment its length
+                buffer[client_event_count] = TickOutput::Pushstream(self.timestamp, res);
+                client_event_count += 1;
+            }
         }
 
         client_event_count
@@ -327,6 +338,17 @@ impl SimBroker {
         }
     }
 
+    /// Called when the balance of a ledger has been changed.  Automatically takes into account ping.
+    fn balance_changed(&mut self, account_uuid: Uuid, new_balance: usize) {
+        self.pq.push(QueueItem{
+            timestamp: self.timestamp + self.settings.ping_ns,
+            unit: WorkUnit::Notification(Ok(BrokerMessage::LedgerBalanceChange{
+                account_uuid: account_uuid,
+                new_balance: new_balance,
+            })),
+        });
+    }
+
     /// Creates a new pending position on the `SimBroker`.
     fn place_order(
         &mut self, account_uuid: Uuid, symbol_ix: usize, limit_price: usize, long: bool, size: usize,
@@ -386,11 +408,14 @@ impl SimBroker {
         };
 
         // if the order was actually placed, notify the cache that we've opened a new order
+        // also send notification of ledger balance change
         match &res {
             &Ok(ref msg) => {
                 match msg {
                     &BrokerMessage::OrderPlaced{order_id, order: _, timestamp: _} => {
-                        self.accounts.order_placed(&order, order_id, account_uuid)
+                        self.accounts.order_placed(&order, order_id, account_uuid);
+                        let new_balance = self.accounts.get(&account_uuid).unwrap().ledger.balance;
+                        self.balance_changed(account_uuid, new_balance);
                     },
                     _ => (),
                 }
@@ -405,7 +430,7 @@ impl SimBroker {
     /// Right now, this assumes that the order is filled as soon as it is placed (after the processing delay is taken
     /// into account) and that it is filled fully.
     fn market_open(
-        &mut self, account_id: Uuid, symbol_ix: usize, long: bool, size: usize, stop: Option<usize>,
+        &mut self, account_uuid: Uuid, symbol_ix: usize, long: bool, size: usize, stop: Option<usize>,
         take_profit: Option<usize>, max_range: Option<usize>
     ) -> BrokerResult {
         let opt = self.get_price(symbol_ix);
@@ -436,16 +461,18 @@ impl SimBroker {
         let pos_value = self.get_position_value(&pos)?;
         let pos_uuid = gen_uuid(self.prng);
 
+        let new_balance;
         let res = {
-            let account_ = self.accounts.entry(account_id);
-            match account_ {
+            let acct_entry = self.accounts.entry(account_uuid);
+            match acct_entry {
                 Entry::Occupied(mut occ) => {
                     let mut account = occ.get_mut();
-                    // subtract the cost of the position from our balance
+                    // manually subtract the cost of the position from the account balance
                     if account.ledger.balance < pos_value * self.settings.leverage {
                         return Err(BrokerError::InsufficientBuyingPower);
                     } else {
                         account.ledger.balance -= pos_value * self.settings.leverage;
+                        new_balance = account.ledger.balance;
                     }
 
                     // create the position in the `Ledger`
@@ -458,12 +485,11 @@ impl SimBroker {
         };
 
         // that should never fail
-        if res.is_err() {
-            self.logger.error_log(&format!("Error while trying to open position: {:?}, {:?}", &pos, res));
-        }
-        // assert!(res.is_ok());
+        assert!(res.is_ok());
         // add the position to the cache for checking when to close it
-        self.accounts.position_opened_immediate(&pos, pos_uuid, account_id);
+        self.accounts.position_opened_immediate(&pos, pos_uuid, account_uuid);
+        // send notification about the update of the ledger balance
+        self.balance_changed(account_uuid, new_balance);
 
         res
     }
@@ -497,18 +523,22 @@ impl SimBroker {
         };
 
         let pos_value = self.get_position_value(&pos)?;
+
+        let new_balance;
         let res = {
             let account = self.accounts.get_mut(&account_id).unwrap();
-
             let modification_cost = (pos_value / pos.size) * size;
-            account.ledger.resize_position(position_uuid, (-1 * size as isize), modification_cost, self.timestamp)
+            let res = account.ledger.resize_position(position_uuid, (-1 * size as isize), modification_cost, self.timestamp);
+            new_balance = account.ledger.balance;
+            res
         };
 
-        // if the position was fully closed, remove it from the cache
+        // if the position was fully closed, remove it from the cache and send notification of ledger balance change
         match res {
             Ok(ref message) => match message {
                 &BrokerMessage::PositionClosed{position: ref pos, position_id: pos_uuid, reason: _, timestamp: _} => {
                     self.accounts.position_closed(pos, pos_uuid);
+                    self.balance_changed(account_id, new_balance);
                 },
                 _ => (),
             },
@@ -586,6 +616,7 @@ impl SimBroker {
 
     /// Cancels the pending position.
     pub fn cancel_order(&mut self, account_uuid: Uuid, order_uuid: Uuid) -> BrokerResult {
+        let new_balance;
         let res = {
             let account = match self.accounts.entry(account_uuid) {
                 Entry::Occupied(o) => o.into_mut(),
@@ -593,17 +624,20 @@ impl SimBroker {
                     return Err(BrokerError::NoSuchAccount);
                 },
             };
-
             // attempt to cancel the order and remove it from the hashmaps
-            account.ledger.cancel_order(order_uuid, self.timestamp)
+            let res = account.ledger.cancel_order(order_uuid, self.timestamp);
+            new_balance = account.ledger.balance;
+            res
         };
 
-        // if it was successful, remove the position from the `pending` cache.
+        // if it was successful, remove the position from the `pending` cache
+        // also send notification of ledger balance change
         match res {
             Ok(ref msg) => {
                 match msg {
                     &BrokerMessage::OrderCancelled{ ref order, order_id: _, timestamp: _ } => {
-                        self.accounts.order_cancelled(order_uuid, order.symbol_id)
+                        self.accounts.order_cancelled(order_uuid, order.symbol_id);
+                        self.balance_changed(account_uuid, new_balance);
                     },
                     _ => unreachable!(),
                 }
@@ -683,7 +717,7 @@ impl SimBroker {
         Ok(convert_decimals(ask, decimals, desired_decimals))
     }
 
-    /// Returns the worth of a position in units of base currency.
+    /// Returns the value of a position in units of base currency, not taking into account leverage.
     fn get_position_value(&self, pos: &Position) -> Result<usize, BrokerError> {
         let ix = pos.symbol_id;
 
