@@ -18,6 +18,15 @@
     ["import", { "libraryName": "antd", "style": true }]
   ],
   "theme": {
-    "@primary-color": "#1DA57A"
+    "@primary-color": "#AB074B",
+    "@component-background": "#313130",
+    "@text-color": "fade(#fff, 65%)",
+    "@text-color-secondary": "fade(#fff, 43%)",
+    "@disabled-color": "fade(#fff, 25%)",
+    "@heading-color-dark": "fade(#000, 97%)",
+    "@text-color-dark": "fade(#000, 91%)",
+    "@text-color-secondary-dark": "fade(#000, 67%)",
+    "@disabled-color-dark": "fade(#000, 35%)",
+    "@input-bg": "#313130"
   }
 }

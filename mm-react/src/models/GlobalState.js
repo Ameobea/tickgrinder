@@ -1,8 +1,8 @@
 export default {
-  namespace: 'instances',
+  namespace: 'global',
 
   state: {
-    living_instances: {},
+    title: "TickGrinder Dashboard"
   },
 
   reducers: {
