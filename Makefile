@@ -17,6 +17,7 @@ SHELL := /bin/bash
 
 release:
 	make init
+	make node
 
 	# copy libstd to the dist/lib directory if it's not already there
 	if [[ ! -f dist/lib/$$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) ]]; then \
@@ -83,6 +84,7 @@ dev_release:
 
 debug:
 	make init
+	make node
 
 	# copy libstd to the dist/lib directory if it's not already there
 	if [[ ! -f dist/lib/$$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) ]]; then \
@@ -279,3 +281,8 @@ init:
 	rm -rf dist
 	mkdir dist
 	mkdir dist/lib
+
+node:
+	npm install -g antd
+	npm install -g dva-cli
+	cd mm-react && npm install antd babel-plugin-import --save
