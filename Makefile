@@ -17,6 +17,7 @@ SHELL := /bin/bash
 
 release:
 	make init
+	make node
 
 	# copy libstd to the dist/lib directory if it's not already there
 	if [[ ! -f dist/lib/$$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) ]]; then \
@@ -83,6 +84,7 @@ dev_release:
 
 debug:
 	make init
+	make node
 
 	# copy libstd to the dist/lib directory if it's not already there
 	if [[ ! -f dist/lib/$$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) ]]; then \
@@ -270,6 +272,7 @@ configure:
 	cd configurator && cargo run
 	cp configurator/conf.rs util/src
 	cp configurator/conf.js mm
+	cp configurator/conf.js mm-react/src
 
 config:
 	make configure
@@ -279,3 +282,9 @@ init:
 	rm -rf dist
 	mkdir dist
 	mkdir dist/lib
+
+node:
+	if [[ ! $$(which dva) ]]; then npm install -g dva-cli; fi
+	if [[ ! -f ./mm-react/node_modules/installed ]]; then \
+		cd mm-react && npm install react && npm install react-dom && npm install babel-plugin-import --save && npm install && touch ./node_modules/installed; \
+	fi
