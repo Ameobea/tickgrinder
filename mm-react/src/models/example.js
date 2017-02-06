@@ -1,6 +1,4 @@
-
 export default {
-
   namespace: 'example',
 
   state: {},
@@ -21,5 +19,4 @@ export default {
       return { ...state, ...action.payload };
     },
   },
-
 };

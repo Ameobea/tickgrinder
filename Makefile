@@ -283,6 +283,7 @@ init:
 	mkdir dist/lib
 
 node:
-	npm install -g antd
-	npm install -g dva-cli
-	cd mm-react && npm install antd babel-plugin-import --save
+	if [[ ! $$(which dva) ]]; then npm install -g dva-cli; fi
+	if [[ ! -f ./mm-react/node_modules/installed ]]; then \
+		cd mm-react && npm install react && npm install react-dom && npm install babel-plugin-import --save && npm install && touch ./node_modules/installed; \
+	fi
