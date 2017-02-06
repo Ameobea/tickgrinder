@@ -1,14 +1,23 @@
+const initialState = {
+  title: "Default Title",
+}
+
 export default {
   namespace: 'global',
 
   state: {
-    title: "TickGrinder Dashboard"
+    title: "Original Title",
   },
 
   reducers: {
-    save(state, action) {
-      return { ...state, ...action.payload };
-    },
+    pageChange(state = initialState, action) {
+      state.title = action.title;
+      return state;
+    }
+  },
+
+  effects: {
+
   },
 
   subscriptions: {

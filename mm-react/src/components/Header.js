@@ -25,4 +25,8 @@ class Header extends React.Component {
   }
 }
 
-export default connect()(Header);
+function mapState(state) {
+  return { title: state.global.title }
+}
+
+export default connect(mapState)(Header);

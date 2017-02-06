@@ -8,7 +8,6 @@ import styles from '../static/css/globalStyle.css';
 
 class AppPage extends React.Component {
   render() {
-    console.log(this.props);
     return (
       <div className={styles.application}>
         <Header title={this.props.title} />

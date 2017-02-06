@@ -5,6 +5,7 @@ import { connect } from 'dva';
 
 import { Switch, DatePicker, Row, Col } from 'antd';
 
+import wrapContent from '../components/ContentContainer';
 import styles from './IndexPage.css';
 
 function IndexPage() {
@@ -19,4 +20,4 @@ function IndexPage() {
 
 IndexPage.propTypes = {};
 
-export default connect()(IndexPage);
+export default connect()(wrapContent("TickGrinder Dashboard", IndexPage));

@@ -5,9 +5,10 @@ import { Link } from 'react-router'
 import { connect } from 'dva';
 import { Switch, DatePicker, Row, Col } from 'antd';
 
+import wrapContent from '../components/ContentContainer';
 import styles from '../static/css/globalStyle.css';
 
-function BacktestPage({title}) {
+function backtestContent() {
   return (
     <div className={styles.normal}>
       Backtests
@@ -15,8 +16,6 @@ function BacktestPage({title}) {
   );
 }
 
-function mapState(state) {
-  return { };
-}
+let wrapped = wrapContent("Backtest Management", backtestContent);
 
-export default connect(mapState)(BacktestPage);
+export default connect()(wrapped);
