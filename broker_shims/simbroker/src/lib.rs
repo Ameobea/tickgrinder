@@ -192,7 +192,6 @@ impl SimBroker {
 
         let item = self.pq.pop().unwrap();
         self.timestamp = item.timestamp;
-        self.logger.event_log(self.timestamp, &format!("Popped new work unit from queue: {:?}", item.unit));
         let mut client_event_count = 0;
 
         // then process the new item we took out of the queue
@@ -247,7 +246,17 @@ impl SimBroker {
             // The moment a response reaches the client.
             WorkUnit::Response(future, res) => {
                 // fulfill the future with the result
-                self.logger.event_log(self.timestamp, &format!("Fulfilling work unit {:?}'s oneshot", res));
+                match res {
+                    Ok(BrokerMessage::AccountListing{accounts: _}) => {
+                        let msg = "Fulfilling work unit Ok(AccountListing{_})'s oneshot";
+                        self.logger.event_log(self.timestamp, msg);
+                    },
+                    Ok(BrokerMessage::Ledger{ledger: _}) => {
+                        let msg = "Fulfilling work unit Ok(Ledger{_})'s oneshot";
+                        self.logger.event_log(self.timestamp, msg);
+                    },
+                    _ => self.logger.event_log(self.timestamp, &format!("Fulfilling work unit {:?}'s oneshot", res)),
+                };
                 future.complete(res.clone());
                 // send the push message through the channel, blocking until it's consumed by the client.
                 self.push_msg(res.clone());
@@ -339,12 +348,12 @@ impl SimBroker {
     }
 
     /// Called when the balance of a ledger has been changed.  Automatically takes into account ping.
-    fn balance_changed(&mut self, account_uuid: Uuid, new_balance: usize) {
+    fn buying_power_changed(&mut self, account_uuid: Uuid, new_buying_power: usize) {
         self.pq.push(QueueItem{
             timestamp: self.timestamp + self.settings.ping_ns,
             unit: WorkUnit::Notification(Ok(BrokerMessage::LedgerBalanceChange{
                 account_uuid: account_uuid,
-                new_balance: new_balance,
+                new_buying_power: new_buying_power,
             })),
         });
     }
@@ -399,8 +408,7 @@ impl SimBroker {
         let res = match self.accounts.entry(account_uuid) {
             Entry::Occupied(mut o) => {
                 let account = o.get_mut();
-                let margin_requirement = pos_value / self.settings.leverage;
-                account.ledger.place_order(order.clone(), margin_requirement, gen_uuid(self.prng))
+                account.ledger.place_order(order.clone(), pos_value, gen_uuid(self.prng))
             },
             Entry::Vacant(_) => {
                 Err(BrokerError::NoSuchAccount)
@@ -408,14 +416,14 @@ impl SimBroker {
         };
 
         // if the order was actually placed, notify the cache that we've opened a new order
-        // also send notification of ledger balance change
+        // also send notification of ledger buying power change
         match &res {
             &Ok(ref msg) => {
                 match msg {
                     &BrokerMessage::OrderPlaced{order_id, order: _, timestamp: _} => {
                         self.accounts.order_placed(&order, order_id, account_uuid);
-                        let new_balance = self.accounts.get(&account_uuid).unwrap().ledger.balance;
-                        self.balance_changed(account_uuid, new_balance);
+                        let new_buying_power = self.accounts.get(&account_uuid).unwrap().ledger.buying_power;
+                        self.buying_power_changed(account_uuid, new_buying_power);
                     },
                     _ => (),
                 }
@@ -461,18 +469,18 @@ impl SimBroker {
         let pos_value = self.get_position_value(&pos)?;
         let pos_uuid = gen_uuid(self.prng);
 
-        let new_balance;
+        let new_buying_power;
         let res = {
             let acct_entry = self.accounts.entry(account_uuid);
             match acct_entry {
                 Entry::Occupied(mut occ) => {
                     let mut account = occ.get_mut();
                     // manually subtract the cost of the position from the account balance
-                    if account.ledger.balance < pos_value * self.settings.leverage {
+                    if account.ledger.buying_power < pos_value {
                         return Err(BrokerError::InsufficientBuyingPower);
                     } else {
-                        account.ledger.balance -= pos_value * self.settings.leverage;
-                        new_balance = account.ledger.balance;
+                        account.ledger.buying_power -= pos_value;
+                        new_buying_power = account.ledger.buying_power;
                     }
 
                     // create the position in the `Ledger`
@@ -488,8 +496,8 @@ impl SimBroker {
         assert!(res.is_ok());
         // add the position to the cache for checking when to close it
         self.accounts.position_opened_immediate(&pos, pos_uuid, account_uuid);
-        // send notification about the update of the ledger balance
-        self.balance_changed(account_uuid, new_balance);
+        // send notification about the change in ledger buying power
+        self.buying_power_changed(account_uuid, new_buying_power);
 
         res
     }
@@ -524,21 +532,21 @@ impl SimBroker {
 
         let pos_value = self.get_position_value(&pos)?;
 
-        let new_balance;
+        let new_buying_power;
         let res = {
             let account = self.accounts.get_mut(&account_id).unwrap();
             let modification_cost = (pos_value / pos.size) * size;
             let res = account.ledger.resize_position(position_uuid, (-1 * size as isize), modification_cost, self.timestamp);
-            new_balance = account.ledger.balance;
+            new_buying_power = account.ledger.buying_power;
             res
         };
 
-        // if the position was fully closed, remove it from the cache and send notification of ledger balance change
+        // if the position was fully closed, remove it from the cache and send notification of ledger buying power change
         match res {
             Ok(ref message) => match message {
                 &BrokerMessage::PositionClosed{position: ref pos, position_id: pos_uuid, reason: _, timestamp: _} => {
                     self.accounts.position_closed(pos, pos_uuid);
-                    self.balance_changed(account_id, new_balance);
+                    self.buying_power_changed(account_id, new_buying_power);
                 },
                 _ => (),
             },
@@ -616,7 +624,7 @@ impl SimBroker {
 
     /// Cancels the pending position.
     pub fn cancel_order(&mut self, account_uuid: Uuid, order_uuid: Uuid) -> BrokerResult {
-        let new_balance;
+        let new_buying_power;
         let res = {
             let account = match self.accounts.entry(account_uuid) {
                 Entry::Occupied(o) => o.into_mut(),
@@ -626,18 +634,18 @@ impl SimBroker {
             };
             // attempt to cancel the order and remove it from the hashmaps
             let res = account.ledger.cancel_order(order_uuid, self.timestamp);
-            new_balance = account.ledger.balance;
+            new_buying_power = account.ledger.buying_power;
             res
         };
 
         // if it was successful, remove the position from the `pending` cache
-        // also send notification of ledger balance change
+        // also send notification of ledger buying power change
         match res {
             Ok(ref msg) => {
                 match msg {
                     &BrokerMessage::OrderCancelled{ ref order, order_id: _, timestamp: _ } => {
                         self.accounts.order_cancelled(order_uuid, order.symbol_id);
-                        self.balance_changed(account_uuid, new_balance);
+                        self.buying_power_changed(account_uuid, new_buying_power);
                     },
                     _ => unreachable!(),
                 }
@@ -799,6 +807,7 @@ impl SimBroker {
         // check if any open positions should be closed or modified
         let mut i = 0;
         while i < self.accounts.positions[symbol_id].open.len() {
+            let mut new_buying_power = 0;
             let push_msg_opt: Option<(usize, BrokerResult)> = {
                 let &CachedPosition { pos_uuid, acct_uuid, ref pos } = &self.accounts.positions[symbol_id].open[i];
                 match pos.is_close_satisfied(bid, ask) {
@@ -807,7 +816,9 @@ impl SimBroker {
                         // if the position should be closed, remove it from the cache.
                         let mut ledger = &mut self.accounts.data.get_mut(&acct_uuid).unwrap().ledger;
 
-                        Some((closure_price, ledger.close_position(pos_uuid, pos_value, self.timestamp, closure_reason)))
+                        let res = ledger.close_position(pos_uuid, pos_value, self.timestamp, closure_reason);
+                        new_buying_power = ledger.buying_power;
+                        Some((closure_price, res))
                     },
                     None => None,
                 }
@@ -822,15 +833,21 @@ impl SimBroker {
                 cached_pos.pos.exit_price = Some(closure_price);
                 cached_pos.pos.exit_time = Some(self.timestamp);
                 // this should always succeed
-                // if push_msg.is_err() {
-                //     let err_msg = format!("Error while trying to close position during tick check: {:?}, {:?}", cached_pos.pos, push_msg);
-                //     self.logger.error_log(&err_msg);
-                // }
                 assert!(push_msg.is_ok());
+                // send notification of ledger buying power change to client
+                let buying_power_notification = BrokerMessage::LedgerBalanceChange{
+                    account_uuid: cached_pos.acct_uuid,
+                    new_buying_power: new_buying_power,
+                };
+                let output = TickOutput::Pushstream(self.timestamp, Ok(buying_power_notification));
+                // add the message to the buffer and increment the length
+                buffer[cur_index + push_msg_count] = output;
+                push_msg_count += 1;
                 // send the push message to the client
                 self.push_msg(push_msg.clone());
                 // put the new tick into the buffer to be returned to the client
                 let output = TickOutput::Pushstream(self.timestamp, push_msg);
+                // add the message to the buffer and increment the length
                 buffer[cur_index + push_msg_count] = output;
                 push_msg_count += 1;
                 // decrement i since we modified the cache

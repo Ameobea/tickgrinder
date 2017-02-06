@@ -38,7 +38,7 @@ pub enum BrokerMessage {
     Notice,
     LedgerBalanceChange{
         account_uuid: Uuid,
-        new_balance: usize,
+        new_buying_power: usize,
     },
     OrderPlaced{
         order_id: Uuid,
@@ -109,7 +109,7 @@ pub enum PositionClosureReason {
 /// Contains information about past trades as well as current positions.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ledger {
-    pub balance: usize,
+    pub buying_power: usize,
     pub pending_positions: HashMap<Uuid, Position>,
     pub open_positions: HashMap<Uuid, Position>,
     pub closed_positions: HashMap<Uuid, Position>,
@@ -118,7 +118,7 @@ pub struct Ledger {
 impl Ledger {
     pub fn new(starting_balance: usize) -> Ledger {
         Ledger {
-            balance: starting_balance,
+            buying_power: starting_balance,
             pending_positions: HashMap::new(),
             open_positions: HashMap::new(),
             closed_positions: HashMap::new(),
@@ -126,11 +126,11 @@ impl Ledger {
     }
 
     /// Attempts to open a pending position in the ledger with the supplied position.
-    pub fn place_order(&mut self, pos: Position, margin_requirement: usize, uuid: Uuid) -> BrokerResult {
-        if margin_requirement > self.balance {
+    pub fn place_order(&mut self, pos: Position, position_value: usize, uuid: Uuid) -> BrokerResult {
+        if position_value > self.buying_power {
             return Err(BrokerError::InsufficientBuyingPower)
         }
-        self.balance -= margin_requirement;
+        self.buying_power -= position_value;
         self.pending_positions.insert(uuid, pos.clone());
         let creation_time = pos.creation_time;
         Ok(BrokerMessage::OrderPlaced{
@@ -200,10 +200,15 @@ impl Ledger {
         &mut self, uuid: Uuid, position_value: usize, timestamp: u64, reason: PositionClosureReason
     ) -> BrokerResult {
         let pos_opt = self.open_positions.remove(&uuid);
-        if pos_opt.is_none() {
-            return Err(BrokerError::NoSuchPosition)
+        match pos_opt {
+            Some(ref pos) => {
+                self.closed_positions.insert(uuid, pos.clone());
+            },
+            None => {
+                return Err(BrokerError::NoSuchPosition)
+            },
         }
-        self.balance += position_value;
+        self.buying_power += position_value;
 
         Ok(BrokerMessage::PositionClosed{
             position: pos_opt.unwrap(),
@@ -227,13 +232,13 @@ impl Ledger {
             return self.close_position(uuid, modification_cost, timestamp, PositionClosureReason::MarketClose);
         }
 
-        if self.balance < modification_cost {
+        if self.buying_power < modification_cost {
             return Err(BrokerError::InsufficientBuyingPower);
         }
 
         // everything seems to be in order, so do the modification
         pos.size = ((pos.size as isize) + units) as usize;
-        self.balance -= modification_cost;
+        self.buying_power -= modification_cost;
         self.open_positions.insert(uuid, pos.clone());
 
         Ok(BrokerMessage::PositionModified{

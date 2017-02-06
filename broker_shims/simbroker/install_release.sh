@@ -1,2 +1,2 @@
 CARGO_INCREMENTAL=1 cargo build --release
-cp target/debug/libsimbroker.so ../../dist/lib
+cp target/release/libsimbroker.so ../../dist/lib

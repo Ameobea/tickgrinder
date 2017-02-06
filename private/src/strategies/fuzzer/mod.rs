@@ -304,10 +304,10 @@ pub fn handle_pushstream(state: &mut FuzzerState, msg: &BrokerResult, _: *mut c_
                 &BrokerMessage::Ledger{ref ledger} => {
                     assert_eq!(*ledger, state.account.as_ref().unwrap().ledger);
                 },
-                &BrokerMessage::LedgerBalanceChange{account_uuid, new_balance} => {
+                &BrokerMessage::LedgerBalanceChange{account_uuid, new_buying_power} => {
                     if account_uuid == state.account_uuid.unwrap() {
                         let mut ledger = &mut state.account.as_mut().unwrap().ledger;
-                        ledger.balance = new_balance;
+                        ledger.buying_power = new_buying_power;
                     }
                 }
                 _ => (),
@@ -344,9 +344,14 @@ impl EventLogger {
     }
 
     pub fn log_pushtream(&mut self, timestamp: u64, res: &BrokerResult) {
+        let msg = match res {
+            &Ok(BrokerMessage::AccountListing{accounts: _}) => format!("{} - PUSHSTREAM: Ok(AccountListing{{_}}", timestamp),
+            &Ok(BrokerMessage::Ledger{ledger: _}) => format!("{} - PUSHSTREAM: Ok(Ledger{{_}}", timestamp),
+            _ => format!("{} - PUSHSTREAM: {:?}", timestamp, res),
+        };
         // println!("Got pushstream message: {:?}", res);
         let tx = self.tx.take().unwrap();
-        let new_tx = tx.send(format!("{} - PUSHSTREAM: {:?}", timestamp, res))
+        let new_tx = tx.send(msg)
             .wait().expect("Unable to log pushtream message!");
         self.tx = Some(new_tx);
     }
