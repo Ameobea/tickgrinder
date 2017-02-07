@@ -10,4 +10,9 @@ function BacktestPage() {
   );
 }
 
-export default () => <ContentContainer title="Backtest Management" content_function={BacktestPage} />;
+export default () => { return (
+  <ContentContainer title="Backtest Management">
+    <BacktestPage />
+  </ContentContainer>
+);}
+

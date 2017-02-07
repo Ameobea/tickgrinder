@@ -1,3 +1,5 @@
+//! Holds global state for the application; stuff like title.
+
 const initialState = {
   title: "Default Title",
   content_function: () => "Default Content",
@@ -17,9 +19,7 @@ export default {
     }
   },
 
-  effects: {
-
-  },
+  effects: { },
 
   subscriptions: {
     CommandListener({ todo }) {

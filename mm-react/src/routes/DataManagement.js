@@ -10,4 +10,8 @@ function DataManagement() {
   );
 }
 
-export default () => <ContentContainer title="Data Management" content_function={DataManagement} />;
+export default () => { return (
+  <ContentContainer title="Data Management">
+    <DataManagement />
+  </ContentContainer>
+);}

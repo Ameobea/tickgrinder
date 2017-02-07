@@ -10,4 +10,8 @@ function LoggingPage() {
 	);
 }
 
-export default () => <ContentContainer title="Log Interface" content_function={LoggingPage} />;
+export default () => { return (
+  <ContentContainer title="Log Interface">
+    <LoggingPage />
+  </ContentContainer>
+);}

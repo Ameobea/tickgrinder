@@ -8,13 +8,12 @@ import gstyles from '../static/css/globalStyle.css';
 class ContentContainer extends Component {
   static propTypes = {
     title: PropTypes.string.isRequired,
-    content_function: PropTypes.func.isRequired
   }
 
   render() {
     return (
       <div className={gstyles.content}>
-        { this.props.content_function() }
+        { this.props.children }
       </div>
     );
   }
