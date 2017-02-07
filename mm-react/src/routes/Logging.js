@@ -1,17 +1,13 @@
 //! Logging interface
 
 import React from 'react';
-import { connect } from 'dva';
 
-import wrapContent from '../components/ContentContainer';
-import styles from '../static/css/IndexPage.css';
+import ContentContainer from '../components/ContentContainer';
 
 function LoggingPage() {
 	return (
-		<div className={styles.content}>
-			logging
-		</div>
+		<div>logging</div>
 	);
 }
 
-export default connect()(wrapContent("Log Interface", LoggingPage));
+export default () => <ContentContainer title="Log Interface" content_function={LoggingPage} />;

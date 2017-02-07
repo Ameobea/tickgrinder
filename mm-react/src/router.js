@@ -13,7 +13,7 @@ function RouterConfig({history}) {
       <Route path="/" component={AppPage}>
         <Route path="/index" component={IndexPage} />
         <Route path="/backtest" component={Backtest} />
-        <Route path="/data" component={Backtest} />
+        <Route path="/data" component={DataManagement} />
         <Route path="/log" component={Logging} />
       </Route>
     </Router>

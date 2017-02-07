@@ -1,12 +1,27 @@
 //! A wrapper for the main content that is unique to the currently selected page.
 
-import React from 'react';
+import React, { Component, PropTypes } from 'react'
+import { connect } from 'dva';
 
-function wrapContent(title, content) {
-  return function({dispatch}) {
-    dispatch({type: 'global/pageChange', title: title});
-    return content();
+import gstyles from '../static/css/globalStyle.css';
+
+class ContentContainer extends Component {
+  static propTypes = {
+    title: PropTypes.string.isRequired,
+    content_function: PropTypes.func.isRequired
+  }
+
+  render() {
+    return (
+      <div className={gstyles.content}>
+        { this.props.content_function() }
+      </div>
+    );
+  }
+
+  componentWillMount() {
+    this.props.dispatch({type: 'global/pageChange', title: this.props.title});
   }
 }
 
-export default wrapContent;
+export default connect()(ContentContainer);

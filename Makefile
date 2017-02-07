@@ -272,6 +272,7 @@ configure:
 	cd configurator && cargo run
 	cp configurator/conf.rs util/src
 	cp configurator/conf.js mm
+	cp configurator/conf.js mm-react/src
 
 config:
 	make configure

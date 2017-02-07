@@ -1,5 +1,6 @@
 const initialState = {
   title: "Default Title",
+  content_function: () => "Default Content",
 }
 
 export default {

@@ -4,14 +4,14 @@ import React from 'react';
 import { connect } from 'dva';
 
 import Header from './Header';
-import styles from '../static/css/globalStyle.css';
+import gstyles from '../static/css/globalStyle.css';
 
 class AppPage extends React.Component {
   render() {
     return (
-      <div className={styles.application}>
+      <div className={gstyles.application}>
         <Header title={this.props.title} />
-        <div className={styles.content}>
+        <div className={gstyles.content}>
           {this.props.children}
         </div>
       </div>
@@ -19,4 +19,8 @@ class AppPage extends React.Component {
   }
 }
 
-export default connect()(AppPage);
+function mapProps(state) {
+  return { title: state.global.title };
+}
+
+export default connect(mapProps)(AppPage);
