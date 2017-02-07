@@ -10,4 +10,9 @@ function IndexPage() {
   );
 }
 
-export default () => <ContentContainer title="Dashboard Homepage" content_function={IndexPage} />;
+export default () => { return (
+  <ContentContainer title="Dashboard Homepage">
+    <IndexPage />
+  </ContentContainer>
+);}
+

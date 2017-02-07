@@ -1,8 +1,10 @@
 import dva from 'dva';
-import { LocaleProvider } from 'antd';
-import enUS from 'antd/lib/locale-provider/en_US';
+// import createLoading from 'dva-loading';
 import React from 'react';
 import ReactDOM from 'react-dom';
+
+import { LocaleProvider } from 'antd';
+import enUS from 'antd/lib/locale-provider/en_US';
 
 import IndexPage from './routes/IndexPage';
 
@@ -15,6 +17,7 @@ const app = dva();
 // 3. Model
 // app.model(require('./models/example'));
 app.model(require('./models/GlobalState'));
+app.model(require('./models/Redis'));
 
 // 4. Router
 app.router(require('./router'));
