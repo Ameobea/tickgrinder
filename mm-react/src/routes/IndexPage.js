@@ -6,7 +6,7 @@ import { connect } from 'dva';
 import { Switch, DatePicker, Row, Col } from 'antd';
 
 import wrapContent from '../components/ContentContainer';
-import styles from './IndexPage.css';
+import styles from '../static/css/IndexPage.css';
 
 function IndexPage() {
   return (

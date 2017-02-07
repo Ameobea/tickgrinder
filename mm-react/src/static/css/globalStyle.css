@@ -1,3 +1,13 @@
 .title {
 
 }
+
+.nav {
+	font-size: 14pt;
+}
+
+.application {
+	max-width: 60%;
+    margin: 0 auto;
+    left: 0;
+}

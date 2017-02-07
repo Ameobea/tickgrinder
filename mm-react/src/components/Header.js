@@ -16,9 +16,11 @@ class Header extends React.Component {
     return (
       <div className={styles.header}>
         <div className={styles.title}><h1>{this.props.title}</h1></div>
-        <Row>
-          <Col span={12}><Link to="/index">Home</Link></Col>
-          <Col span={12}><Link to="/backtest">Backtest Management</Link></Col>
+        <Row className={styles.nav}>
+          <Col span={6}><Link to="/index">Home</Link></Col>
+          <Col span={6}><Link to="/backtest">Backtest Management</Link></Col>
+          <Col span={6}><Link to="/data">Data Management</Link></Col>
+          <Col span={6}><Link to="/log">Logging + Monitoring</Link></Col>
         </Row>
       </div>
     );
