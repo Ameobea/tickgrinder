@@ -27,6 +27,8 @@
     "@text-color-dark": "fade(#000, 91%)",
     "@text-color-secondary-dark": "fade(#000, 67%)",
     "@disabled-color-dark": "fade(#000, 35%)",
-    "@input-bg": "#313130"
+    "@input-bg": "#313130",
+    "@menu-dark-bg": "#404040",
+    "@layout-header-background": "#050505"
   }
 }

@@ -1,4 +1,13 @@
-.title {
+.application {
+  height: 100%;
+  background-color: #050505 !important;
+  color: #A0A0A0;
+  text-align: center;
+  font-family: "Helvetica Neue", "Helvetica", sans-serif;
+  padding-top: 20px;
+}
+
+.header {
 
 }
 
@@ -6,8 +15,9 @@
 	font-size: 14pt;
 }
 
-.application {
-	max-width: 85%;
-  margin: 0 auto;
-  left: 0;
+.content {
+  background-color: #0B0909;
+  margin-left: 50px;
+  margin-right: 50px;
+  padding-top: 15px;
 }

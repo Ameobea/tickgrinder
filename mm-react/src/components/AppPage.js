@@ -2,19 +2,24 @@
 
 import React from 'react';
 import { connect } from 'dva';
+import { Layout } from 'antd';
+const { Header, Content, Footer, Sider } = Layout;
 
-import Header from './Header';
+import DashHeader from './DashHeader';
 import gstyles from '../static/css/globalStyle.css';
 
 class AppPage extends React.Component {
   render() {
     return (
-      <div className={gstyles.application}>
-        <Header title={this.props.title} />
-        <div className={gstyles.content}>
+      <Layout className={gstyles.application}>
+        <DashHeader title={this.props.title} />
+        <Content className={gstyles.content}>
           {this.props.children}
-        </div>
-      </div>
+        </Content>
+        <Footer style={{ textAlign: 'center' }}>
+          TickGrinder Algorithmic Trading Platform; Created by Casey Primozic ©2017
+        </Footer>
+      </Layout>
     );
   }
 }

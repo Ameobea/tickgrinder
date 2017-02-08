@@ -1,3 +1,11 @@
 .liveLog {
   text-align: left;
+  border-bottom: 1px solid #888888;
+}
+
+.logLine {
+  border-top: 1px solid #888888;
+  border-left: 1px solid #888888;
+  border-right: 1px solid #888888;
+  border-collapse: collapse;
 }

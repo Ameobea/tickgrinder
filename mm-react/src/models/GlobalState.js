@@ -1,19 +1,17 @@
 //! Holds global state for the application; stuff like title.
 
-const initialState = {
-  title: "Default Title",
-  content_function: () => "Default Content",
-}
+import { v4 } from '../utils/commands';
 
 export default {
   namespace: 'global',
 
   state: {
     title: "Original Title",
+    uuid: v4(),
   },
 
   reducers: {
-    pageChange(state = initialState, action) {
+    pageChange(state, action) {
       state.title = action.title;
       return state;
     }
