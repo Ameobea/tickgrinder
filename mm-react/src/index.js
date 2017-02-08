@@ -17,6 +17,7 @@ const app = dva();
 // app.model(require('./models/example'));
 app.model(require('./models/GlobalState'));
 app.model(require('./models/PlatformCommunication'));
+app.model(require('./models/Logging'));
 
 // 4. Router
 app.router(require('./router'));
