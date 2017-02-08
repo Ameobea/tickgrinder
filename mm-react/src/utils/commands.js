@@ -1,6 +1,18 @@
 //! Functions for interfacing with the platform's Redis-based communication system
 
+import { Modal, Button } from 'antd';
+
 const CONF = require("../conf.js");
+
+/// Creates a big error modal if the MM can't connect to the websocket proxy.
+const wsError = () => {
+  Modal.error({
+    closable: false,
+    title: 'Unable to connect to Websocket server!',
+    content: 'In order to use this interface, the Redis<->Websocket proxy must be running.  \n\n' +
+      'To start it, run.sh in the project root directory and refresh this page.'
+  });
+}
 
 /// Generates a new V4 UUID in hyphenated form
 function v4() {
@@ -15,12 +27,14 @@ function v4() {
 
 /// Starts the WS listening for new messages sets up processing callback
 function initWs(callback, dispatch) {
-  var regex = /https?:\/\/([^\/:]*)/g;
-  var socketUrl = "ws://" + regex.exec(document.URL)[1] + ":7037";
+  var socketUrl = "ws://localhost:7037";
   var socket = new WebSocket(socketUrl);
   socket.onmessage = message=>{
     callback(dispatch, JSON.parse(message.data));
   };
+  socket.onerror = () => {
+    wsError();
+  }
   return socket;
 }
 

@@ -1,5 +1,4 @@
 import dva from 'dva';
-// import createLoading from 'dva-loading';
 import React from 'react';
 import ReactDOM from 'react-dom';
 

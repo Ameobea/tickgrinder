@@ -3,6 +3,17 @@
 
 use misc::{SettingsPage, SettingRow, SettingType};
 
+pub const PAGE_LIST: &'static [&'static SettingsPage] = &[
+    &POSTGRES_SETTINGS,
+    &REDIS_SETTINGS,
+    &MM_SETTINGS,
+    &FXCM_SETTINGS,
+    &GENERAL_SETTINGS,
+    &COMMANDSERVER_QUERYSERVER_SETTINGS,
+    &RUNTIME_SETTINGS,
+    &FUZZER_SETTINGS,
+];
+
 pub const POSTGRES_SETTINGS: SettingsPage = SettingsPage {
     name: "Postgres",
     rows: &[
@@ -58,6 +69,20 @@ pub const REDIS_SETTINGS: SettingsPage = SettingsPage {
         },
     ],
     comment: Some(&["Redis Settings"]),
+};
+
+pub const MM_SETTINGS: SettingsPage = SettingsPage {
+    name: "Management/Monitoring Web Interface",
+    rows: &[
+        SettingRow {
+            id: "mm_cache_size",
+            name: "Message Cache Size",
+            default: Some("2500"),
+            setting_type: SettingType::Usize,
+            comment: Some("How many of each Command, Response, and Log Line to keep in memory"),
+        },
+    ],
+    comment: Some(&["Settings for configuring the Management/Monitoring Web Interface."]),
 };
 
 pub const FXCM_SETTINGS: SettingsPage = SettingsPage {
@@ -142,7 +167,7 @@ pub const GENERAL_SETTINGS: SettingsPage = SettingsPage {
             name: "MM Port",
             default: Some("8002"),
             setting_type: SettingType::Usize,
-            comment: Some("The port the MM web GUI will listen on."),
+            comment: Some("The port the MM web GUI will listen on.  Deprecated."),
         },
         SettingRow {
             id: "node_binary_path",
