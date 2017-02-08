@@ -27,6 +27,8 @@ mod misc;
 use misc::*;
 mod directory;
 use directory::*;
+mod schema;
+use schema::*;
 
 const MIN15: SizeConstraint = SizeConstraint::AtLeast(10);
 const FREE: SizeConstraint = SizeConstraint::Free;
