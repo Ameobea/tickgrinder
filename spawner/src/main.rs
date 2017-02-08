@@ -12,6 +12,7 @@ extern crate futures;
 extern crate test;
 extern crate serde;
 extern crate serde_json;
+extern crate ws;
 #[macro_use]
 extern crate serde_derive;
 
@@ -29,6 +30,8 @@ use tickgrinder_util::transport::redis::{sub_channel, sub_multiple, get_client};
 use tickgrinder_util::transport::commands::*;
 use tickgrinder_util::transport::command_server::*;
 use tickgrinder_util::conf::CONF;
+
+mod redis_proxy;
 
 /// Holds a list of all instances that the spawner has spawned and thinks are alive
 #[derive(Clone)]
@@ -58,7 +61,10 @@ impl InstanceManager {
     /// and initializes the ping heartbeat.
     pub fn init(&mut self) {
         // spawn a MM instance
-        self.spawn_mm();
+        // self.spawn_mm(); // disabled since the new MM is fully client-side
+
+        // initialize the Redis<->Websocket Proxy
+        redis_proxy::proxy();
 
         // spawn a logger instance
         self.spawn_logger();

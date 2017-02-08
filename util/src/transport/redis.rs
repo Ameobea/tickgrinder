@@ -86,3 +86,11 @@ pub fn sub_multiple(host: &str, channels: &[&str]) -> UnboundedReceiver<(String,
 
     rx
 }
+
+/// Sends a message over a Redis pub/sub channel given a client.
+pub fn publish(client: &redis::Client, channel: &str, msg: &str) {
+    redis::cmd("PUBLISH")
+        .arg(channel)
+        .arg(msg)
+        .execute(client);
+}
