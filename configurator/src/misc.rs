@@ -289,13 +289,3 @@ pub const POSTGRES_IDS: &'static [&'static str] = &[
     "postgres_port",
     "postgres_db"
 ];
-
-pub const PAGE_LIST: &'static [&'static SettingsPage] = &[
-    &POSTGRES_SETTINGS,
-    &REDIS_SETTINGS,
-    &FXCM_SETTINGS,
-    &GENERAL_SETTINGS,
-    &COMMANDSERVER_QUERYSERVER_SETTINGS,
-    &RUNTIME_SETTINGS,
-    &FUZZER_SETTINGS,
-];

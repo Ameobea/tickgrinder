@@ -2,7 +2,9 @@
   "private": true,
   "scripts": {
     "start": "roadhog server",
-    "build": "roadhog build"
+    "build": "roadhog build",
+    "test": "roadhog test",
+    "build-debug": "roadhog build --debug"
   },
   "engines": {
     "install-node": "6.9.2"
@@ -12,7 +14,6 @@
     "babel-plugin-import": "^1.1.0",
     "babel-runtime": "^6.9.2",
     "dva": "^1.2.1",
-    "dva-loading": "^0.2.0",
     "react": "^15.4.0",
     "react-dom": "^15.4.0"
   },

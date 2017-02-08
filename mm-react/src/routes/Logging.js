@@ -3,10 +3,13 @@
 import React from 'react';
 
 import ContentContainer from '../components/ContentContainer';
+import LiveLog from '../components/logging/LiveLog';
 
 function LoggingPage() {
 	return (
-		<div>logging</div>
+		<div>
+      <LiveLog />
+    </div>
 	);
 }
 

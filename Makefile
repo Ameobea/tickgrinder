@@ -63,12 +63,13 @@ release:
 	cp optimizer/target/release/optimizer dist
 	cd logger && CARGO_INCREMENTAL=1 cargo build --release
 	cp logger/target/release/logger dist
-	cd mm && npm install
-	cp ./mm dist -r
+
+	# compile the MM
+	cd mm-react && npm run build
 
 dev:
-	rm dist/mm -r
-	cd dist && ln -s ../mm/ ./mm
+	# rm dist/mm -r
+	# cd dist && ln -s ../mm/ ./mm
 
 	# build the simbroker in superlog mode
 	cd broker_shims/simbroker && RUSTFLAGS="-L ../../util/target/release/deps -L ../../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build --features="superlog"
@@ -271,7 +272,6 @@ kill:
 configure:
 	cd configurator && cargo run
 	cp configurator/conf.rs util/src
-	cp configurator/conf.js mm
 	cp configurator/conf.js mm-react/src
 
 config:
@@ -284,7 +284,7 @@ init:
 	mkdir dist/lib
 
 node:
-	if [[ ! $$(which dva) ]]; then npm install -g dva-cli; fi
+	# if [[ ! $$(which dva) ]]; then npm install -g dva-cli; fi
 	if [[ ! -f ./mm-react/node_modules/installed ]]; then \
 		cd mm-react && npm install react && npm install react-dom && npm install babel-plugin-import --save && npm install && \
 			npm install dva-loading --save && touch ./node_modules/installed; \

@@ -10,12 +10,12 @@ const handleMessage = (dispatch, {uuid, channel, message}) => {
   // dispatch the message to the corresponding reducer depending on its type
   if(msg.cmd) {
     if(msg.cmd.Log) {
-      dispatch({type: 'logReceived', msg: msg.cmd.Log.msg});
+      dispatch({type: 'logReceived', msg: msg});
     } else {
-      dispatch({type: 'commandReceived', msg: msg.cmd});
+      dispatch({type: 'commandReceived', msg: msg});
     }
   } else {
-    dispatch({type: 'responseReceived', msg: msg.res});
+    dispatch({type: 'responseReceived', msg: msg});
   }
 };
 
@@ -38,7 +38,7 @@ export default {
     // adds the command to the state, removing the oldest one if the buffer is larger than the size limit
     commandReceived(state = {commands: []}, action) {
       state.commands.push(action.msg);
-      if(state.commands.length > 25000) { // TODO: Create config setting for this
+      if(state.commands.length > CONF.mm_cache_size) {
         state.commands.pop();
       }
 
@@ -52,7 +52,7 @@ export default {
     // adds a response to the state, removing the oldest one if the buffer is larger than the size limit
     responseReceived(state = {}, action) {
       state.responses.push(action.msg);
-      if(state.responses.length > 25000) { // TODO: Create config setting for this
+      if(state.responses.length > CONF.mm_cache_size) {
         state.responses.pop();
       }
 
@@ -61,12 +61,16 @@ export default {
 
     // adds a log message to the state, removing the oldest ond if the buffer is larger than the size limit
     logReceived(state = {log_messages: []}, action) {
-      state.log_messages.push(action.msg);
-      if(state.log_messages.length > 25000) { // TODO: Create config setting for this
-        state.log_messages.pop();
+      let new_state =  { ...state,
+        log_messages: [...state.log_messages, action.msg],
+      };
+
+      // trim the oldest line out of the cache to keep it under the limit if it's over the limit
+      if(new_state.log_messages.length > CONF.mm_cache_size) {
+        new_state.log_messages.pop();
       }
 
-      return state;
+      return new_state;
     },
   },
 
