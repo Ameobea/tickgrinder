@@ -1,10 +1,15 @@
 //! A live view of log messages.
 
 import { connect } from 'dva';
-import { Row, Col } from 'antd';
+import { Row, Col, AutoComplete } from 'antd';
 
 import styles from '../../static/css/logging.css';
 import LogLine from './LogLine';
+
+/// 
+const getDataSource = (log_cache) => {
+
+}
 
 const LiveLog = ({log_cache}) => {
   console.log(log_cache);
