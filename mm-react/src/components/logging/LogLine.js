@@ -1,6 +1,8 @@
 //! A single log line entry
 
+import { connect } from 'dva';
 import { Row, Col, Tag } from 'antd';
+const CheckableTag = Tag.CheckableTag;
 
 import logStyles from '../../static/css/logging.css';
 
@@ -32,15 +34,19 @@ const Instance = ({sender}) => {
   );
 }
 
-const LogLine = ({msg}) => {
+const MessageType = ({dispatch, children}) => {
+  return <CheckableTag onChange={() => dispatch({type: 'logging/categoryAdded', action: {item: children}})}>{children}</CheckableTag>;
+}
+
+const LogLine = ({dispatch, msg}) => {
   return (
     <Row className={msg.level + ' ' + logStyles.logLine} type="flex" justify="space-around" align="middle">
       <Col span={2}><div><Instance sender={msg.sender} /></div></Col>
-      <Col span={2}><div>{msg.message_type}</div></Col>
+      <Col span={2}><div><MessageType dispath={dispatch}>{msg.message_type}</MessageType></div></Col>
       <Col span={18}><div>{msg.message}</div></Col>
       <Col span={2}><div><Severity level={msg.level} /></div></Col>
     </Row>
   );
 }
 
-export default LogLine;
+export default connect()(LogLine);
