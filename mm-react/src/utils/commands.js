@@ -13,13 +13,15 @@ function v4() {
     s4() + '-' + s4() + s4() + s4();
 }
 
-/// Returns a new Redis client based on the settings in conf
-function getRedisClient() {
-  var spl = conf.redis_host.split("://")[1].split(":");
-  return redis.createClient({
-    host: spl[0],
-    port: parseInt(spl[1]),
-  });
+/// Starts the WS listening for new messages sets up processing callback
+function initWs(callback, dispatch) {
+  var regex = /https?:\/\/([^\/:]*)/g;
+  var socketUrl = "ws://" + regex.exec(document.URL)[1] + ":7037";
+  var socket = new WebSocket(socketUrl);
+  socket.onmessage = message=>{
+    callback(dispatch, JSON.parse(message.data));
+  };
+  return socket;
 }
 
 /// Processes a command and returns a Response to send back
@@ -43,7 +45,7 @@ function getResponse(command) {
 }
 
 export default {
-  getRedisClient: getRedisClient,
+  initWs: initWs,
   getResponse: getResponse,
   v4: v4,
 }
