@@ -39,18 +39,13 @@ function initWs(callback, dispatch) {
 }
 
 /// Processes a command and returns a Response to send back
-function getResponse(command) {
+function getResponse(command, uuid) {
   switch(command) {
     case "Ping":
-      var temp = JSON.parse(JSON.stringify(process.argv));
+      var temp = JSON.parse(JSON.stringify([uuid]));
       return {Pong: {args: temp.splice(2)}};
     case "Kill":
-      // shut down in 3 seconds
-      setTimeout(function() {
-        console.log("MM is very tired...");
-        process.exit(0);
-      }, 3000);
-      return {Info: {info: "Shutting down in 3 seconds..."}};
+      return {Info: {info: "We're client side, we don't take orders from you."}};
     case "Type":
       return {Info: {info: "MM"}};
     default:

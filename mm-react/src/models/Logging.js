@@ -53,7 +53,7 @@ export default {
     /// handles clicks on the instance tags in the `LiveLog`
     instanceAdded(state, action) {
       // only add if it's not already there
-      if(state.selected_instances.indexOf(action.item) != -1) {
+      if(state.selected_instances.filter(sender => sender.uuid == action.item.uuid).length !== 0) {
         return {...state};
       }
 

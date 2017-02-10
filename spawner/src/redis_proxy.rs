@@ -131,7 +131,7 @@ impl Handler for WsClient {
     }
 
     fn on_message(&mut self, _: ws::Message) -> Result<(), ws::Error> {
-        // It's not out job to forward messages to Redis (we would do it poorly because we're blocking)
+        // It's not our job to forward messages to Redis (we would do it poorly because we're blocking)
         // so just block and wait for the next Redis message and send it which triggers this to be called again.
         let (chan, msg) = self.rx_iter.next().unwrap().expect("Got error in the `WsClient` redis rx wait loop)");
         self.handle_redis_msg(chan, msg);
@@ -146,7 +146,7 @@ impl Handler for WsServer {
         let msg_string: String = match msg {
             ws::Message::Text(ref s) => s.clone(),
             ws::Message::Binary(_) => {
-                // self.cs.error(Some("WsMsg Parsing"), "Received binary message over websocket!");
+                self.cs.error(Some("WsMsg Parsing"), "Received binary message over websocket!");
                 println!("Received binary message over websocket!");
                 return Ok(());
             },
@@ -156,9 +156,9 @@ impl Handler for WsServer {
 
         // received messages contain the destination channel and the message, so parse out of JSON first
         let res = from_str(&msg_string);
-        let WsMsg{uuid, channel, message: _} = if res.is_err() {
+        let WsMsg{uuid, channel, message: wrapped_msg_string} = if res.is_err() {
             let errmsg = format!("Unable to parse string into `WsMsg`: {}", msg_string);
-            // self.cs.error(Some("WsMsg Parsing"), &errmsg);
+            self.cs.error(Some("WsMsg Parsing"), &errmsg);
             println!("{}", errmsg);
             return Ok(());
         } else {
@@ -169,7 +169,7 @@ impl Handler for WsServer {
         let mut set = self.proxied_uuids.lock().unwrap();
         if !set.contains(&uuid) {
             set.insert(uuid);
-            publish(&self.redis_pub_client, &channel, &msg_string);
+            publish(&self.redis_pub_client, &channel, &wrapped_msg_string);
         }
 
         self.out.broadcast(msg)
@@ -211,8 +211,8 @@ fn get_ws_host() -> String {
     format!("127.0.0.1:{}", CONF.websocket_port)
 }
 
-/// Starts a websocket server used to proxy the messages.  Returns a oneshot that fulfills once the
-/// server has been started.
+/// Starts a websocket server used to proxy the messages.
+/// TODO: Notify once the server is up and running and don't start the other one before it is ready
 fn create_ws_server(container: Arc<Mutex<HashSet<Uuid>>>, cs: CommandServer) {
     thread::spawn(move || {
         listen(get_ws_host(), move |out| {
