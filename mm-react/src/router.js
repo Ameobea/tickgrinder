@@ -6,6 +6,7 @@ import IndexPage from './routes/IndexPage';
 import Backtest from './routes/Backtest';
 import Logging from './routes/Logging';
 import DataManagement from './routes/DataManagement';
+import InstanceManagement from './routes/InstanceManagement';
 
 function RouterConfig({history}) {
   return (
@@ -15,6 +16,7 @@ function RouterConfig({history}) {
         <Route path="/backtest" component={Backtest} />
         <Route path="/data" component={DataManagement} />
         <Route path="/log" component={Logging} />
+        <Route path="/instances" component={InstanceManagement} />
       </Route>
     </Router>
   );
