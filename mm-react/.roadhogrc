@@ -29,6 +29,7 @@
     "@disabled-color-dark": "fade(#000, 35%)",
     "@input-bg": "#313130",
     "@menu-dark-bg": "#404040",
-    "@layout-header-background": "#050505"
+    "@layout-header-background": "#050505",
+    "@popover-bg": "#21191b"
   }
 }

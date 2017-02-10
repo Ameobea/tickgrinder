@@ -9,7 +9,7 @@ import DataManagement from './routes/DataManagement';
 import InstanceManagement from './routes/InstanceManagement';
 
 function RouterConfig({history}) {
-  return (
+  return ( // TODO: notification counts for tabs
     <Router history={history}>
       <Route path="/" component={AppPage}>
         <Route path="/index" component={IndexPage} />

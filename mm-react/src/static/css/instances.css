@@ -1,0 +1,43 @@
+.instances {
+  text-align: left;
+}
+
+.instance {
+  font-size: 12pt;
+  font-weight: bold;
+  border: 2px solid #ba094a;
+  border-radius: 2em;
+  padding-right: 3px;
+  padding-left: 3px;
+  padding-bottom: 2px;
+  padding-top: 2px;
+  margin-top: 3px;
+  background-color: #590216;
+}
+
+.killButton {
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+  margin-left: 5px;
+  vertical-align: middle;
+}
+
+.instanceManagement {
+  text-align: left;
+}
+
+.instanceSpawner {
+  margin-top: 20px;
+}
+
+.header {
+  margin-top: 5px;
+  font-size: 16px;
+}
+
+.info-icon {
+  font-color: #505d72;
+  font-weight: bold;
+  font-style: italic;
+}
