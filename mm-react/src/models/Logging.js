@@ -6,6 +6,7 @@ export default {
   state: {
     selected_categories: [],
     selected_severities: [],
+    inclusive: false,
   },
 
   reducers: {
@@ -23,7 +24,7 @@ export default {
     // handles clicks on the close button for selected categories in `LiveLog`
     categoryClosed(state, action) {
       return {...state,
-        selected_categories: state.selected_categories.filter(category => category != action.name),
+        selected_categories: state.selected_categories.filter(category => category != action.item),
       };
     },
 
@@ -38,9 +39,19 @@ export default {
       };
     },
 
+    // handles clicks on the close button for a selected severity in `LiveLog`
     severityClosed(state, action) {
+      let new_state = {...state,
+        selected_severities: state.selected_severities.filter(severity => severity != action.item),
+      };
+      return new_state;
+    },
+
+    // handles clicks on the checkboxes for setting whether the selected categores and severities should be
+    // used to filter log messages that match them or do not match them.
+    toggleMatch(state, action) {
       return {...state,
-        selected_severities: state.selected_severities.filter(severity => severity != action.name),
+        inclusive: !state.inclusive,
       };
     }
   }
