@@ -30,7 +30,6 @@ function initWs(callback, dispatch) {
   var socketUrl = "ws://localhost:7037";
   var socket = new WebSocket(socketUrl);
   socket.onmessage = message=>{
-    console.log(message);
     callback(dispatch, JSON.parse(message.data));
   };
   socket.onerror = () => {
