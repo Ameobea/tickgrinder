@@ -71,7 +71,7 @@ const LiveLog = ({dispatch, log_cache, selected_categories, selected_severities,
     // check if the log line should be displayed based on the selected categories/severities and inclusiveness state
     let contains = ((selected_severities.indexOf(log_line.cmd.Log.msg.level) != -1 == inclusive) || (selected_severities.length === 0)) &&
       ((selected_categories.indexOf(log_line.cmd.Log.msg.message_type) != -1 == inclusive) || (selected_categories.length === 0)) &&
-      (((selected_instances.filter(sender => sender.uuid != log_line.cmd.Log.msg.sender.uuid).length == 0) == inclusive) || (selected_instances.length === 0));
+      (((selected_instances.filter(sender => sender.uuid == log_line.cmd.Log.msg.sender.uuid).length !== 0) == inclusive) || (selected_instances.length === 0));
     if(contains) {
       rows.push(<LogLine key={log_line.uuid} msg={log_line.cmd.Log.msg} />);
     }
