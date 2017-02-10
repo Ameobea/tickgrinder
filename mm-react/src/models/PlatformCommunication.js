@@ -53,11 +53,12 @@ export default {
       }
 
       // Get a response to send back in reply to the received command
-      let res = getResponse(action.msg, state.uuid);
+      let res = getResponse(action.msg.cmd, state.uuid);
       // format the response message and send it over the websocket connection to be proxied to Redis
       let uuid = v4();
-      let wrapped_res = {uuid: uuid, res: res};
-      let wsmsg = {uuid: uuid, channel: CONF.redis_responses_channel, message: JSON.stringify(wrapped_res)};
+      let wrapped_res = {uuid: action.msg.uuid, res: res};
+      let wsmsg = {uuid: action.msg.uuid, channel: CONF.redis_responses_channel, message: JSON.stringify(wrapped_res)};
+      console.log(wsmsg);
       state.socket.send(JSON.stringify(wsmsg));
 
       return state;
