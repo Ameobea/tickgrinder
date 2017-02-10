@@ -284,7 +284,7 @@ init:
 	mkdir dist/lib
 
 node:
-	# if [[ ! $$(which dva) ]]; then npm install -g dva-cli; fi
+	if [[ ! $$(which dva) ]]; then npm install -g dva-cli; fi
 	if [[ ! -f ./mm-react/node_modules/installed ]]; then \
 		cd mm-react && npm install react && npm install react-dom && npm install babel-plugin-import --save && npm install && \
 			npm install dva-loading --save && touch ./node_modules/installed; \

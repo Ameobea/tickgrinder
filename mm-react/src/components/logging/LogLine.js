@@ -8,23 +8,33 @@ import logStyles from '../../static/css/logging.css';
 
 /// Render a pretty severity level
 const Severity = connect()(({dispatch, level, onClick, closable}) => {
+  let color;
   switch(level) {
     case "Debug":
-      return <Tag closable={closable} onClick={() => onClick(dispatch)} color="cyan-inverse">Debug</Tag>;
+      color = "cyan-inverse";
       break;
     case "Notice":
-      return <Tag closable={closable} onClick={() => onClick(dispatch)} color="blue-inverse">Notice</Tag>;
+      color = "blue-inverse";
       break;
     case "Warning":
-      return <Tag closable={closable} onClick={() => onClick(dispatch)} color="yellow-inverse">Warning</Tag>;
+      color = "yellow-inverse";
       break;
     case "Error":
-      return <Tag closable={closable} onClick={() => onClick(dispatch)} color="orange-inverse">Error</Tag>;
+      color = "orange-inverse";
       break;
     case "Critical":
-      return <Tag closable={closable} onClick={() => onClick(dispatch)} color="red-inverse">Critical</Tag>;
+      color = "red-inverse"
       break;
   }
+
+  return (
+    <Tag
+      closable={closable}
+      onClick={() => onClick(dispatch)}
+      color={color}
+    >
+      {level}
+    </Tag>);
 });
 
 const Instance = ({sender}) => {
