@@ -6,6 +6,9 @@ import { LocaleProvider } from 'antd';
 import enUS from 'antd/lib/locale-provider/en_US';
 
 import IndexPage from './routes/IndexPage';
+let GlobalState = require('./models/GlobalState');
+let PlatformCommunication = require('./models/PlatformCommunication');
+let Logging = require('./models/Logging');
 
 // 1. Initialize
 const app = dva();
@@ -15,9 +18,9 @@ const app = dva();
 
 // 3. Model
 // app.model(require('./models/example'));
-app.model(require('./models/GlobalState'));
-app.model(require('./models/PlatformCommunication'));
-app.model(require('./models/Logging'));
+app.model(GlobalState);
+app.model(PlatformCommunication);
+app.model(Logging);
 
 // 4. Router
 app.router(require('./router'));

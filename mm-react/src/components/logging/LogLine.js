@@ -1,7 +1,7 @@
 //! A single log line entry
 
 import { connect } from 'dva';
-import { Row, Col, Tag } from 'antd';
+import { Row, Col, Tag, Tooltip } from 'antd';
 const CheckableTag = Tag.CheckableTag;
 
 import logStyles from '../../static/css/logging.css';
@@ -23,7 +23,7 @@ const Severity = connect()(({dispatch, level, onClick, closable}) => {
       color = "orange-inverse";
       break;
     case "Critical":
-      color = "red-inverse"
+      color = "red-inverse";
       break;
   }
 
@@ -37,10 +37,14 @@ const Severity = connect()(({dispatch, level, onClick, closable}) => {
     </Tag>);
 });
 
-const Instance = ({sender}) => {
+const Instance = ({dispatch, sender}) => {
   let instance_type = sender.instance_type;
   return (
-    <div>{instance_type}</div>
+    <Tooltip placement="right" title={sender.uuid}>
+      <CheckableTag onChange={() => dispatch({type: 'logging/instanceAdded', item: sender})}>
+        {instance_type}
+      </CheckableTag>
+    </Tooltip>
   );
 }
 
@@ -51,7 +55,12 @@ const MessageType = connect()(({dispatch, children}) => {
 const LogLine = ({dispatch, msg}) => {
   return (
     <Row className={msg.level + ' ' + logStyles.logLine} type="flex" justify="space-around" align="middle">
-      <Col span={2}><Instance sender={msg.sender} /></Col>
+      <Col span={2}>
+        <Instance
+          sender={msg.sender}
+          dispatch={dispatch}
+        />
+      </Col>
       <Col span={2}><MessageType>{msg.message_type}</MessageType></Col>
       <Col span={18}><div>{msg.message}</div></Col>
       <Col span={2}>
