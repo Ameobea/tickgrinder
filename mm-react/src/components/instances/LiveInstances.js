@@ -14,7 +14,7 @@ const LiveInstances = ({dispatch, instances}) => {
     let inst = instances[i];
     insts.push(
       <Row key={inst.uuid}>
-        <Col span={24}><Instance uuid={inst.uuid} instance_type={inst.instance_type} /></Col>
+        <Col span={4}><Instance uuid={inst.uuid} instance_type={inst.instance_type} /></Col>
       </Row>
     );
   }

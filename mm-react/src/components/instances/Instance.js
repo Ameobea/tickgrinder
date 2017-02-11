@@ -19,9 +19,11 @@ const Instance = ({dispatch, instance_type, uuid}) => {
   return (
     // TODO: Button shortcut to show log messages from this instance
     // TODO: Button to stop this instance
-    <Tooltip title={uuid}>
+    <div style={{ "marginTop": "5px" }}>
       <span className={styles.instance}>
-        {instance_type}
+        <Tooltip title={uuid}>
+          {instance_type}
+        </Tooltip>
         <Popconfirm
           placement="rightTop"
           title="Really kill this instance?"
@@ -29,10 +31,12 @@ const Instance = ({dispatch, instance_type, uuid}) => {
           okText="Yes"
           cancelText="Cancel"
         >
-          <Button type="primary" icon="close" shape="circle" size="small" />
+          <Tooltip title="Kill Instance">
+            <Button type="primary" icon="close" shape="circle" className={styles.killButton} />
+          </Tooltip>
         </Popconfirm>
-      </span>
-    </Tooltip>
+    </span>
+    </div>
   );
 }
 

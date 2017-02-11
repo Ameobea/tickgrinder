@@ -4,6 +4,8 @@ import { connect } from 'dva';
 
 import ContentContainer from '../components/ContentContainer';
 import LiveInstances from '../components/instances/LiveInstances';
+import InstanceSpawner from '../components/instances/InstanceSpawner';
+import styles from '../static/css/instances.css';
 
 function mapProps(state) {
   return {
@@ -13,7 +15,10 @@ function mapProps(state) {
 
 const InstanceManagement = connect(mapProps)(({dispatch, instances}) => {
   return (
-    <LiveInstances instances={instances} />
+    <div className={styles.instanceManagement}>
+      <LiveInstances instances={instances} />
+      <InstanceSpawner />
+    </div>
   );
 });
 
