@@ -7,7 +7,12 @@ import styles from '../../static/css/instances.css';
 
 /// Sends a kill message to an instance
 const killInstance = (dispatch, uuid) => {
-  dispatch({type: 'platform_communication/sendCommand', uuid: uuid, channel: uuid, cb_action: 'instances/instanceKillMessageReceived'});
+  dispatch({
+    type: 'platform_communication/sendCommand',
+    channel: uuid,
+    cb_action: 'instances/instanceKillMessageReceived',
+    cmd: "Kill",
+  });
 };
 
 const Instance = ({dispatch, instance_type, uuid}) => {
@@ -24,7 +29,7 @@ const Instance = ({dispatch, instance_type, uuid}) => {
           okText="Yes"
           cancelText="Cancel"
         >
-          <Button type="primary" icon="close" />
+          <Button type="primary" icon="close" shape="circle" size="small" />
         </Popconfirm>
       </span>
     </Tooltip>

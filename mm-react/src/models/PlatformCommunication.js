@@ -152,10 +152,10 @@ export default {
 
   subscriptions: {
     redisListener({dispatch, history}) {
-      // initialize redis clients for sending and receiving messages
-      let socket = initWs(handleMessage, dispatch);
-      // generate and set a UUID for the MM
       let our_uuid = v4();
+      // initialize redis clients for sending and receiving messages
+      let socket = initWs(handleMessage, dispatch, our_uuid);
+      // generate and set a UUID for the MM
       dispatch({type: 'setUuid', uuid: our_uuid});
 
       socket.onopen = (evt) => {
@@ -165,7 +165,6 @@ export default {
 
         let censusCb = (put, msg) => {
           if(msg.res.Info) {
-            console.log(msg);
             put({type: 'instances/censusReceived', census: msg.res.Info.info});
           }
         };

@@ -26,11 +26,18 @@ function v4() {
 }
 
 /// Starts the WS listening for new messages sets up processing callback
-function initWs(callback, dispatch) {
+function initWs(callback, dispatch, our_uuid) {
   var socketUrl = "ws://localhost:7037";
   var socket = new WebSocket(socketUrl);
   socket.onmessage = message=>{
-    callback(dispatch, JSON.parse(message.data));
+    let parsed = JSON.parse(message.data);
+    // throw away messages we're transmitting to channels we don't care about
+    if([CONF.redis_control_channel, CONF.redis_responses_channel, CONF.redis_log_channel, our_uuid].indexOf(parsed.channel) != -1) {
+      callback(dispatch, parsed);
+    } else {
+      console.log("Ignoring message: ");
+      console.log(parsed);
+    }
   };
   socket.onerror = () => {
     wsError();
@@ -59,8 +66,8 @@ function getResponse(command, uuid) {
         action = "instances/instanceSpawned";
       } else {
         res = {Error: {status: "Command not recognized."}};
-        break;
       }
+      break;
   }
 
   return {res: res, action: action};

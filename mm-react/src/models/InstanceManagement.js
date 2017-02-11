@@ -13,6 +13,11 @@ export default {
   reducers: {
     /// called when a new instance is spawned and should be added to the list of living instances
     instanceSpawned(state, {msg}) {
+      // don't add instances if we already know about them for some reason
+      if(state.living_instances.filter(inst => inst.uuid == msg.cmd.Ready.uuid).length !== 0) {
+        return {...state};
+      }
+
       return {...state,
         living_instances: [...state.living_instances, msg.cmd.Ready],
       };
@@ -38,16 +43,12 @@ export default {
 
     /// Called when a response from the Instance a kill message was sent to is received
     instanceKillMessageReceived(state, {msg}) {
-      let res_text;
-      console.log(msg);
-      if(msg.Info) {
-        res_text = msg.Info.info;
-      } else {
-        res_text = msg.Error.status;
-      }
-
       // display a popup notification of the result of the kill command
-      message.info("Message received from instance: " + res_text, 4567);
+      if(msg.res.Info) {
+        message.info("Message received from instance: \"" + msg.res.Info.info + "\"", 4);
+      } else {
+        message.info("Error killing instance: \"" + msg.res.Error.status + "\"", 4);
+      }
 
       // no modifications to state at this point, so just return it
       return {...state};
