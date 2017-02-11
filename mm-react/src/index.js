@@ -9,6 +9,7 @@ import IndexPage from './routes/IndexPage';
 let GlobalState = require('./models/GlobalState');
 let PlatformCommunication = require('./models/PlatformCommunication');
 let Logging = require('./models/Logging');
+let InstanceManagement = require('./models/InstanceManagement');
 
 // 1. Initialize
 const app = dva();
@@ -21,6 +22,7 @@ const app = dva();
 app.model(GlobalState);
 app.model(PlatformCommunication);
 app.model(Logging);
+app.model(InstanceManagement);
 
 // 4. Router
 app.router(require('./router'));

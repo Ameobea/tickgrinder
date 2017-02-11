@@ -40,17 +40,30 @@ function initWs(callback, dispatch) {
 
 /// Processes a command and returns a Response to send back
 function getResponse(command, uuid) {
+  let res;
+  let action = undefined;
   switch(command) {
     case "Ping":
-      var temp = JSON.parse(JSON.stringify([uuid]));
-      return {Pong: {args: temp.splice(2)}};
+      var temp = [uuid];
+      res = {Pong: {args: temp.splice(2)}};
+      break;
     case "Kill":
-      return {Info: {info: "We're client side, we don't take orders from you."}};
+      res = {Error: {status: "We're client side, we don't take orders from you."}};
+      break;
     case "Type":
-      return {Info: {info: "MM"}};
+      res = {Info: {info: "MM"}};
+      break;
     default:
-      return {Error: {status: "Command not recognized."}};
+      if(command.Ready) {
+        res = "Ok";
+        action = "instances/instanceSpawned";
+      } else {
+        res = {Error: {status: "Command not recognized."}};
+        break;
+      }
   }
+
+  return {res: res, action: action};
 }
 
 export default {

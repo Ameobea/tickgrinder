@@ -36,13 +36,8 @@ export default {
 
   reducers: {
     /// sends a command and executes a callback for all responses received.  The callback should accept two parameters:
-    /// `put` and `msg` in that order like `(put, res) => {...}`.
-    transmitCommand(state, {channel, cmd, cb, uuid}) {
-      // if no callback was supplied, set it to a no-op cb
-      if(cb == undefined) {
-        cb = () => {};
-      }
-
+    /// `put` and `msg` in that order like `(put, msg) => {...}`.
+    transmitCommand(state, {channel, cmd, cb_action, uuid}) {
       // broadcast the command over the socket
       let msg = {uuid: uuid, cmd: cmd};
       let wsmsg = {uuid: uuid, channel: channel, message: JSON.stringify(msg)};
@@ -50,8 +45,18 @@ export default {
 
       // add the uuid and callback to the list of monitored UUIDs
       return {...state,
-        interest_list: [...state.interest_list, {uuid: uuid, cb: cb}],
+        interest_list: [...state.interest_list, {uuid: uuid, cb_action: cb_action}],
       };
+    },
+
+    /// sends a response over the specified redic channel+uuid over the WebSocket to the platform.
+    transmitResponse(state, {uuid, res}) {
+      let msg = {uuid: uuid, res: res};
+      let wsmsg = {uuid: uuid, channel: CONF.redis_responses_channel, message: JSON.stringify(msg)};
+      state.socket.send(JSON.stringify(wsmsg));
+
+      // we don't actually modify the state at all, just use the socket
+      return {...state};
     },
 
     /// Called after a timeout period; deregisters interest in a UUID.
@@ -62,37 +67,17 @@ export default {
     },
 
     /// receives the websocket object from the `redisListener` subscription after it has initialized the websocket connection
-    websocketConnected(state, action) {
+    websocketConnected(state, {socket}) {
       return {...state,
-        socket: action.socket,
+        socket: socket,
       };
     },
 
     /// called to set a UUID for the platform during initialization
-    setUuid(state, action) {
+    setUuid(state, {uuid}) {
       return {...state,
-        uuid: action.uuid,
+        uuid: uuid,
       };
-    },
-
-    /// adds the command to the state, removing the oldest one if the buffer is larger than the size limit
-    commandReceived(state, action) {
-      let new_state = {...state,
-        commands: [...state.commands, action.msg],
-      };
-      if(new_state.commands.length > CONF.mm_cache_size) {
-        new_state.commands.pop();
-      }
-
-      // Get a response to send back in reply to the received command
-      let res = getResponse(action.msg.cmd, new_state.uuid);
-      // format the response message and send it over the websocket connection to be proxied to Redis
-      let uuid = v4();
-      let wrapped_res = {uuid: action.msg.uuid, res: res};
-      let wsmsg = {uuid: action.msg.uuid, channel: CONF.redis_responses_channel, message: JSON.stringify(wrapped_res)};
-      new_state.socket.send(JSON.stringify(wsmsg));
-
-      return new_state;
     },
 
     /// adds a response to the state, removing the oldest one if the buffer is larger than the size limit
@@ -108,9 +93,9 @@ export default {
     },
 
     /// adds a log message to the state, removing the oldest ond if the buffer is larger than the size limit
-    logReceived(state = {log_messages: []}, action) {
+    logReceived(state, {msg}) {
       let new_state =  { ...state,
-        log_messages: [...state.log_messages, action.msg],
+        log_messages: [...state.log_messages, msg],
       };
 
       // trim the oldest line out of the cache to keep it under the limit if it's over the limit
@@ -125,27 +110,42 @@ export default {
   effects: {
     /// Initializes the timeout for deregistering that interest and dispatches the action to transmit
     /// the command over the WebSocket
-    *sendCommand(action, {channel, cmd, cb}) {
+    *sendCommand({channel, cmd, cb_action}, {call, put}) {
       // transmit the command and register interest in responses with its UUID
       let uuid = v4();
-      yield put({type: 'platform_communication/transmitCommand', channel: channel, cmd: cmd, cb: cb, uuid: uuid});
+      yield put({type: 'transmitCommand', channel: channel, cmd: cmd, cb_action: cb_action, uuid: uuid});
       // give instances a chance to receive + process the command and transmit their responses
       yield delay(3000);
       // then deregister interest in the command's uuid
-      yield put({type: 'platform_communication/deregisterInterest', uuid: uuid})
+      yield put({type: 'deregisterInterest', uuid: uuid})
     },
 
     /// Called when responses are received.  Invokes the interest checker.
-    *responseReceived(action, {call, put}) {
-      yield put({type: 'addResponse', msg: action.msg});
+    *responseReceived({msg}, {call, put}) {
+      // add the response to the list of cached responses
+      yield put({type: 'addResponse', msg: msg});
 
       // check if there is interest registered in the responses's UUID and calls its callback if there is.
       // get the interest list from the state
       let interest_list = yield select(gstate => gstate.platform_communication.interest_list);
-      let matched = interest_list.filter(interest => interest.uuid == action.msg.uuid);
+      let matched = interest_list.filter(interest => interest.uuid == msg.uuid);
       // invoke the callbacks of all registered interests
       for(var i=0; i<matched.length; i++) {
-        matched[i].cb(put, matched[i].res);
+        if(matched[i].cb_action) {
+          yield put({type: matched[i].cb_action, msg: msg});
+        }
+      }
+    },
+
+    /// adds the command to the state, removing the oldest one if the buffer is larger than the size limit
+    *commandReceived({msg}, {call, put}) {
+      // Get a response to send back in reply to the received command
+      let {res, action} = getResponse(msg.cmd, msg.uuid);
+      yield put({type: 'transmitResponse', uuid: msg.uuid, res: res});
+
+      // if an action was supplied, execute it
+      if(action) {
+        yield put({type: action, msg: msg});
       }
     },
   },
@@ -163,15 +163,16 @@ export default {
         let cmd = {Ready: {instance_type: "MM", uuid: our_uuid}};
         dispatch({type: 'sendCommand', channel: CONF.redis_control_channel, cmd: cmd})
 
-        let censusCb = (dispatch, res) => {
-
-          console.log(res);
-          put({type: 'censusReceived', census: res.Info.info});
+        let censusCb = (put, msg) => {
+          if(msg.res.Info) {
+            console.log(msg);
+            put({type: 'instances/censusReceived', census: msg.res.Info.info});
+          }
         };
 
         setTimeout(() => {
           // send a `Census` message to get an initial picture of the platform's population;
-          dispatch({type: 'sendCommand', channel: CONF.redis_control_channel, cmd: "Census", cb: censusCb});
+          dispatch({type: 'sendCommand', channel: CONF.redis_control_channel, cmd: "Census", cb_action: "instances/censusReceived"});
         }, 300);
       }
       // save the socket to the inner state so we can use it to send as well

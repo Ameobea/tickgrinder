@@ -2,18 +2,25 @@
 //! instances, killing old instances, and monitoring platform status.
 
 import { connect } from 'dva';
+import { Row, Col } from 'antd';
 
-import Instance from './Instance';
+import { Instance} from './Instance';
+import styles from '../../static/css/instances.css';
 
-const LiveInstances = ({dispatch, instances}) {
-  let insts = [];
+const LiveInstances = ({dispatch, instances}) => {
+  let header = <Row key="header"><Col span={24}><span>Instance Name</span></Col></Row>;
+  let insts = [header];
   for(var i=0; i<instances.length; i++) {
     let inst = instances[i];
-    insts.push(<Instance uuid={inst.uuid} instance_type={inst.instance_type} />)
+    insts.push(
+      <Row key={inst.uuid}>
+        <Col span={24}><Instance uuid={inst.uuid} instance_type={inst.instance_type} /></Col>
+      </Row>
+    );
   }
 
   return (
-
+    <span className={styles.instances}>{insts}</span>
   );
 }
 
