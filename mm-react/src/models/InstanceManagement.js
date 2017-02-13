@@ -56,9 +56,9 @@ export default {
     },
 
     /// Called when the selected instance in the spawn instance dropdown menu is changed
-    instanceSpawnChanged(state, {val, opt}) {
+    instanceSpawnChanged(state, {name, cmd}) {
       return {...state,
-        selected_spawn_opt: {val: val, opt: opt},
+        selected_spawn_opt: {name: name, cmd: cmd},
       };
     },
 

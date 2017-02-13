@@ -31,7 +31,7 @@ const spawnable_instances = [
 ];
 
 const spawnChanged = (val, opt, dispatch) => {
-  dispatch({type: 'instances/instanceSpawnChanged', val: val, opt: opt});
+  dispatch({type: 'instances/instanceSpawnChanged', cmd: val, name: opt.props.children});
 };
 
 const spawnButtonClicked = (dispatch, living_instances, {name, cmd}) => {
@@ -57,7 +57,7 @@ const SingleSpawner = ({dispatch, living_instances, spawn_opt}) => {
     <div className={styles.singleSpawner}>
       <Select
         style={{ width: 160 }}
-        defaultValue={spawnable_instances[0].cmd}
+        defaultValue={spawn_opt.cmd}
         onSelect={(val, opt) => spawnChanged(val, opt, dispatch)}
       >
         {options}
