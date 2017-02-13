@@ -27,7 +27,6 @@ pub enum Command {
     ListConditions,
     SubTicks{broker_def: String},
     // Spawner Commands
-    SpawnMM,
     Census,
     SpawnOptimizer{strategy: String},
     SpawnTickParser{symbol: String},

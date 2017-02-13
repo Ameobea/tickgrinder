@@ -34,9 +34,6 @@ function initWs(callback, dispatch, our_uuid) {
     // throw away messages we're transmitting to channels we don't care about
     if([CONF.redis_control_channel, CONF.redis_responses_channel, CONF.redis_log_channel, our_uuid].indexOf(parsed.channel) != -1) {
       callback(dispatch, parsed);
-    } else {
-      console.log("Ignoring message: ");
-      console.log(parsed);
     }
   };
   socket.onerror = () => {
