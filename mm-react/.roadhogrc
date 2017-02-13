@@ -30,6 +30,10 @@
     "@input-bg": "#313130",
     "@menu-dark-bg": "#404040",
     "@layout-header-background": "#050505",
-    "@popover-bg": "#21191b"
+    "@popover-bg": "#21191b",
+    "@background-color-base": "#303030",
+    "@layout-body-background": "#383636",
+    "@normal-color": "#1c1c1c",
+    "@primary-1": "#1c1c1c"
   }
 }

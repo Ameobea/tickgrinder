@@ -109,7 +109,8 @@ export default {
 
   effects: {
     /// Initializes the timeout for deregistering that interest and dispatches the action to transmit
-    /// the command over the WebSocket
+    /// the command over the WebSocket.  `cb_action` is the name of the action/effect that will be triggered for all
+    /// responses received with UUIDs matching that of the sent command; they're essentially callbacks.
     *sendCommand({channel, cmd, cb_action}, {call, put}) {
       // transmit the command and register interest in responses with its UUID
       let uuid = v4();

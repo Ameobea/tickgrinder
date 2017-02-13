@@ -36,8 +36,8 @@
   font-size: 16px;
 }
 
-.info-icon {
-  font-color: #505d72;
-  font-weight: bold;
+.infoTooltip {
+  color: #505d72;
+  cursor: help;
   font-style: italic;
 }

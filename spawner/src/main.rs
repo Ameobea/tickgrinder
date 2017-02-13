@@ -72,18 +72,23 @@ impl InstanceManager {
         // find any disconnected instances
         let stragglers = self.ping_all().wait().unwrap();
 
+        let mut cs = self.cs.clone();
         if CONF.kill_stragglers {
             for straggler_response in stragglers {
                 match straggler_response {
                     Response::Pong{args} => {
                         if args.len() < 1 {
-                            println!("Malformed Pong received: {:?}", args);
+                            let errmsg = format!("Malformed Pong received: {:?}", args);
+                            println!("{}", errmsg);
+                            cs.error(None, &errmsg);
                         } else {
-                            println!("Sending Kill message to straggler with uuid {:?}", args[0]);
-                            let mut cs = self.cs.clone();
+                            let errmsg = format!("Sending Kill message to straggler with uuid {:?}", args[0]);
+                            println!("{}", errmsg);
+                            cs.notice(None, &errmsg);
                             // TODO: Switch to send_forget when implemented
+                            let mut cs_clone = cs.clone();
                             thread::spawn(move || {
-                                cs.execute(
+                                cs_clone.execute(
                                     Command::Kill,
                                     args[0].clone()
                                 ).wait().unwrap().unwrap();
@@ -91,7 +96,9 @@ impl InstanceManager {
                         }
                     },
                     _ => {
-                        println!("Unrecognized response received: {:?}", straggler_response);
+                        let errmsg = format!("Unrecognized response received: {:?}", straggler_response);
+                        println!("{}", errmsg);
+                        cs.error(None, &errmsg);
                     }
                 }
             }
@@ -121,7 +128,9 @@ impl InstanceManager {
             let dead_uuid_outer = self.get_missing_instance(responses.as_slice());
             if dead_uuid_outer.is_some() {
                 let dead_instance = dead_uuid_outer.unwrap();
-                println!("Instance {:?} is unresponseive; attempting respawn", dead_instance);
+                let wrnmsg = format!("Instance {:?} is unresponseive; attempting respawn", dead_instance);
+                println!("{}",wrnmsg);
+                cs.warning(None, &wrnmsg);
 
                 // deregister the old instance
                 self.remove_instance(dead_instance.uuid);
@@ -135,16 +144,22 @@ impl InstanceManager {
                     Ok(response) => { // we actually got a reply from the presumed dead instance
                         match response {
                             Response::Info{info} => {
-                                println!("{:?} wasn't dead after all...", dead_instance);
+                                let infomsg = format!("{:?} wasn't dead after all...", dead_instance);
+                                println!("{}", infomsg);
+                                cs.notice(None, &infomsg);
                                 self.add_instance(Instance{instance_type: info, uuid: dead_instance.uuid});
                             },
                             _ => {
-                                println!("Received unexpected response from Type query: {:?}", response);
+                                let errmsg = format!("Received unexpected response from Type query: {:?}", response);
+                                println!("{}", errmsg);
+                                cs.error(None, &errmsg);
                             }
                         }
                     },
                     Err(_) => {
-                        println!("{:?} is really, truly, dead.", dead_instance);
+                        let wrnmsg = format!("{:?} is really, truly, dead.", dead_instance);
+                        println!("{}", wrnmsg);
+                        cs.warning(None, &wrnmsg)
                         // TODO: respawn dead instance
                     }
                 }
@@ -155,7 +170,7 @@ impl InstanceManager {
     }
 
     /// Returns the uuid of the first missing instance
-    fn get_missing_instance(&self, responses: &[Response]) -> Option<Instance> {
+    fn get_missing_instance(&mut self, responses: &[Response]) -> Option<Instance> {
         let assumed_living = self.living.lock().unwrap();
 
         // check to make sure that each expected instance is in the responses
@@ -165,14 +180,18 @@ impl InstanceManager {
                 match *res {
                     Response::Pong{ref args} => {
                         if args.len() < 1 {
-                            println!("Malformed Pong received: {:?}", args);
+                            let errmsg = format!("Malformed Pong received: {:?}", args);
+                            println!("{}", errmsg);
+                            self.cs.error(None, &errmsg);
                         } else if inst.uuid.hyphenated().to_string() == args[0] {
                             present = true;
                             break;
                         }
                     },
                     _ => {
-                        println!("Received unexpected response to Ping: {:?}", res);
+                        let errmsg = format!("Received unexpected response to Ping: {:?}", res);
+                        println!("{}", errmsg);
+                        self.cs.error(None, &errmsg);
                     }
                 }
             }
@@ -191,17 +210,20 @@ impl InstanceManager {
         let mut dup = self.clone();
         let own_uuid = self.uuid;
 
+        let mut cs = self.cs.clone();
         thread::spawn(move || {
             // sub to spawer control channel and personal commands channel
             let cmds_rx = sub_multiple(
                 CONF.redis_host,
                 &[CONF.redis_control_channel, own_uuid.hyphenated().to_string().as_str()]
             );
-            println!(
+            let statusmsg = format!(
                 "Listening for commands on {} and {}",
                 CONF.redis_control_channel,
                 own_uuid.hyphenated().to_string().as_str()
             );
+            println!("{}", statusmsg);
+            cs.notice(None, &statusmsg);
             let redis_client = get_client(CONF.redis_host);
 
             let _ = cmds_rx.for_each(move |message| {
@@ -222,7 +244,9 @@ impl InstanceManager {
                         }).wait();
                     },
                     Err(_) => {
-                        println!("Couldn't parse WrappedCommand from: {:?}", cmd_string);
+                        let errmsg = format!("Couldn't parse WrappedCommand from: {:?}", cmd_string);
+                        println!("{}", errmsg);
+                        cs.error(None, &errmsg);
                     },
                 }
 
@@ -253,7 +277,7 @@ impl InstanceManager {
             },
             Command::KillAllInstances => self.kill_all(),
             Command::Census => self.census(),
-            Command::SpawnMM => self.spawn_mm(),
+            // Command::SpawnMM => self.spawn_mm(),
             Command::SpawnOptimizer{strategy} => self.spawn_optimizer(strategy),
             Command::SpawnTickParser{symbol} => self.spawn_tick_parser(symbol),
             Command::SpawnBacktester => self.spawn_backtester(),
