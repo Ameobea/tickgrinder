@@ -26,4 +26,4 @@ export default () => { return (
   <ContentContainer title="Instance Management">
     <InstanceManagement />
   </ContentContainer>
-);}
+);};

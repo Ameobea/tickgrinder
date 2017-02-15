@@ -14,5 +14,5 @@ export default () => { return (
   <ContentContainer title="Backtest Management">
     <BacktestPage />
   </ContentContainer>
-);}
+);};
 

@@ -1,37 +1,43 @@
 //! A single log line entry
 
 import { connect } from 'dva';
+import React from 'react';
 import { Row, Col, Tag, Tooltip } from 'antd';
 const CheckableTag = Tag.CheckableTag;
 
+import { InstanceShape } from '../../utils/commands';
 import logStyles from '../../static/css/logging.css';
 
 /// Render a pretty severity level
 const Severity = connect()(({dispatch, level, onClick, closable}) => {
   let color;
   switch(level) {
-    case "Debug":
-      color = "cyan-inverse";
-      break;
-    case "Notice":
-      color = "blue-inverse";
-      break;
-    case "Warning":
-      color = "yellow-inverse";
-      break;
-    case "Error":
-      color = "orange-inverse";
-      break;
-    case "Critical":
-      color = "red-inverse";
-      break;
+  case 'Debug':
+    color = 'cyan-inverse';
+    break;
+  case 'Notice':
+    color = 'blue-inverse';
+    break;
+  case 'Warning':
+    color = 'yellow-inverse';
+    break;
+  case 'Error':
+    color = 'orange-inverse';
+    break;
+  case 'Critical':
+    color = 'red-inverse';
+    break;
   }
+
+  const handleClick = () => {
+    onClick(dispatch);
+  };
 
   return (
     <Tag
       closable={closable}
-      onClick={() => onClick(dispatch)}
       color={color}
+      onClick={handleClick}
     >
       {level}
     </Tag>);
@@ -39,26 +45,47 @@ const Severity = connect()(({dispatch, level, onClick, closable}) => {
 
 const Instance = ({dispatch, sender}) => {
   let instance_type = sender.instance_type;
+  const handleChange = () => dispatch({type: 'logging/instanceAdded', item: sender});
+
   return (
-    <Tooltip placement="right" title={sender.uuid}>
-      <CheckableTag onChange={() => dispatch({type: 'logging/instanceAdded', item: sender})}>
+    <Tooltip
+      placement="right"
+      title={sender.uuid}
+    >
+      <CheckableTag onChange={handleChange}>
         {instance_type}
       </CheckableTag>
     </Tooltip>
   );
-}
+};
+
+Instance.propTypes = {
+  dispatch: React.PropTypes.func.isRequired,
+  sender: React.PropTypes.shape({
+    instance_uuid: React.PropTypes.string.isRequired,
+    uuid: React.PropTypes.string.isRequired,
+  }).isRequired,
+};
 
 const MessageType = connect()(({dispatch, children}) => {
-  return <CheckableTag onChange={() => dispatch({type: 'logging/categoryAdded', item: children})}>{children}</CheckableTag>;
+  const handleChange = () => dispatch({type: 'logging/categoryAdded', item: children});
+  return <CheckableTag onChange={handleChange}>{children}</CheckableTag>;
 });
 
 const LogLine = ({dispatch, msg}) => {
+  const handleClick = dispatch => dispatch({type: 'logging/severityAdded', item: msg.level});
+
   return (
-    <Row className={msg.level + ' ' + logStyles.logLine} type="flex" justify="space-around" align="middle">
+    <Row
+      align="middle"
+      className={msg.level + ' ' + logStyles.logLine}
+      justify="space-around"
+      type="flex"
+    >
       <Col span={2}>
         <Instance
-          sender={msg.sender}
           dispatch={dispatch}
+          sender={msg.sender}
         />
       </Col>
       <Col span={2}><MessageType>{msg.message_type}</MessageType></Col>
@@ -66,14 +93,22 @@ const LogLine = ({dispatch, msg}) => {
       <Col span={2}>
         <Severity
           level={msg.level}
-          onClick={dispatch => dispatch({type: 'logging/severityAdded', item: msg.level})}
+          onClick={handleClick}
         />
       </Col>
     </Row>
   );
-}
+};
+
+LogLine.propTypes = {
+  dispatch: React.PropTypes.func.isRequired,
+  msg: React.PropTypes.shape({
+    level: React.PropTypes.number.isRequired,
+    sender: InstanceShape.isRequired,
+  }).isRequired,
+};
 
 export default {
   LogLine: connect()(LogLine),
   Severity: Severity,
-}
+};

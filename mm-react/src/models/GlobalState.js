@@ -6,12 +6,12 @@ export default {
   namespace: 'global',
 
   state: {
-    title: "Original Title",
-    uuid: v4(),
+    title: 'Original Title',
+    uuid: v4()
   },
 
   reducers: {
-    pageChange(state, action) {
+    pageChange (state, action) {
       state.title = action.title;
       return state;
     }
@@ -20,8 +20,8 @@ export default {
   effects: { },
 
   subscriptions: {
-    CommandListener({ todo }) {
+    CommandListener ({ todo }) {
       // TODO
     }
   }
-}
+};

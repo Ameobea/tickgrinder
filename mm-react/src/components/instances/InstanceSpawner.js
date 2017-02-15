@@ -1,33 +1,32 @@
 //! Dialog to allow users to spawn new instances.
 
 import { connect } from 'dva';
+import React from 'react';
 import { message, Tooltip, Icon, Select, Button } from 'antd';
 const Option = Select.Option;
 
-const CONF = require('../../conf');
+import { getInstance, InstanceShape } from '../../utils/commands';
+import MacroBuilder from '../MacroBuilder';
 import styles from '../../static/css/instances.css';
 
 const MacroInfo = () => {
   return (
     <Tooltip title="Click here for info on spawner macros">
-      <Icon type="question" className={styles.infoTooltip} />
+      <Icon
+        className={styles.infoTooltip}
+        type="question"
+      />
     </Tooltip>
   );
 };
 
-/// Given the list of all currently running instances, returns the UUIDs of all instances with the specified name.
-/// Returns an empty list if there are no living instances with the specified name.
-const getInstance = (name, living_instances) => {
-  return living_instances.filter(inst => inst.instance_type == name);
-};
-
 const spawnable_instances = [
-  {name: "Backtester", cmd: "SpawnBacktester"},
-  {name: "Logger", cmd: "SpawnLogger"},
-  {name: "Tick Parser", cmd: "SpawnTickParser"},
-  {name: "Optimizer", cmd: "SpawnOptimizer"},
-  {name: "Redis Server", cmd: "SpawnRedisServer"},
-  {name: "FXCM Data Downloader", cmd: "SpawnFxcmDataDownloader"},
+  {name: 'Backtester', cmd: 'SpawnBacktester'},
+  {name: 'Logger', cmd: 'SpawnLogger'},
+  {name: 'Tick Parser', cmd: 'SpawnTickParser'},
+  {name: 'Optimizer', cmd: 'SpawnOptimizer'},
+  {name: 'Redis Server', cmd: 'SpawnRedisServer'},
+  {name: 'FXCM Data Downloader', cmd: 'SpawnFxcmDataDownloader'},
 ];
 
 const spawnChanged = (val, opt, dispatch) => {
@@ -35,10 +34,10 @@ const spawnChanged = (val, opt, dispatch) => {
 };
 
 const spawnButtonClicked = (dispatch, living_instances, {name, cmd}) => {
-  let spawner_uuid = getInstance("Spawner", living_instances);
+  let spawner_uuid = getInstance('Spawner', living_instances);
   if(spawner_uuid.length === 0) {
     // if no living spawner in the census list, display error message and return
-    message.error("No Spawner instance was detected running on the platform; unable to spawn instance!");
+    message.error('No Spawner instance was detected running on the platform; unable to spawn instance!');
     return;
   }
 
@@ -49,35 +48,70 @@ const spawnButtonClicked = (dispatch, living_instances, {name, cmd}) => {
 const SingleSpawner = ({dispatch, living_instances, spawn_opt}) => {
   let options = [];
   for(var i=0; i<spawnable_instances.length; i++) {
-    let opt = <Option key={i} value={spawnable_instances[i].cmd}>{spawnable_instances[i].name}</Option>;
-    options.push(opt)
+    let opt = (
+      <Option
+        key={i}
+        value={spawnable_instances[i].cmd}
+      >
+        {spawnable_instances[i].name}
+      </Option>
+    );
+    options.push(opt);
   }
+
+  const handleSelect = (val, opt) => spawnChanged(val, opt, dispatch);
+  const handleClick = () => spawnButtonClicked(dispatch, living_instances, spawn_opt);
 
   return (
     <div className={styles.singleSpawner}>
       <Select
-        style={{ width: 160 }}
         defaultValue={spawn_opt.cmd}
-        onSelect={(val, opt) => spawnChanged(val, opt, dispatch)}
+        onSelect={handleSelect}
+        style={{ width: 160 }}
       >
         {options}
       </Select>
-      <Button type="primary" onClick={() => spawnButtonClicked(dispatch, living_instances, spawn_opt)}>
-        Spawn Instance
+      <Button
+        onClick={handleClick}
+        type='primary'
+      >
+        {'Spawn Instance'}
       </Button>
     </div>
   );
-}
+};
+
+SingleSpawner.propTypes = {
+  dispatch: React.PropTypes.func.isRequired,
+  living_instances: React.PropTypes.arrayOf(InstanceShape).isRequired,
+  spawn_opt: React.PropTypes.shape({name: React.PropTypes.string.isRequired, cmd: React.PropTypes.any}).isRequired,
+};
 
 const InstanceSpawner = ({dispatch, living_instances, spawn_opt}) => {
   return (
     <div className={styles.instanceSpawner}>
-      <div className={styles.header}>Spawn a Single Instance</div>
-      <SingleSpawner dispatch={dispatch} living_instances={living_instances} spawn_opt={spawn_opt} />
+      <div className={styles.header}>
+        {'Spawn a Single Instance'}
+      </div>
+      <SingleSpawner
+        dispatch={dispatch}
+        living_instances={living_instances}
+        spawn_opt={spawn_opt}
+      />
 
-      <div className={styles.header}>Execute a Spawner Macro<MacroInfo /></div>
+      <div className={styles.header}>
+        {'Execute a Spawner Macro'}
+        <MacroInfo />
+      </div>
+      <MacroBuilder />
     </div>
   );
+};
+
+InstanceSpawner.propTypes = {
+  dispatch: React.PropTypes.func.isRequired,
+  living_instances: React.PropTypes.arrayOf(InstanceShape).isRequired,
+  spawn_opt: React.PropTypes.shape({name: React.PropTypes.string.isRequired, cmd: React.PropTypes.any}).isRequired,
 };
 
 function mapProps(state) {

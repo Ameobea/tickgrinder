@@ -5,7 +5,6 @@ import ReactDOM from 'react-dom';
 import { LocaleProvider } from 'antd';
 import enUS from 'antd/lib/locale-provider/en_US';
 
-import IndexPage from './routes/IndexPage';
 let GlobalState = require('./models/GlobalState');
 let PlatformCommunication = require('./models/PlatformCommunication');
 let Logging = require('./models/Logging');
@@ -32,8 +31,8 @@ app.router(require('./router'));
 const App = app.start();
 
 ReactDOM.render(
-  <LocaleProvider locale={enUS}>
-    <App />
-  </LocaleProvider>
+    <LocaleProvider locale={enUS}>
+        <App />
+    </LocaleProvider>
 , document.getElementById('root')
 );

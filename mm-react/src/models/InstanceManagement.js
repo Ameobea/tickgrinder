@@ -8,7 +8,7 @@ export default {
 
   state: {
     living_instances: [],
-    selected_spawn_opt: {name: "Backtester", cmd: "SpawnBacktester"},
+    selected_spawn_opt: {name: 'Backtester', cmd: 'SpawnBacktester'},
   },
 
   reducers: {
@@ -46,9 +46,9 @@ export default {
     instanceKillMessageReceived(state, {msg}) {
       // display a popup notification of the result of the kill command
       if(msg.res.Info) {
-        message.info("Message received from instance: \"" + msg.res.Info.info + "\"", 4);
+        message.info('Message received from instance: \'' + msg.res.Info.info + '\'', 4);
       } else {
-        message.error("Error killing instance: \"" + msg.res.Error.status + "\"", 4);
+        message.error('Error killing instance: \'' + msg.res.Error.status + '\'', 4);
       }
 
       // no modifications to state at this point, so just return it
@@ -66,16 +66,16 @@ export default {
     instanceSpawnCallback(state, {msg}) {
       console.log(msg);
       // display a popup notificaiton of the result of the spawn action
-      if(msg.res == "Ok") {
-        message.info("Instance spawn request accepted; instance now spawning.", 3);
+      if(msg.res == 'Ok') {
+        message.info('Instance spawn request accepted; instance now spawning.', 3);
       } else if(msg.res.Error) {
-        message.error("Instance spawn request rejected: \"" + msg.res.Error.status + "\"", 3);
+        message.error('Instance spawn request rejected: \'' + msg.res.Error.status + '\'', 3);
       } else {
-        message.error("Received unexpected response from Spawner: " + JSON.stringify(msg.res));
+        message.error('Received unexpected response from Spawner: ' + JSON.stringify(msg.res));
       }
 
       // no modifications to state needed; the spawned instance will transmit a `Ready` message which will be handled elsewhere
       return {...state};
     }
   },
-}
+};
