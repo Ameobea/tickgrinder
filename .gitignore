@@ -6,3 +6,9 @@ Cargo.lock
 *.dump
 callgrind.*
 *.so
+
+# vim swap files
+*.swp
+
+# wordgrinder documents
+*.wg
