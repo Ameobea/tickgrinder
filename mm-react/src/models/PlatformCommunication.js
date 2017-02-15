@@ -5,6 +5,7 @@ import { put, select } from 'redux-saga/effects';
 
 const CONF = require('../conf');
 import { initWs, getResponse, v4 } from '../utils/commands';
+import { execMarco } from '../utils/spawner_macro';
 
 const handleMessage = (dispatch, {uuid, channel, message}) => {
   let message_str = message.replace(/{("\w*")}/g, "$1");
@@ -32,7 +33,8 @@ export default {
     socket: undefined,
     uuid: v4(),
     interest_list: [], // list of UUIDs of responses we're interested in and callbacks to run for when they're received
-  },
+    asyncMacroActions: [], // a list of macro actions to be handled when a response to a previos macro action's command is received
+},
 
   reducers: {
     /// sends a command and executes a callback for all responses received.  The callback should accept two parameters:
@@ -55,7 +57,7 @@ export default {
       let wsmsg = {uuid: uuid, channel: CONF.redis_responses_channel, message: JSON.stringify(msg)};
       state.socket.send(JSON.stringify(wsmsg));
 
-      // we don't actually modify the state at all, just use the socket
+      // we don't actually modify the state at all, ju/st use the socket
       return {...state};
     },
 
@@ -65,6 +67,7 @@ export default {
         interest_list: state.interest_list.filter(interest => interest.uuid != uuid),
       };
     },
+
 
     /// receives the websocket object from the `redisListener` subscription after it has initialized the websocket connection
     websocketConnected(state, {socket}) {
@@ -77,6 +80,13 @@ export default {
     setUuid(state, {uuid}) {
       return {...state,
         uuid: uuid,
+      };
+    },
+
+    /// register a new async callback to be executed when responses of a particular uuid are received
+    registerMacroActionCb(state, {uuid, cb}) {
+      return {...state,
+        asyncMacroActions: [...state.asyncMacroActions, {uuid: uuid, cb: cb}],
       };
     },
 
@@ -111,14 +121,39 @@ export default {
     /// Initializes the timeout for deregistering that interest and dispatches the action to transmit
     /// the command over the WebSocket.  `cb_action` is the name of the action/effect that will be triggered for all
     /// responses received with UUIDs matching that of the sent command; they're essentially callbacks.
-    *sendCommand({channel, cmd, cb_action}, {call, put}) {
+    *sendCommandWithUuid({channel, cmd, cb_action, uuid}, {call, put}) {
       // transmit the command and register interest in responses with its UUID
-      let uuid = v4();
       yield put({type: 'transmitCommand', channel: channel, cmd: cmd, cb_action: cb_action, uuid: uuid});
       // give instances a chance to receive + process the command and transmit their responses
       yield delay(3000);
       // then deregister interest in the command's uuid
       yield put({type: 'deregisterInterest', uuid: uuid})
+    },
+
+    /// A wrapper for `sendCommandWithUuid` that automatically generates a UUID
+    *sendCommand({channel, cmd, cb_action}, {call, put}) {
+      // generate a random uuid for use in the command
+      let uuid = v4();
+      yield put({type: 'sendCommandWithUuid', {channel: channel, cmd: cmd, cb_action: cb_action, uuid: uuid});
+    },
+
+    /// called as a callback to responses received from macro actions
+    *asyncMacroAction({msg}, {call, put}) {
+      // create a dummy `dispatch` function to pass to any returned actions
+      const dummyDispatch = (args) => {
+        yield put(args);
+      };
+
+      let asyncCbs = select(gstate => gstate.platform_communication.asyncMacroActions);
+      for(var i=0; i<asyncCbs.length; i++) {
+        if(asyncCbs[i].uuid == msg.uuid) {
+          // execute the callback and see if there's another
+          let newMacro = asyncCbs[i](msg);
+          if(newMarco) {
+            execMarco(dummyDispatch, newMacro);
+          }
+        }
+      }
     },
 
     /// Called when responses are received.  Invokes the interest checker.
@@ -148,6 +183,42 @@ export default {
       if(action) {
         yield put({type: action, msg: msg});
       }
+    },
+
+    /// sends a log message over the log channel.  Severity is a number from 0-4 corresponding to the levels DEBUG to CRITICAL.
+    *log({label, msg, severity}, {call, put}) {
+      // create function to convert numeric severity into string
+      let convertSeverity = numSev => {
+        switch(numSev) {
+          case(0):
+            return "Debug";
+          case(1):
+            return "Notice";
+          case(2):
+            return "Warning";
+          case(3):
+            return "Error";
+          case(4):
+            return "Critical";
+        }
+      };
+     
+      // assign a default label if one was not supplied
+      if(!label) {
+        label = "General";
+      }
+
+      // create the `Log` command
+      let our_uuid = yield select(gstate => gstate.platform_communication.uuid);
+      let log_cmd = {Log: 
+        { sender: {instance_uuid: our_uuid, instance_type: "MM"},
+          message_type: label,
+          message: msg,
+          level: convertSeverity(severity),
+        },
+      };
+      // dispatch a command to log the message
+      yield put({type: 'sendCommand', channel: CONF.redis_log_channel, cmd: log_cmd});
     },
   },
 
