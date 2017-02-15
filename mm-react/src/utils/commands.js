@@ -70,8 +70,15 @@ function getResponse(command, uuid) {
   return {res: res, action: action};
 }
 
+/// Given the list of all currently running instances, returns the UUIDs of all instances with the specified name.
+/// Returns an empty list if there are no living instances with the specified name.
+const getInstance = (name, living_instances) => {
+  return living_instances.filter(inst => inst.instance_type == name);
+};
+
 export default {
   initWs: initWs,
   getResponse: getResponse,
   v4: v4,
+  getInstance: getInstance,
 }

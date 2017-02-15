@@ -4,8 +4,7 @@ import { delay } from 'redux-saga';
 import { put, select } from 'redux-saga/effects';
 
 const CONF = require('../conf');
-import { initWs, getResponse, v4 } from '../utils/commands';
-import { execMarco } from '../utils/spawner_macro';
+import { initWs, getResponse, getInstance, v4 } from '../utils/commands';
 
 const handleMessage = (dispatch, {uuid, channel, message}) => {
   let message_str = message.replace(/{("\w*")}/g, "$1");
@@ -19,7 +18,7 @@ const handleMessage = (dispatch, {uuid, channel, message}) => {
       dispatch({type: 'commandReceived', msg: msg});
     }
   } else { // is a response
-    dispatch({type: 'responseReceived', msg: msg});
+    dispatch({type: 'responseReceived', msg: });
   }
 };
 
@@ -33,7 +32,6 @@ export default {
     socket: undefined,
     uuid: v4(),
     interest_list: [], // list of UUIDs of responses we're interested in and callbacks to run for when they're received
-    asyncMacroActions: [], // a list of macro actions to be handled when a response to a previos macro action's command is received
 },
 
   reducers: {
@@ -68,7 +66,6 @@ export default {
       };
     },
 
-
     /// receives the websocket object from the `redisListener` subscription after it has initialized the websocket connection
     websocketConnected(state, {socket}) {
       return {...state,
@@ -80,13 +77,6 @@ export default {
     setUuid(state, {uuid}) {
       return {...state,
         uuid: uuid,
-      };
-    },
-
-    /// register a new async callback to be executed when responses of a particular uuid are received
-    registerMacroActionCb(state, {uuid, cb}) {
-      return {...state,
-        asyncMacroActions: [...state.asyncMacroActions, {uuid: uuid, cb: cb}],
       };
     },
 
@@ -137,25 +127,6 @@ export default {
       yield put({type: 'sendCommandWithUuid', channel: channel, cmd: cmd, cb_action: cb_action, uuid: uuid});
     },
 
-    /// called as a callback to responses received from macro actions
-    *asyncMacroAction({msg}, {call, put}) {
-      // create a dummy `dispatch` function to pass to any returned actions
-      function *dummyDispatch(args) {
-        yield put(args);
-      };
-
-      let asyncCbs = select(gstate => gstate.platform_communication.asyncMacroActions);
-      for(var i=0; i<asyncCbs.length; i++) {
-        if(asyncCbs[i].uuid == msg.uuid) {
-          // execute the callback and see if there's another
-          let newMacro = asyncCbs[i](msg);
-          if(newMarco) {
-            execMarco(dummyDispatch, newMacro);
-          }
-        }
-      }
-    },
-
     /// Called when responses are received.  Invokes the interest checker.
     *responseReceived({msg}, {call, put}) {
       // add the response to the list of cached responses
@@ -183,6 +154,27 @@ export default {
       if(action) {
         yield put({type: action, msg: msg});
       }
+    },
+
+    /// sends a command to the first instance (selected arbitrarily) with the specified `instanceType`.
+    *sendCommandToInstance({cmd, cb_action, instance_name}, {call, put}) {
+      let living_instances = yield select(gstate => gstate.instances.living_instances);
+      let instance_uuid = getInstance(instance_name, living_instances);
+
+      // actually send the command to the instance
+      yield put({type: 'sendCommand', channel: instance_uuid, cb_action: cb_action, cmd: cmd});
+    },
+
+    /// sends a PostgreSQL query to the spawner instance to be executed.
+    *postgresQuery({query}, {call, put}) {
+      let cmd = {PostgresQuery: {
+        query: query,
+      }};
+
+      let spawner_uuid = get
+      // {channel, cmd, cb_action},
+      yield put({type: 'sendCommand', 
+
     },
 
     /// sends a log message over the log channel.  Severity is a number from 0-4 corresponding to the levels DEBUG to CRITICAL.

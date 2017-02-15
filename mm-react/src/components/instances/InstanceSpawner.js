@@ -5,6 +5,7 @@ import { message, Tooltip, Icon, Select, Button } from 'antd';
 const Option = Select.Option;
 
 const CONF = require('../../conf');
+import { getInstance } from '../../utils/commands';
 import styles from '../../static/css/instances.css';
 
 const MacroInfo = () => {
@@ -13,12 +14,6 @@ const MacroInfo = () => {
       <Icon type="question" className={styles.infoTooltip} />
     </Tooltip>
   );
-};
-
-/// Given the list of all currently running instances, returns the UUIDs of all instances with the specified name.
-/// Returns an empty list if there are no living instances with the specified name.
-const getInstance = (name, living_instances) => {
-  return living_instances.filter(inst => inst.instance_type == name);
 };
 
 const spawnable_instances = [
