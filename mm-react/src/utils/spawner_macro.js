@@ -27,7 +27,7 @@ const execMacroAction = (dispatch, action) => {
     case("command"): // send a command to the platform
       let cmd_uuid = v4();
       // if there are callbacks, register them to be handled when responses from this cmd are received
-      for(var i=0; i<action.callbacks.length) {
+      for(var i=0; i<action.callbacks.length; i++) {
         dispatch({
           type: 'platform_communication/registerMacroActionCb',
           uuid: cmd_uuid,
@@ -48,7 +48,8 @@ const execMacroAction = (dispatch, action) => {
 /// Executes a spawner macro 
 const execMacro = (dispatch, macro) => {
   // send log message indicating that we're executing a macro
-  dispatch({"platform_communication/log", {
+  dispatch({
+    type: "platform_communication/log",
     label: "macroExecution",
     msg: "Executing macro " + macro.name,
     severity: 1,

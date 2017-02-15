@@ -134,13 +134,13 @@ export default {
     *sendCommand({channel, cmd, cb_action}, {call, put}) {
       // generate a random uuid for use in the command
       let uuid = v4();
-      yield put({type: 'sendCommandWithUuid', {channel: channel, cmd: cmd, cb_action: cb_action, uuid: uuid});
+      yield put({type: 'sendCommandWithUuid', channel: channel, cmd: cmd, cb_action: cb_action, uuid: uuid});
     },
 
     /// called as a callback to responses received from macro actions
     *asyncMacroAction({msg}, {call, put}) {
       // create a dummy `dispatch` function to pass to any returned actions
-      const dummyDispatch = (args) => {
+      function *dummyDispatch(args) {
         yield put(args);
       };
 
