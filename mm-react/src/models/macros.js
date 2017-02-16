@@ -1,15 +1,16 @@
 //! Declares state related to asynchronous macro action execution
 
-import { put, select} from 'redux-saga/effects';
+import { select} from 'redux-saga/effects';
 
 import { execMacro } from '../utils/spawner_macro';
 import { dummyDispatch } from '../utils/commands';
 
 export default {
-  namespace: "macros",
+  namespace: 'macros',
 
   state: {
     asyncMacroActions: [], // a list of macro actions to be handled when a response to a previos macro action's command is received
+    definedMacros: [], // list of all macros defined by the user
   },
 
   reducers: {
@@ -35,5 +36,7 @@ export default {
         }
       }
     },
+
+    // TODO: Create function to automatically fetch the list of defined macros the first time they are requested
   },
-}
+};

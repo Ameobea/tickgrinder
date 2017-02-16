@@ -21,12 +21,12 @@ const SelectedTags = connect()(({dispatch, selected_categories, selected_severit
   for(var i=0; i<selected_severities.length; i++) {
     let name = selected_severities[i];
     let tag = (
-        <Severity
-            closable
-            key={name}
-            level={name}
-            onClick={handleClick}
-        />
+      <Severity
+        closable
+        key={name}
+        level={name}
+        onClick={handleClick}
+      />
     );
     tags.push(tag);
   }
@@ -36,13 +36,13 @@ const SelectedTags = connect()(({dispatch, selected_categories, selected_severit
   for(var j=0; j<selected_categories.length; j++) {
     let name = selected_categories[j];
     let tag = (
-        <Tag closable
-            color="blue"
-            key={'category-' + name}
-            onClick={catClickHandler}
-        >
-            {name}
-        </Tag>
+      <Tag closable
+        color="blue"
+        key={'category-' + name}
+        onClick={catClickHandler}
+      >
+        {name}
+      </Tag>
     );
     tags.push(tag);
   }
@@ -52,19 +52,19 @@ const SelectedTags = connect()(({dispatch, selected_categories, selected_severit
     const handleInstClick = () => handleInstanceClose(dispatch, sender);
 
     let tag = (
-        <Tooltip
-            key={'instance-' + sender.uuid}
-            placement="right"
-            title={sender.uuid}
+      <Tooltip
+        key={'instance-' + sender.uuid}
+        placement="right"
+        title={sender.uuid}
+      >
+        <Tag
+          closable
+          color="green"
+          onClick={handleInstClick}
         >
-            <Tag
-                closable
-                color="green"
-                onClick={handleInstClick}
-            >
-                {sender.instance_type}
-            </Tag>
-        </Tooltip>
+          {sender.instance_type}
+        </Tag>
+      </Tooltip>
     );
     tags.push(tag);
   }
@@ -72,21 +72,21 @@ const SelectedTags = connect()(({dispatch, selected_categories, selected_severit
   const handleToggle = (e) => dispatch({type: 'logging/toggleMatch'});
 
   return (
-      <Card>
-          <Checkbox
-              checked={inclusive}
-              onChange={handleToggle}
-          >
-              {'Match lines containing'}
-          </Checkbox><br />
-          <Checkbox
-              checked={!inclusive}
-              onChange={handleToggle}
-          >
-              {'Match lines not containing'}
-          </Checkbox>
-          {tags}
-      </Card>
+    <Card>
+      <Checkbox
+        checked={inclusive}
+        onChange={handleToggle}
+      >
+        {'Match lines containing'}
+      </Checkbox><br />
+      <Checkbox
+        checked={!inclusive}
+        onChange={handleToggle}
+      >
+        {'Match lines not containing'}
+      </Checkbox>
+      {tags}
+    </Card>
   );
 });
 
@@ -100,35 +100,35 @@ const LiveLog = ({dispatch, log_cache, selected_categories, selected_severities,
       (((selected_instances.filter(sender => sender.uuid == log_line.cmd.Log.msg.sender.uuid).length !== 0) == inclusive) || (selected_instances.length === 0));
     if(contains) {
       rows.push(
-          <LogLine
-              key={log_line.uuid}
-              msg={log_line.cmd.Log.msg}
-          />
+        <LogLine
+          key={log_line.uuid}
+          msg={log_line.cmd.Log.msg}
+        />
       );
     }
   }
 
   return (
-      <div className={styles.liveLog}>
-          <SelectedTags
-              inclusive={inclusive}
-              selected_categories={selected_categories}
-              selected_instances={selected_instances}
-              selected_severities={selected_severities}
-          />
-          <Row>
-              <Col span={2}><b>{'Sending Instance'}</b></Col>
-              <Col span={2}><b>{'Event Type'}</b></Col>
-              <Col span={18}><b>{'Message'}</b></Col>
-              <Col span={2}><b>{'Severity'}</b></Col>
-          </Row>
-          {rows}
-      </div>
+    <div className={styles.liveLog}>
+      <SelectedTags
+        inclusive={inclusive}
+        selected_categories={selected_categories}
+        selected_instances={selected_instances}
+        selected_severities={selected_severities}
+      />
+      <Row>
+        <Col span={2}><b>{'Sending Instance'}</b></Col>
+        <Col span={2}><b>{'Event Type'}</b></Col>
+        <Col span={18}><b>{'Message'}</b></Col>
+        <Col span={2}><b>{'Severity'}</b></Col>
+      </Row>
+      {rows}
+    </div>
   );
 };
 
 LiveLog.propTypes = {
-  dispatch: React.PropTypes.function.isRequired,
+  dispatch: React.PropTypes.func.isRequired,
   inclusive: React.PropTypes.bool.isRequired,
   log_cache: React.PropTypes.array.isRequired,
   selected_categories: React.PropTypes.array.isRequired,

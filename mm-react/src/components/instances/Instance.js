@@ -21,34 +21,34 @@ const Instance = ({dispatch, instance_type, uuid}) => {
 
   return (
     // TODO: Button shortcut to show log messages from this instance
-      <div style={{ 'marginTop': '5px' }}>
-          <span className={styles.instance}>
-              <Tooltip title={uuid}>
-                  {instance_type}
-              </Tooltip>
-              <Popconfirm
-                  cancelText='Cancel'
-                  okText='Yes'
-                  onConfirm={handleConfirm}
-                  placement='rightTop'
-                  title='Really kill this instance?'
-              >
-                  <Tooltip title='Kill Instance'>
-                      <Button
-                          className={styles.killButton}
-                          icon='close'
-                          shape='circle'
-                          type='primary'
-                      />
-                  </Tooltip>
-              </Popconfirm>
-          </span>
-      </div>
+    <div style={{ 'marginTop': '5px' }}>
+      <span className={styles.instance}>
+        <Tooltip title={uuid}>
+          {instance_type}
+        </Tooltip>
+        <Popconfirm
+          cancelText='Cancel'
+          okText='Yes'
+          onConfirm={handleConfirm}
+          placement='rightTop'
+          title='Really kill this instance?'
+        >
+          <Tooltip title='Kill Instance'>
+            <Button
+              className={styles.killButton}
+              icon='close'
+              shape='circle'
+              type='primary'
+            />
+          </Tooltip>
+        </Popconfirm>
+      </span>
+    </div>
   );
 };
 
 Instance.propTypes = {
-  dispatch: React.PropTypes.function.isRequired,
+  dispatch: React.PropTypes.func.isRequired,
   instance_type: React.PropTypes.string.isRequired,
   uuid: React.PropTypes.string.isRequired,
 };

@@ -5,17 +5,18 @@ import React from 'react';
 import { message, Tooltip, Icon, Select, Button } from 'antd';
 const Option = Select.Option;
 
-import { getInstance } from '../../utils/commands';
+import { getInstance, InstanceShape } from '../../utils/commands';
+import MacroBuilder from '../MacroBuilder';
 import styles from '../../static/css/instances.css';
 
 const MacroInfo = () => {
   return (
-      <Tooltip title="Click here for info on spawner macros">
-          <Icon
-              className={styles.infoTooltip}
-              type="question"
-          />
-      </Tooltip>
+    <Tooltip title="Click here for info on spawner macros">
+      <Icon
+        className={styles.infoTooltip}
+        type="question"
+      />
+    </Tooltip>
   );
 };
 
@@ -48,12 +49,12 @@ const SingleSpawner = ({dispatch, living_instances, spawn_opt}) => {
   let options = [];
   for(var i=0; i<spawnable_instances.length; i++) {
     let opt = (
-        <Option
-            key={i}
-            value={spawnable_instances[i].cmd}
-        >
-            {spawnable_instances[i].name}
-        </Option>
+      <Option
+        key={i}
+        value={spawnable_instances[i].cmd}
+      >
+        {spawnable_instances[i].name}
+      </Option>
     );
     options.push(opt);
   }
@@ -62,54 +63,55 @@ const SingleSpawner = ({dispatch, living_instances, spawn_opt}) => {
   const handleClick = () => spawnButtonClicked(dispatch, living_instances, spawn_opt);
 
   return (
-      <div className={styles.singleSpawner}>
-          <Select
-              defaultValue={spawn_opt.cmd}
-              onSelect={handleSelect}
-              style={{ width: 160 }}
-          >
-              {options}
-          </Select>
-          <Button
-              onClick={handleClick}
-              type='primary'
-          >
-              {'Spawn Instance'}
-          </Button>
-      </div>
+    <div className={styles.singleSpawner}>
+      <Select
+        defaultValue={spawn_opt.cmd}
+        onSelect={handleSelect}
+        style={{ width: 160 }}
+      >
+        {options}
+      </Select>
+      <Button
+        onClick={handleClick}
+        type='primary'
+      >
+        {'Spawn Instance'}
+      </Button>
+    </div>
   );
 };
 
 SingleSpawner.propTypes = {
-  dispatch: React.PropTypes.function.isRequired,
-  living_instances: React.PropTypes.array.isRequired,
-  spawn_opt: React.PropTypes.instanceOf(React.Component),
+  dispatch: React.PropTypes.func.isRequired,
+  living_instances: React.PropTypes.arrayOf(InstanceShape).isRequired,
+  spawn_opt: React.PropTypes.shape({name: React.PropTypes.string.isRequired, cmd: React.PropTypes.any}).isRequired,
 };
 
 const InstanceSpawner = ({dispatch, living_instances, spawn_opt}) => {
   return (
-      <div className={styles.instanceSpawner}>
-          <div className={styles.header}>
-              {'Spawn a Single Instance'}
-          </div>
-          <SingleSpawner
-              dispatch={dispatch}
-              living_instances={living_instances}
-              spawn_opt={spawn_opt}
-          />
-
-          <div className={styles.header}>
-              {'Execute a Spawner Macro'}
-              <MacroInfo />
-          </div>
+    <div className={styles.instanceSpawner}>
+      <div className={styles.header}>
+        {'Spawn a Single Instance'}
       </div>
+      <SingleSpawner
+        dispatch={dispatch}
+        living_instances={living_instances}
+        spawn_opt={spawn_opt}
+      />
+
+      <div className={styles.header}>
+        {'Execute a Spawner Macro'}
+        <MacroInfo />
+      </div>
+      <MacroBuilder />
+    </div>
   );
 };
 
 InstanceSpawner.propTypes = {
-  dispatch: React.PropTypes.function.isRequired,
-  living_instances: React.PropTypes.array.isRequired,
-  spawn_opt: React.PropTypes.instanceOf(React.Component),
+  dispatch: React.PropTypes.func.isRequired,
+  living_instances: React.PropTypes.arrayOf(InstanceShape).isRequired,
+  spawn_opt: React.PropTypes.shape({name: React.PropTypes.string.isRequired, cmd: React.PropTypes.any}).isRequired,
 };
 
 function mapProps(state) {

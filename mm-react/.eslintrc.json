@@ -4,6 +4,8 @@
     "quotes": [2, "single"],
     "react/forbid-component-props": 0,
     "react/jsx-filename-extension": [1, { "extensions": [".js", ".jsx"] }],
+    "react/jsx-indent": [1, 2],
+    "react/jsx-indent-props": [1, 2],
     "react/no-multi-comp": 0,
     "react/display-name": 0,
     "react/jsx-max-props-per-line": [1, {"maximum": 3, "when": "multiline"}],

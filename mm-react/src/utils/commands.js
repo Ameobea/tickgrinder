@@ -1,6 +1,7 @@
 //! Functions for interfacing with the platform's Redis-based communication system
 /* eslint-env browser */
 
+import React from 'react';
 import { Modal } from 'antd';
 
 const CONF = require('../conf.js');
@@ -95,10 +96,37 @@ function *dummyDispatch (put) {
   return function* (args) { yield put(args); };
 }
 
+/**
+ * defines the shape of a WrappedCommand for use in `PropTypes` declarations
+ */
+const WrappedCommand = React.PropTypes.shape({
+  uuid: React.PropTypes.string.isRequired,
+  cmd: React.PropTypes.any.isRequired,
+});
+
+/**
+ * defines the shape of a WrappedResponse for use in `PropTypes` declarations
+ */
+const WrappedResponse = React.PropTypes.shape({
+  uuid: React.PropTypes.string.isRequired,
+  cmd: React.PropTypes.any.isRequired,
+});
+
+/**
+ * defines the shape of an `Instance` for use in `PropTypes` declarations
+ */
+const InstanceShape = React.PropTypes.shape({
+  uuid: React.PropTypes.string.isRequired,
+  instance_type: React.PropTypes.string.isRequired,
+});
+
 export default {
   initWs: initWs,
   getResponse: getResponse,
   v4: v4,
   getInstance: getInstance,
-  dummyDispatch: dummyDispatch
+  dummyDispatch: dummyDispatch,
+  WrappedCommand: WrappedCommand,
+  WrappedResponse: WrappedResponse,
+  InstanceShape: InstanceShape,
 };

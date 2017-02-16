@@ -14,24 +14,24 @@ const LiveInstances = ({dispatch, instances}) => {
   for(var i=0; i<instances.length; i++) {
     let inst = instances[i];
     insts.push(
-        <Row key={inst.uuid}>
-            <Col span={4}>
-                <Instance
-                    instance_type={inst.instance_type}
-                    uuid={inst.uuid}
-                />
-            </Col>
-        </Row>
+      <Row key={inst.uuid}>
+        <Col span={4}>
+          <Instance
+            instance_type={inst.instance_type}
+            uuid={inst.uuid}
+          />
+        </Col>
+      </Row>
     );
   }
 
   return (
-      <span className={styles.instances}>{insts}</span>
+    <span className={styles.instances}>{insts}</span>
   );
 };
 
 LiveInstances.propTypes = {
-  dispatch: React.PropTypes.function.isRequired,
+  dispatch: React.PropTypes.func.isRequired,
   instances: React.PropTypes.array.isRequired
 };
 

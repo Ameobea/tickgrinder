@@ -5,6 +5,7 @@ import React from 'react';
 import { Row, Col, Tag, Tooltip } from 'antd';
 const CheckableTag = Tag.CheckableTag;
 
+import { InstanceShape } from '../../utils/commands';
 import logStyles from '../../static/css/logging.css';
 
 /// Render a pretty severity level
@@ -33,13 +34,13 @@ const Severity = connect()(({dispatch, level, onClick, closable}) => {
   };
 
   return (
-      <Tag
-          closable={closable}
-          color={color}
-          onClick={handleClick}
-      >
-          {level}
-      </Tag>);
+    <Tag
+      closable={closable}
+      color={color}
+      onClick={handleClick}
+    >
+      {level}
+    </Tag>);
 });
 
 const Instance = ({dispatch, sender}) => {
@@ -47,20 +48,23 @@ const Instance = ({dispatch, sender}) => {
   const handleChange = () => dispatch({type: 'logging/instanceAdded', item: sender});
 
   return (
-      <Tooltip
-          placement="right"
-          title={sender.uuid}
-      >
-          <CheckableTag onChange={handleChange}>
-              {instance_type}
-          </CheckableTag>
-      </Tooltip>
+    <Tooltip
+      placement="right"
+      title={sender.uuid}
+    >
+      <CheckableTag onChange={handleChange}>
+        {instance_type}
+      </CheckableTag>
+    </Tooltip>
   );
 };
 
 Instance.propTypes = {
-  dispatch: React.PropTypes.function.isRequired,
-  sender: React.PropTypes.object.isRequired,
+  dispatch: React.PropTypes.func.isRequired,
+  sender: React.PropTypes.shape({
+    instance_uuid: React.PropTypes.string.isRequired,
+    uuid: React.PropTypes.string.isRequired,
+  }).isRequired,
 };
 
 const MessageType = connect()(({dispatch, children}) => {
@@ -72,33 +76,36 @@ const LogLine = ({dispatch, msg}) => {
   const handleClick = dispatch => dispatch({type: 'logging/severityAdded', item: msg.level});
 
   return (
-      <Row
-          align="middle"
-          className={msg.level + ' ' + logStyles.logLine}
-          justify="space-around"
-          type="flex"
-      >
-          <Col span={2}>
-              <Instance
-                  dispatch={dispatch}
-                  sender={msg.sender}
-              />
-          </Col>
-          <Col span={2}><MessageType>{msg.message_type}</MessageType></Col>
-          <Col span={18}><div>{msg.message}</div></Col>
-          <Col span={2}>
-              <Severity
-                  level={msg.level}
-                  onClick={handleClick}
-              />
-          </Col>
-      </Row>
+    <Row
+      align="middle"
+      className={msg.level + ' ' + logStyles.logLine}
+      justify="space-around"
+      type="flex"
+    >
+      <Col span={2}>
+        <Instance
+          dispatch={dispatch}
+          sender={msg.sender}
+        />
+      </Col>
+      <Col span={2}><MessageType>{msg.message_type}</MessageType></Col>
+      <Col span={18}><div>{msg.message}</div></Col>
+      <Col span={2}>
+        <Severity
+          level={msg.level}
+          onClick={handleClick}
+        />
+      </Col>
+    </Row>
   );
 };
 
 LogLine.propTypes = {
-  dispatch: React.PropTypes.function.isRequired,
-  msg: React.PropTypes.object.isRequired,
+  dispatch: React.PropTypes.func.isRequired,
+  msg: React.PropTypes.shape({
+    level: React.PropTypes.number.isRequired,
+    sender: InstanceShape.isRequired,
+  }).isRequired,
 };
 
 export default {

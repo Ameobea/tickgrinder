@@ -2,12 +2,17 @@
 //! control over the platform itself, allowing the automation of tasks such as instance spawning, strategy deployment, backtesting, and other high-
 //! level control over the platform and its modules.
 
-import { connect } from 'antd';
+import React from 'react';
+import { connect } from 'dva';
 
 const MacroManager = ({dispatch}) => {
   return (
-    1 // TODO
+    <div />
   );
+};
+
+MacroManager.propTypes = {
+  dispatch: React.PropTypes.function.isRequired,
 };
 
 export default connect()(MacroManager);

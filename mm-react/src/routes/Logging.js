@@ -7,14 +7,14 @@ import LiveLog from '../components/logging/LiveLog';
 
 function LoggingPage() {
   return (
-      <div>
-          <LiveLog />
-      </div>
+    <div>
+      <LiveLog />
+    </div>
   );
 }
 
 export default () => { return (
-    <ContentContainer title="Log Interface">
-        <LoggingPage />
-    </ContentContainer>
+  <ContentContainer title="Log Interface">
+    <LoggingPage />
+  </ContentContainer>
 );};
