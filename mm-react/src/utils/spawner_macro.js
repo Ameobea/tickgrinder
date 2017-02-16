@@ -24,24 +24,24 @@ import { v4 } from '../utils/commands';
 /// Executes a single spawner macro action
 const execMacroAction = (dispatch, action) => {
   switch(action.actionType) {
-    case("command"): // send a command to the platform
-      let cmd_uuid = v4();
+  case('command'): // send a command to the platform
+    var cmd_uuid = v4();
       // if there are callbacks, register them to be handled when responses from this cmd are received
-      for(var i=0; i<action.callbacks.length; i++) {
-        dispatch({
-          type: 'platform_communication/registerMacroActionCb',
-          uuid: cmd_uuid,
-          cb: action.callbacks[i],
-        });
-      }
+    for(var i=0; i<action.callbacks.length; i++) {
+      dispatch({
+        type: 'platform_communication/registerMacroActionCb',
+        uuid: cmd_uuid,
+        cb: action.callbacks[i],
+      });
+    }
 
       // send the command to the platform
-      dispatch({
-        type: 'platform_communication/sendCommand',
-        cmd: action.payload.cmd,
-        channel: action.payload.channel,
-        cb_action: 'asyncMacroAction',
-      });
+    dispatch({
+      type: 'platform_communication/sendCommand',
+      cmd: action.payload.cmd,
+      channel: action.payload.channel,
+      cb_action: 'asyncMacroAction',
+    });
   }
 };
 
@@ -49,9 +49,9 @@ const execMacroAction = (dispatch, action) => {
 const execMacro = (dispatch, macro) => {
   // send log message indicating that we're executing a macro
   dispatch({
-    type: "platform_communication/log",
-    label: "macroExecution",
-    msg: "Executing macro " + macro.name,
+    type: 'platform_communication/log',
+    label: 'macroExecution',
+    msg: 'Executing macro ' + macro.name,
     severity: 1,
   });
 

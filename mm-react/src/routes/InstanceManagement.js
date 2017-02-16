@@ -15,15 +15,15 @@ function mapProps(state) {
 
 const InstanceManagement = connect(mapProps)(({dispatch, instances}) => {
   return (
-    <div className={styles.instanceManagement}>
-      <LiveInstances instances={instances} />
-      <InstanceSpawner />
-    </div>
+      <div className={styles.instanceManagement}>
+          <LiveInstances instances={instances} />
+          <InstanceSpawner />
+      </div>
   );
 });
 
 export default () => { return (
-  <ContentContainer title="Instance Management">
-    <InstanceManagement />
-  </ContentContainer>
-);}
+    <ContentContainer title="Instance Management">
+        <InstanceManagement />
+    </ContentContainer>
+);};

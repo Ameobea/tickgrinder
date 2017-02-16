@@ -1,66 +1,92 @@
 //! A live view of log messages.
 
 import { connect } from 'dva';
-import { Row, Col, AutoComplete, Card, Tag, Checkbox, Tooltip } from 'antd';
+import React from 'react';
+import { Row, Col, Card, Tag, Checkbox, Tooltip } from 'antd';
 
 import styles from '../../static/css/logging.css';
-import { LogLine, Severity, Instance } from './LogLine';
-
-const handleSeverityClose = (dispatch, name) => {
-  dispatch({type: 'logging/severityRemoved', item: name});
-}
+import { LogLine, Severity } from './LogLine';
 
 const handleCategoryClose = (dispatch, name) => {
   dispatch({type: 'logging/categoryClosed', item: name});
-}
+};
 
 const handleInstanceClose = (dispatch, sender) => {
   dispatch({type: 'logging/instanceClosed', item: sender});
-}
+};
 
 const SelectedTags = connect()(({dispatch, selected_categories, selected_severities, selected_instances, inclusive}) => {
+  const handleClick = dispatch => dispatch({type: 'logging/severityClosed', item: name});
   let tags = [];
   for(var i=0; i<selected_severities.length; i++) {
     let name = selected_severities[i];
     let tag = (
-      <Severity
-        key={name}
-        closable
-        level={name}
-        onClick={dispatch => dispatch({type: 'logging/severityClosed', item: name})}
-      />
+        <Severity
+            closable
+            key={name}
+            level={name}
+            onClick={handleClick}
+        />
     );
     tags.push(tag);
   }
 
-  for(var i=0; i<selected_categories.length; i++) {
-    let name = selected_categories[i];
-    let tag = <Tag closable color="blue" onClick={() => handleCategoryClose(dispatch, name)} key={'category-' + name}>{name}</Tag>;
-    tags.push(tag);
-  }
+  const catClickHandler = () => handleCategoryClose(dispatch, name);
 
-  for(var i=0; i<selected_instances.length; i++) {
-    let sender = selected_instances[i];
+  for(var j=0; j<selected_categories.length; j++) {
+    let name = selected_categories[j];
     let tag = (
-      <Tooltip placement="right" title={sender.uuid} key={'instance-' + sender.uuid}>
-        <Tag closable color="green" onClick={() => handleInstanceClose(dispatch, sender)}>
-          {sender.instance_type}
+        <Tag closable
+            color="blue"
+            key={'category-' + name}
+            onClick={catClickHandler}
+        >
+            {name}
         </Tag>
-      </Tooltip>
     );
     tags.push(tag);
   }
+
+  for(var k=0; k<selected_instances.length; k++) {
+    let sender = selected_instances[k];
+    const handleInstClick = () => handleInstanceClose(dispatch, sender);
+
+    let tag = (
+        <Tooltip
+            key={'instance-' + sender.uuid}
+            placement="right"
+            title={sender.uuid}
+        >
+            <Tag
+                closable
+                color="green"
+                onClick={handleInstClick}
+            >
+                {sender.instance_type}
+            </Tag>
+        </Tooltip>
+    );
+    tags.push(tag);
+  }
+
+  const handleToggle = (e) => dispatch({type: 'logging/toggleMatch'});
 
   return (
-    <Card>
-      <Checkbox onChange={(e) => dispatch({type: 'logging/toggleMatch'})} checked={inclusive}>
-        Match lines containing
-      </Checkbox><br/>
-      <Checkbox onChange={(e) => dispatch({type: 'logging/toggleMatch'})} checked={!inclusive}>
-        Match lines not containing
-      </Checkbox>
-      {tags}
-    </Card>
+      <Card>
+          <Checkbox
+              checked={inclusive}
+              onChange={handleToggle}
+          >
+              {'Match lines containing'}
+          </Checkbox><br />
+          <Checkbox
+              checked={!inclusive}
+              onChange={handleToggle}
+          >
+              {'Match lines not containing'}
+          </Checkbox>
+          {tags}
+      </Card>
   );
 });
 
@@ -73,28 +99,42 @@ const LiveLog = ({dispatch, log_cache, selected_categories, selected_severities,
       ((selected_categories.indexOf(log_line.cmd.Log.msg.message_type) != -1 == inclusive) || (selected_categories.length === 0)) &&
       (((selected_instances.filter(sender => sender.uuid == log_line.cmd.Log.msg.sender.uuid).length !== 0) == inclusive) || (selected_instances.length === 0));
     if(contains) {
-      rows.push(<LogLine key={log_line.uuid} msg={log_line.cmd.Log.msg} />);
+      rows.push(
+          <LogLine
+              key={log_line.uuid}
+              msg={log_line.cmd.Log.msg}
+          />
+      );
     }
   }
 
   return (
-    <div className={styles.liveLog}>
-      <SelectedTags
-        selected_severities={selected_severities}
-        selected_categories={selected_categories}
-        selected_instances={selected_instances}
-        inclusive={inclusive}
-      />
-      <Row>
-        <Col span={2}><b>Sending Instance</b></Col>
-        <Col span={2}><b>Event Type</b></Col>
-        <Col span={18}><b>Message</b></Col>
-        <Col span={2}><b>Severity</b></Col>
-      </Row>
-      {rows}
-    </div>
+      <div className={styles.liveLog}>
+          <SelectedTags
+              inclusive={inclusive}
+              selected_categories={selected_categories}
+              selected_instances={selected_instances}
+              selected_severities={selected_severities}
+          />
+          <Row>
+              <Col span={2}><b>{'Sending Instance'}</b></Col>
+              <Col span={2}><b>{'Event Type'}</b></Col>
+              <Col span={18}><b>{'Message'}</b></Col>
+              <Col span={2}><b>{'Severity'}</b></Col>
+          </Row>
+          {rows}
+      </div>
   );
-}
+};
+
+LiveLog.propTypes = {
+  dispatch: React.PropTypes.function.isRequired,
+  inclusive: React.PropTypes.bool.isRequired,
+  log_cache: React.PropTypes.array.isRequired,
+  selected_categories: React.PropTypes.array.isRequired,
+  selected_instances: React.PropTypes.array.isRequired,
+  selected_severities: React.PropTypes.array.isRequired
+};
 
 function mapProps(state) {
   return {

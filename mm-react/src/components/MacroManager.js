@@ -6,8 +6,8 @@ import { connect } from 'antd';
 
 const MacroManager = ({dispatch}) => {
   return (
-
+    1 // TODO
   );
-}
+};
 
 export default connect()(MacroManager);

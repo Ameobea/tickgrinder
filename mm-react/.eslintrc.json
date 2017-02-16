@@ -2,6 +2,11 @@
   "rules": {
     "indent": [2, 2],
     "quotes": [2, "single"],
+    "react/forbid-component-props": 0,
+    "react/jsx-filename-extension": [1, { "extensions": [".js", ".jsx"] }],
+    "react/no-multi-comp": 0,
+    "react/display-name": 0,
+    "react/jsx-max-props-per-line": [1, {"maximum": 3, "when": "multiline"}],
     "linebreak-style": [2, "unix"],
     "semi": [2, "always"],
     "comma-dangle": [2, "only-multiline"],
@@ -13,13 +18,18 @@
     "es6": true,
     "browser": true
   },
-  "extends": ["eslint:recommended"],
+  "extends": ["eslint:recommended", "plugin:react/all"],
   "parserOptions": {
     "sourceType": "module",
     "ecmaFeatures": {
-      "experimentalObjectRestSpread": true
-    }
+      "experimentalObjectRestSpread": true,
+      "jsx": true
+    },
+    "ecmaVersion": 7
   },
+  "plugins": [
+    "react"
+  ],
   "globals": {
     "require": true,
     "module": true

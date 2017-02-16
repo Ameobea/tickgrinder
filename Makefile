@@ -291,7 +291,9 @@ node:
 	fi
 
 	npm i -g eslint-plugin-standard@latest --save-dev
-	# npm i -g eslint
+	npm i -g eslint eslint-plugin-react
 	npm i -g eslint-plugin-promise@latest --save-dev
 	npm i -g eslint-config-standard@latest -- save-dev
+	npm i -g install typescript
+	npm i -g eslint-plugin-react
 	# npm i eslint-plugin-standard@latest --save-dev

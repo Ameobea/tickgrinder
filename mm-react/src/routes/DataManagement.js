@@ -6,12 +6,12 @@ import ContentContainer from '../components/ContentContainer';
 
 function DataManagement() {
   return (
-    <div>Data</div>
+      <div>{'Data'}</div>
   );
 }
 
 export default () => { return (
-  <ContentContainer title="Data Management">
-    <DataManagement />
-  </ContentContainer>
-);}
+    <ContentContainer title="Data Management">
+        <DataManagement />
+    </ContentContainer>
+);};

@@ -6,13 +6,13 @@ import ContentContainer from '../components/ContentContainer';
 
 function BacktestPage() {
   return (
-    <div>Backtests</div>
+      <div>Backtests</div>
   );
 }
 
 export default () => { return (
-  <ContentContainer title="Backtest Management">
-    <BacktestPage />
-  </ContentContainer>
-);}
+    <ContentContainer title="Backtest Management">
+        <BacktestPage />
+    </ContentContainer>
+);};
 

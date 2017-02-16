@@ -5,9 +5,8 @@ import { connect } from 'dva';
 
 const MacroBuilder = ({dispatch}) => {
   return (
-    // TODO
+    1
   );
 };
 
 export default connect()(MacroBuilder);
-

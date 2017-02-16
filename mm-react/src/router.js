@@ -1,5 +1,5 @@
 import React from 'react';
-import { Router, Route, browserHistory } from 'dva/router';
+import { Router, Route } from 'dva/router';
 
 import AppPage from './components/AppPage';
 import IndexPage from './routes/IndexPage';
@@ -10,15 +10,15 @@ import InstanceManagement from './routes/InstanceManagement';
 
 function RouterConfig({history}) {
   return ( // TODO: notification counts for tabs
-    <Router history={history}>
-      <Route path="/" component={AppPage}>
-        <Route path="/index" component={IndexPage} />
-        <Route path="/backtest" component={Backtest} />
-        <Route path="/data" component={DataManagement} />
-        <Route path="/log" component={Logging} />
-        <Route path="/instances" component={InstanceManagement} />
-      </Route>
-    </Router>
+      <Router history={history}>
+          <Route component={AppPage} path="/">
+              <Route component={IndexPage} path="/index" />
+              <Route component={Backtest} path="/backtest" />
+              <Route component={DataManagement} path="/data" />
+              <Route component={Logging} path="/log" />
+              <Route component={InstanceManagement} path="/instances" />
+          </Route>
+      </Router>
   );
 }
 

@@ -6,13 +6,13 @@ import ContentContainer from '../components/ContentContainer';
 
 function IndexPage() {
   return (
-    <div>Index</div>
+      <div>{'Index'}</div>
   );
 }
 
 export default () => { return (
-  <ContentContainer title="Dashboard Homepage">
-    <IndexPage />
-  </ContentContainer>
-);}
+    <ContentContainer title='Dashboard Homepage'>
+        <IndexPage />
+    </ContentContainer>
+);};
 
