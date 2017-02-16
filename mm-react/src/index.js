@@ -9,6 +9,7 @@ let GlobalState = require('./models/GlobalState');
 let PlatformCommunication = require('./models/PlatformCommunication');
 let Logging = require('./models/Logging');
 let InstanceManagement = require('./models/InstanceManagement');
+let Macros = require('./models/macros');
 
 // 1. Initialize
 const app = dva();
@@ -22,6 +23,7 @@ app.model(GlobalState);
 app.model(PlatformCommunication);
 app.model(Logging);
 app.model(InstanceManagement);
+app.model(Macros);
 
 // 4. Router
 app.router(require('./router'));
@@ -31,8 +33,8 @@ app.router(require('./router'));
 const App = app.start();
 
 ReactDOM.render(
-    <LocaleProvider locale={enUS}>
-        <App />
-    </LocaleProvider>
+  <LocaleProvider locale={enUS}>
+    <App />
+  </LocaleProvider>
 , document.getElementById('root')
 );

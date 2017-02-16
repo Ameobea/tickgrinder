@@ -19,10 +19,11 @@ class DashHeader extends React.Component {
       <Header className={gstyles.header}>
         <Menu className={gstyles.nav} mode="horizontal" defaultSelectedKeys={['index']} style={{ lineHeight: '64px' }}>
           <Menu.Item key="index"><Link to="/index">Home</Link></Menu.Item>
-          <Menu.Item key="backtest"><Link to="/backtest">Backtest Management</Link></Menu.Item>
-          <Menu.Item key="data"><Link to="/data">Data Management</Link></Menu.Item>
+          <Menu.Item key="backtest"><Link to="/backtest">Backtesting</Link></Menu.Item>
+          <Menu.Item key="data"><Link to="/data">Data</Link></Menu.Item>
           <Menu.Item key="instances"><Link to="/instances">Instance Management</Link></Menu.Item>
           <Menu.Item key="log"><Link to="/log">Logging + Monitoring</Link></Menu.Item>
+          <Menu.Item key="help"><Link to="/docs">Docs</Link></Menu.Item>
         </Menu>
       </Header>
     );

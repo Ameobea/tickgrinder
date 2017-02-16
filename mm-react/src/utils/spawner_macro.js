@@ -1,5 +1,7 @@
 //! Functions for dealing  with spawner macros
 
+import React from 'react';
+
 import { v4 } from '../utils/commands';
 
 // Macros are in this format:
@@ -61,6 +63,26 @@ const execMacro = (dispatch, macro) => {
   }
 };
 
+/**
+ * defines the shape of a macro action object for use in `PropTypes` definitions
+ */
+const MacroActionShape = React.PropTypes.shape({
+  name: React.PropTypes.string,
+  description: React.PropTypes.string,
+  actionType: React.PropTypes.string.isRequired,
+  payload: React.PropTypes.any.isRequired,
+  callbacks: React.PropTypes.arrayOf(React.PropTypes.func),
+});
+
+/**
+ * defines the shape of a macro object for use in `PropTypes` definitions
+ */
+const MacroShape = React.PropTypes.shape({
+  actions: React.PropTypes.arrayOf(MacroActionShape),
+});
+
 export default {
   execMacro: execMacro,
+  MacroActionShape: MacroActionShape,
+  MacroShape: MacroShape,
 };
