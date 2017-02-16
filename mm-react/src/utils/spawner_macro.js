@@ -1,6 +1,6 @@
 //! Functions for dealing  with spawner macros
 
-import { v4 } from '../utils/commands'; 
+import { v4 } from '../utils/commands';
 
 // Macros are in this format:
 // { ...metadata,
@@ -45,7 +45,7 @@ const execMacroAction = (dispatch, action) => {
   }
 };
 
-/// Executes a spawner macro 
+/// Executes a spawner macro
 const execMacro = (dispatch, macro) => {
   // send log message indicating that we're executing a macro
   dispatch({

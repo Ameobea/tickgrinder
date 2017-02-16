@@ -3,6 +3,7 @@
 import { put, select} from 'redux-saga/effects';
 
 import { execMacro } from '../utils/spawner_macro';
+import { dummyDispatch } from '../utils/commands';
 
 export default {
   namespace: "macros",
@@ -23,18 +24,13 @@ export default {
   effects: {
     /// Called as a callback to responses received from macro actions
     *asyncMacroAction({msg}, {call, put}) {
-      // create a dummy `dispatch` function to pass to any returned actions
-      function *dummyDispatch(args) {
-        yield put(args);
-      };
-
       let asyncCbs = select((gstate) => gstate.platform_communication.asyncMacroActions);
       for(var i=0; i<asyncCbs.length; i++) {
         if(asyncCbs[i].uuid == msg.uuid) {
           // execute the callback and see if there's another
           let newMacro = asyncCbs[i](msg);
           if(newMacro) {
-            execMacro(dummyDispatch, newMacro);
+            execMacro(dummyDispatch(put), newMacro);
           }
         }
       }

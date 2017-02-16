@@ -11,16 +11,16 @@ const handleMessage = (dispatch, {uuid, channel, message}) => {
   let msg = JSON.parse(message);
 
   // dispatch the message to the corresponding reducer depending on its type
-  if(msg.cmd) {
-    if(msg.cmd.Log) { // is log message
+  if (msg.cmd) {
+    if (msg.cmd.Log) { // is log message
       dispatch({type: 'logReceived', msg: msg});
     } else { // is a command
       dispatch({type: 'commandReceived', msg: msg});
     }
   } else { // is a response
-    dispatch({type: 'responseReceived', msg: });
+    dispatch({type: 'responseReceived', msg: msg});
   }
-};
+}
 
 export default {
   namespace: 'platform_communication',
@@ -35,8 +35,10 @@ export default {
 },
 
   reducers: {
-    /// sends a command and executes a callback for all responses received.  The callback should accept two parameters:
-    /// `put` and `msg` in that order like `(put, msg) => {...}`.
+    /**
+     * sends a command and executes a callback for all responses received.  The callback should accept two parameters:
+     * `put` and `msg` in that order like `(put, msg) => {...}`.
+     */
     transmitCommand(state, {channel, cmd, cb_action, uuid}) {
       // broadcast the command over the socket
       let msg = {uuid: uuid, cmd: cmd};
@@ -46,31 +48,37 @@ export default {
       // add the uuid and callback to the list of monitored UUIDs
       return {...state,
         interest_list: [...state.interest_list, {uuid: uuid, cb_action: cb_action}],
-      };
+      }
     },
 
-    /// sends a response over the specified redic channel+uuid over the WebSocket to the platform.
+    /**
+     * sends a response over the specified redic channel+uuid over the WebSocket to the platform.
+     */
     transmitResponse(state, {uuid, res}) {
       let msg = {uuid: uuid, res: res};
       let wsmsg = {uuid: uuid, channel: CONF.redis_responses_channel, message: JSON.stringify(msg)};
       state.socket.send(JSON.stringify(wsmsg));
 
       // we don't actually modify the state at all, ju/st use the socket
-      return {...state};
+      return {...state}
     },
 
-    /// Called after a timeout period; deregisters interest in a UUID.
-    deregisterInterest(state, {uuid}) {
+    /**
+     * Called after a timeout period; deregisters interest in a UUID.
+     */
+    deregisterInterest (state, {uuid}) {
       return {...state,
-        interest_list: state.interest_list.filter(interest => interest.uuid != uuid),
-      };
+        interest_list: state.interest_list.filter(interest => interest.uuid !== uuid)
+      }
     },
 
-    /// receives the websocket object from the `redisListener` subscription after it has initialized the websocket connection
-    websocketConnected(state, {socket}) {
+    /**
+     * receives the websocket object from the `redisListener` subscription after it has initialized the websocket connection
+     */
+    websocketConnected (state, {socket}) {
       return {...state,
-        socket: socket,
-      };
+        socket: socket
+      }
     },
 
     /// called to set a UUID for the platform during initialization
@@ -105,6 +113,14 @@ export default {
 
       return new_state;
     },
+
+    /// Called when a postgres query is sent; registers the a callback to be executed when the response is received.
+    postgresQuerySent(state, {query, cb}) {
+      return {...state,
+        postgresCbs: [...state.postgresCbs, {query: query, cb: cb}],
+      };
+    },
+
   },
 
   effects: {
@@ -165,16 +181,43 @@ export default {
       yield put({type: 'sendCommand', channel: instance_uuid, cb_action: cb_action, cmd: cmd});
     },
 
+    /// sends a command to the first instance (selected arbitrarily) with the specified `instanceType`.
+    /// Same as `sendCommandToInstance` but lets you supply a UUID for the command to be sent.
+    *sendCommandToInstanceWithUuid({cmd, cb_action, instance_name, uuid}, {call, put}) {
+      let living_instances = yield select(gstate => gstate.instances.living_instances);
+      let instance_uuid = getInstance(instance_name, living_instances);
+
+      // actually send the command to the instance
+      yield put({type: 'sendCommandWithUuid', channel: instance_uuid, cb_action: cb_action, cmd: cmd, uuid: uuid});
+    },
+
     /// sends a PostgreSQL query to the spawner instance to be executed.
-    *postgresQuery({query}, {call, put}) {
+    *postgresQuery({query, cb}, {call, put}) {
       let cmd = {PostgresQuery: {
         query: query,
       }};
 
-      let spawner_uuid = get
-      // {channel, cmd, cb_action},
-      yield put({type: 'sendCommand', 
-
+      let uuid = v4()
+      yield put({type: 'postgresQuerySend', uuid: uuid, cb: cb})
+      yield put({
+        type: 'sendCommandToInstanceWithUuid',
+        cb_action: 'postgresResponse',
+        uuid: uuid,
+        cmd: cmd,
+        instance_name: "Spawner"
+      })  
+    },
+    
+    /// Called when a response to a postgres query is received.  Executes the callback with a simulated dispatch function and
+    /// removes the callback from the list of pending callbacks.
+    *postgresResponseReceived({msg}, {call, put}) {
+      let pendingCbs = select(gstate => gstate.platform_communication.postgresCbs);
+      for(var i=0; i<pendingCbs.length; i++){
+        if(pendingCbs[i].uuid == msg.uuid){
+          // if the uuids match, call the pending callback with the dummy dispatch function
+          pendingCbs[i].cb(dummyDispatch(put), msg);
+        }
+      }
     },
 
     /// sends a log message over the log channel.  Severity is a number from 0-4 corresponding to the levels DEBUG to CRITICAL.
