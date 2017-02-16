@@ -6,21 +6,18 @@ import { message, Tooltip, Icon, Select, Button } from 'antd';
 const Option = Select.Option;
 
 import { getInstance, InstanceShape } from '../../utils/commands';
-import MacroBuilder from '../MacroBuilder';
+import MacroManager from '../MacroManager';
 import styles from '../../static/css/instances.css';
 
 const MacroInfo = () => {
   return (
     <Tooltip title="Click here for info on spawner macros">
-      <Icon
-        className={styles.infoTooltip}
-        type="question"
-      />
+      <Icon className={styles.infoTooltip} type="question" />
     </Tooltip>
   );
 };
 
-const spawnable_instances = [
+const spawnableInstances = [
   {name: 'Backtester', cmd: 'SpawnBacktester'},
   {name: 'Logger', cmd: 'SpawnLogger'},
   {name: 'Tick Parser', cmd: 'SpawnTickParser'},
@@ -47,13 +44,10 @@ const spawnButtonClicked = (dispatch, living_instances, {name, cmd}) => {
 
 const SingleSpawner = ({dispatch, living_instances, spawn_opt}) => {
   let options = [];
-  for(var i=0; i<spawnable_instances.length; i++) {
+  for(var i=0; i<spawnableInstances.length; i++) {
     let opt = (
-      <Option
-        key={i}
-        value={spawnable_instances[i].cmd}
-      >
-        {spawnable_instances[i].name}
+      <Option key={i} value={spawnableInstances[i].cmd} >
+        {spawnableInstances[i].name}
       </Option>
     );
     options.push(opt);
@@ -71,10 +65,7 @@ const SingleSpawner = ({dispatch, living_instances, spawn_opt}) => {
       >
         {options}
       </Select>
-      <Button
-        onClick={handleClick}
-        type='primary'
-      >
+      <Button onClick={handleClick} type='primary'>
         {'Spawn Instance'}
       </Button>
     </div>
@@ -103,7 +94,7 @@ const InstanceSpawner = ({dispatch, living_instances, spawn_opt}) => {
         {'Execute a Spawner Macro'}
         <MacroInfo />
       </div>
-      <MacroBuilder />
+      <MacroManager />
     </div>
   );
 };
