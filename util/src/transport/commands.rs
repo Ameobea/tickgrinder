@@ -18,31 +18,34 @@ pub enum Command {
     Ping,
     Shutdown,
     Kill,
-    Register { channel: String },
+    Register {channel: String},
     Type, // returns what kind of instance this is
-    Ready { instance_type: String, uuid: Uuid }, /* signals that a newly spawned instance is ready to receive commands */
+    Ready {instance_type: String, uuid: Uuid}, /* signals that a newly spawned instance is ready to receive commands */
     // Tick Processor Commands
-    AddCondition { condition_string: String },
-    RemoveCondition { condition_string: String },
+    AddCondition {condition_string: String},
+    RemoveCondition {condition_string: String},
     ListConditions,
-    SubTicks { broker_def: String },
+    SubTicks {broker_def: String},
     // Spawner Commands
     Census,
-    SpawnOptimizer { strategy: String },
-    SpawnTickParser { symbol: String },
+    SpawnOptimizer{strategy: String},
+    SpawnTickParser{symbol: String},
     SpawnBacktester,
     SpawnLogger,
     SpawnFxcmDataDownloader,
-    KillInstance { uuid: Uuid },
+    KillInstance{uuid: Uuid},
     KillAllInstances,
+    // Commands for interfacing with the document store
+    QueryDocumentStore{query: String},
+    InsertIntoDocumentStore{doc: String},
     // Backtester Commands
-    StartBacktest { definition: String },
-    PauseBacktest { uuid: Uuid },
-    ResumeBacktest { uuid: Uuid },
-    StopBacktest { uuid: Uuid },
+    StartBacktest{definition: String},
+    PauseBacktest{uuid: Uuid},
+    ResumeBacktest{uuid: Uuid},
+    StopBacktest{uuid: Uuid},
     ListBacktests,
     ListSimbrokers,
-    SpawnSimbroker { settings: HashMap<String, String> },
+    SpawnSimbroker{settings: HashMap<String, String>},
     // Data Downloader Commands
     DownloadTicks {
         start_time: String,
@@ -68,9 +71,9 @@ pub enum Command {
 pub enum Response {
     // Generic Responses
     Ok,
-    Error { status: String },
-    Pong { args: Vec<String> },
-    Info { info: String },
+    Error{status: String},
+    Pong{args: Vec<String>},
+    Info{info: String},
 }
 
 impl Command {
@@ -248,10 +251,7 @@ impl FromStr for WrappedResponse {
 }
 
 /// Utility function to asynchronously sends off a command
-pub fn send_command(cmd: &WrappedCommand,
-                    client: &redis::Client,
-                    commands_channel: &str)
-                    -> Result<(), serde_json::Error> {
+pub fn send_command(cmd: &WrappedCommand, client: &redis::Client, commands_channel: &str) -> Result<(), serde_json::Error> {
     let command_string = try!(serde_json::to_string(cmd));
     redis::cmd("PUBLISH")
         .arg(commands_channel)
@@ -261,10 +261,7 @@ pub fn send_command(cmd: &WrappedCommand,
 }
 
 /// Utility function to asynchronously send off a response
-pub fn send_response(res: &WrappedResponse,
-                     client: &redis::Client,
-                     channel: &str)
-                     -> Result<(), serde_json::Error> {
+pub fn send_response(res: &WrappedResponse,cclient: &redis::Client,cchannel: &str) -> Result<(), serde_json::Error> {
     let ser = try!(serde_json::to_string(res));
     let res_str = &ser;
     redis::cmd("PUBLISH")

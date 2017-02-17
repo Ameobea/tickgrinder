@@ -81,6 +81,13 @@ pub const MM_SETTINGS: SettingsPage = SettingsPage {
             setting_type: SettingType::Usize,
             comment: Some("How many of each Command, Response, and Log Line to keep in memory"),
         },
+        SettingRow {
+            id: "store_buffer_size",
+            name: "Tantivy Document Store Buffer Size",
+            default: Some("50000000"),
+            setting_type: SettingType::Usize,
+            comment: Some("How large (in bytes) to make the Tantivy writer buffer for the document store"),
+        },
     ],
     comment: Some(&["Settings for configuring the Management/Monitoring Web Interface."]),
 };
