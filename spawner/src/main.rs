@@ -15,6 +15,7 @@ extern crate serde_json;
 extern crate ws;
 #[macro_use]
 extern crate serde_derive;
+extern crate tantivy;
 
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -32,6 +33,7 @@ use tickgrinder_util::transport::command_server::*;
 use tickgrinder_util::conf::CONF;
 
 mod redis_proxy;
+mod documents;
 
 /// Holds a list of all instances that the spawner has spawned and thinks are alive
 #[derive(Clone)]
