@@ -8,3 +8,6 @@ description = "Instance spawner and management system for the TickGrinder algori
 opt-level = 3
 debug = true
 debug-assertions = false
+
+[dependencies]
+tantivy = { git = "https://github.com/ameobea/tantivy.git" }
