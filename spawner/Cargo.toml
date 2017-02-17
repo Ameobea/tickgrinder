@@ -10,4 +10,4 @@ debug = true
 debug-assertions = false
 
 [dependencies]
-tantivy = { git = "https://github.com/ameobea/tantivy.git" }
+tantivy = { git = "https://github.com/tantivy-search/tantivy.git" }

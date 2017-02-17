@@ -34,13 +34,15 @@ use tickgrinder_util::conf::CONF;
 
 mod redis_proxy;
 mod documents;
+use documents::*;
 
 /// Holds a list of all instances that the spawner has spawned and thinks are alive
 #[derive(Clone)]
 struct InstanceManager {
     pub uuid: Uuid,
     pub living: Arc<Mutex<Vec<Instance>>>,
-    pub cs: CommandServer
+    pub cs: CommandServer,
+    pub store_handle: StoreHandle,
 }
 
 fn main() {
@@ -52,10 +54,22 @@ impl InstanceManager {
     /// Creates a new spawner instance.
     pub fn new() -> InstanceManager {
         let uuid = Uuid::new_v4();
+        let mut cs = CommandServer::new(uuid, "Spawner");
+        let store_handle = match init_store_handle() {
+            Ok(handle) => handle,
+            Err(err) => {
+                let errmsg = format!("Unable to initialize handle to Tantivy document store: {}", err);
+                cs.critical(Some("Initialization"), &errmsg);
+                println!("{}", errmsg);
+                panic!();
+            }
+        };
+
         InstanceManager {
             uuid: uuid,
             living: Arc::new(Mutex::new(Vec::new())),
-            cs: CommandServer::new(uuid, "Spawner"),
+            cs: cs,
+            store_handle: store_handle,
         }
     }
 
@@ -286,6 +300,12 @@ impl InstanceManager {
             Command::SpawnFxcmDataDownloader => self.spawn_fxcm_dd(),
             _ => Response::Error{
                 status: "Command not accepted by the instance spawner".to_string()
+            },
+            Command::InsertIntoDocumentStore{doc} => {
+                unimplemented!(); // TODO
+            },
+            Command::QueryDocumentStore{query} => {
+                unimplemented!(); // TODO
             }
         };
 
