@@ -22,9 +22,10 @@ use std::thread;
 use std::time::Duration;
 use std::process;
 use std::str::FromStr;
+use std::mem;
 
 use uuid::Uuid;
-use futures::{Future, oneshot, Complete};
+use futures::{Future, Sink, oneshot, Complete};
 use futures::stream::Stream;
 #[allow(unused_imports)]
 use tickgrinder_util::transport::redis::{sub_channel, sub_multiple, get_client};
@@ -274,7 +275,7 @@ impl InstanceManager {
     /// Processes an incoming command, doing whatever it instructs and fulfills the future
     /// that it fulfills with the status once it's finished.
     fn handle_command(&mut self, cmd: Command, c: Complete<Response>) {
-        let res = match cmd {
+        let res: Response = match cmd {
             Command::Ping => Response::Pong{args: vec![self.uuid.hyphenated().to_string()]},
             Command::Kill => {
                 thread::spawn(||{
@@ -284,7 +285,7 @@ impl InstanceManager {
                     std::process::exit(0);
                 });
                 Response::Info{info: "Shutting down in 3 seconds...".to_string()}
-            }
+            },
             Command::Type => Response::Info{info: "Spawner".to_string()},
             // This means a new instance has spawned and we should register it in our internal instance list
             Command::Ready{instance_type, uuid} => {
@@ -297,18 +298,25 @@ impl InstanceManager {
             Command::SpawnOptimizer{strategy} => self.spawn_optimizer(strategy),
             Command::SpawnTickParser{symbol} => self.spawn_tick_parser(symbol),
             Command::SpawnBacktester => self.spawn_backtester(),
+            Command::InsertIntoDocumentStore{doc} => {
+                let tx = mem::replace(&mut self.store_handle.insertion_tx, None).unwrap();
+                let new_tx = tx.send((doc, c)).wait().unwrap();
+                let _ = mem::replace(&mut self.store_handle.insertion_tx, Some(new_tx));
+                return;
+            },
+            Command::QueryDocumentStore{query} => {
+                let tx = mem::replace(&mut self.store_handle.query_tx, None).unwrap();
+                let new_tx = tx.send((query, c)).wait().unwrap();
+                let _ = mem::replace(&mut self.store_handle.query_tx, Some(new_tx));
+                return;
+            },
             Command::SpawnFxcmDataDownloader => self.spawn_fxcm_dd(),
             _ => Response::Error{
                 status: "Command not accepted by the instance spawner".to_string()
             },
-            Command::InsertIntoDocumentStore{doc} => {
-                unimplemented!(); // TODO
-            },
-            Command::QueryDocumentStore{query} => {
-                unimplemented!(); // TODO
-            }
         };
 
+        // fulfill right away since the response isn't async
         c.complete(res);
     }
 

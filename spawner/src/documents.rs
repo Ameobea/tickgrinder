@@ -1,12 +1,11 @@
 //! Interface to the flatfile document storage database.
 
 use std::path::{Path, PathBuf};
-use std::fs::create_dir_all;
+use std::fs::{create_dir_all, remove_file};
 use std::thread;
 use std::fmt::Debug;
-use std::sync::Arc;
 
-use futures::{Future, Sink, Stream};
+use futures::{Stream, Complete};
 use futures::stream::MergedItem;
 use futures::sync::mpsc::{channel, Sender, Receiver};
 use tantivy::schema::{Schema, SchemaBuilder, Field, TEXT, STORED, STRING};
@@ -17,17 +16,18 @@ use Uuid;
 use serde_json::from_str;
 
 use tickgrinder_util::transport::command_server::CommandServer;
+use tickgrinder_util::transport::commands::Response;
 use tickgrinder_util::conf::CONF;
 
 /// Contains senders and receivers for interacting with the document store
 #[derive(Clone)]
 pub struct StoreHandle {
-    /// The `Sender` used to submit work to the search engine
-    query_tx: Sender<String>,
-    /// The `Sender` used to add new documents to the index
-    insertion_tx: Sender<String>,
-    /// The `Receiver` used to receive results from the search engine
-    res_rx: Arc<Receiver<Vec<String>>>,
+    /// The `Sender` used to submit work to the search engine.  Contains the query as a `String and a `Complete`
+    /// to be fulfilled when the query has finished
+    pub query_tx: Option<Sender<(String, Complete<Response>)>>,
+    /// The `Sender` used to add new documents to the index.  Contains the document as a `String` and a `Complete`
+    /// to be fulfilled when the insertion has finished.
+    pub insertion_tx: Option<Sender<(String, Complete<Response>)>>,
 }
 
 /// A document that can be stored in the database.
@@ -68,6 +68,18 @@ pub fn init_store_handle() -> Result<StoreHandle, String> {
         let schema = get_schema();
         try!(Index::create(&data_dir, schema).map_err(debug_err))
     } else {
+        // delete the lock file if it exists from last time
+        let mut lock_file_path = data_dir.clone();
+        lock_file_path.push(".tantivy-indexer.lock");
+        match remove_file(lock_file_path) {
+            Ok(_) => (),
+            Err(err) => {
+                println!("Error while deleing lockfile from Tantivy store: {}", err);
+                panic!("Tearing down spawner since it's likely one is already running");
+            }
+        }
+
+        // load the index from the directory
         try!(Index::open(&data_dir).map_err(|err| format!("{:?}", err)))
     };
 
@@ -75,21 +87,20 @@ pub fn init_store_handle() -> Result<StoreHandle, String> {
     let (query_tx, query_rx) = channel(3);
     let (insertion_tx, insertion_rx) = channel(3);
 
-    let res_rx = try!(init_server_thread(query_rx, insertion_rx, index));
+    // start the server on another thread and start it listening for queries and insertion requests on the input channels
+    init_server_thread(query_rx, insertion_rx, index);
 
     Ok(StoreHandle {
-        query_tx: query_tx,
-        insertion_tx: insertion_tx,
-        res_rx: Arc::new(res_rx),
+        query_tx: Some(query_tx),
+        insertion_tx: Some(insertion_tx),
     })
 }
 
 /// Initializes main event loop that the server listens on.  Takes in queries via the provided `Receiver`s and returns responses
 /// through the returned `Receiver`.
 fn init_server_thread (
-        query_rx: Receiver<String>, insertion_rx: Receiver<String>, index: Index
-    ) -> Result<Receiver<Vec<String>>, String> {
-    let (mut res_tx, res_rx) = channel::<Vec<String>>(3);
+        query_rx: Receiver<(String, Complete<Response>)>, insertion_rx: Receiver<(String, Complete<Response>)>, index: Index
+    ) {
     let mut cs = CommandServer::new(Uuid::new_v4(), "Tantivy Store Server");
 
     // merge the query and inserion streams so that they can be processed together in the event loop
@@ -98,44 +109,66 @@ fn init_server_thread (
     thread::spawn(move || {
         // set up some objects for use in accessing the store
         let schema = get_schema();
-        let mut index_writer = index.writer(CONF.store_buffer_size).unwrap();
+        let mut index_writer = index.writer(CONF.store_buffer_size).expect("Unable to create index writer!");
 
         for msg in merged_rx.wait() {
             match msg.expect("Msg was err in store event loop") {
-                MergedItem::First(query) => {
+                MergedItem::First((query, complete)) => {
                     // execute the query and send the results through the `res_tx`
                     let query_result = query_document(&query, &index, &schema, 50);
                     match query_result {
                         Ok(res_vec) => {
-                            res_tx = res_tx.send(res_vec).wait().unwrap();
+                            // send response to client by completing the oneshot
+                            complete.complete(Response::DocumentQueryResult{
+                                results: res_vec,
+                            });
                         },
                         Err(err) => {
-                            cs.error(None, &format!("Got error while executing query: {}", err));
+                            let errmsg = format!("Got error while executing query: {}", err);
+                            cs.error(None, &errmsg);
+                            complete.complete(Response::Error{status: errmsg});
                         },
                     }
                 },
-                MergedItem::Second(doc_string) => {
+                MergedItem::Second((doc_string, complete)) => {
                     // insert the document into the store
                     match insert_document(&doc_string, &mut index_writer) {
-                        Ok(_) => (),
-                        Err(err) => cs.error(None, &format!("Error while inserting document into store: {}", err)),
+                        Ok(_) => {
+                            // let the client know the document was successfully inserted
+                            complete.complete(Response::Ok);
+                        },
+                        Err(err) => {
+                            cs.error(None, &format!("Error while inserting document into store: {}", err));
+                            complete.complete(Response::Error{status: format!("Unable to insert document into the store: {}", err)})
+                        },
                     }
                 },
-                MergedItem::Both(query, doc_string) => {
+                MergedItem::Both((query, q_complete), (doc_string, i_complete)) => {
                     // both execute the query and insert a document into the store
                     let query_result = query_document(&query, &index, &schema, 50);
                     match query_result {
                         Ok(res_vec) => {
-                            res_tx = res_tx.send(res_vec).wait().unwrap();
+                            // send response to client by completing the oneshot
+                            q_complete.complete(Response::DocumentQueryResult{
+                                results: res_vec,
+                            });
                         },
                         Err(err) => {
-                            cs.error(None, &format!("Got error while executing query: {}", err));
+                            let errmsg = format!("Got error while executing query: {}", err);
+                            cs.error(None, &errmsg);
+                            q_complete.complete(Response::Error{status: errmsg});
                         },
                     }
 
                     match insert_document(&doc_string, &mut index_writer) {
-                        Ok(_) => (),
-                        Err(err) => cs.error(None, &format!("Error while inserting document into store: {}", err)),
+                        Ok(_) => {
+                            // let the client know the document was successfully inserted
+                            i_complete.complete(Response::Ok);
+                        },
+                        Err(err) => {
+                            cs.error(None, &format!("Error while inserting document into store: {}", err));
+                            i_complete.complete(Response::Error{status: format!("Unable to insert document into the store: {}", err)})
+                        },
                     }
                 },
             }
@@ -144,8 +177,6 @@ fn init_server_thread (
         let hmm: Result<(), ()> = Ok(());
         return hmm
     });
-
-    Ok(res_rx)
 }
 
 fn get_fields(schema: &Schema) -> StoreFields {
@@ -163,7 +194,7 @@ fn insert_document(doc_str: &str, mut index_writer: &mut IndexWriter) -> Result<
     let src_doc: SrcDocument = match from_str(doc_str) {
         Ok(doc) => doc,
         Err(err) => {
-            return Err(format!("Unable to parse string into `SrcDocument`: {}", doc_str))
+            return Err(format!("Unable to parse string into `SrcDocument`: {}, {}", doc_str, err))
         },
     };
     let schema = get_schema();
@@ -184,7 +215,9 @@ fn insert_document(doc_str: &str, mut index_writer: &mut IndexWriter) -> Result<
 }
 
 /// Executes a query against the store, returning all matched documents.
-fn query_document(raw_query: &str, index: &Index, schema: &Schema, n_results: usize) -> Result<Vec<String>, String> {
+fn query_document(
+    raw_query: &str, index: &Index, schema: &Schema, n_results: usize
+) -> Result<Vec<String>, String> {
     let StoreFields {title, body, tags: _, creation_date: _, modification_date: _} = get_fields(&schema);
     let searcher = index.searcher();
     let query_parser = QueryParser::new(index.schema(), vec!(title, body));

@@ -74,6 +74,7 @@ pub enum Response {
     Error{status: String},
     Pong{args: Vec<String>},
     Info{info: String},
+    DocumentQueryResult{results: Vec<String>},
 }
 
 impl Command {
@@ -261,7 +262,7 @@ pub fn send_command(cmd: &WrappedCommand, client: &redis::Client, commands_chann
 }
 
 /// Utility function to asynchronously send off a response
-pub fn send_response(res: &WrappedResponse,cclient: &redis::Client,cchannel: &str) -> Result<(), serde_json::Error> {
+pub fn send_response(res: &WrappedResponse, client: &redis::Client, channel: &str) -> Result<(), serde_json::Error> {
     let ser = try!(serde_json::to_string(res));
     let res_str = &ser;
     redis::cmd("PUBLISH")
