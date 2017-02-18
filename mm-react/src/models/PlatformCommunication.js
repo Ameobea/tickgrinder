@@ -2,6 +2,7 @@
 
 import { delay } from 'redux-saga';
 import { select } from 'redux-saga/effects';
+import { message } from 'antd';
 
 const CONF = require('../conf');
 import { initWs, getResponse, getInstance, v4, dummyDispatch } from '../utils/commands';
@@ -30,7 +31,8 @@ export default {
     responses: [],
     socket: undefined,
     uuid: v4(),
-    interestList: [] // list of UUIDs of responses we're interested in and callbacks to run for when they're received
+    interestList: [], // list of UUIDs of responses we're interested in and callbacks to run for when they're received
+    queryResults: [] // list of all document titles returned in response to a query
   },
 
   reducers: {
@@ -127,6 +129,22 @@ export default {
       return {...state,
         postgresCbs: [...state.postgresCbs, {query: query, cb: cb}]
       };
+    },
+
+    docQueryResponseReceived (state, {msg}) {
+      let matchedDocs;
+      if(msg.res.DocumentQueryResult) {
+        matchedDocs = JSON.parse(msg.DocumeQueryResult.results);
+        return {...state,
+          queryResults: matchedDocs,
+        };
+      } else if(msg.res.Error) {
+        message.error('Error while processing query: ' + msg.res.Error.status);
+      } else {
+        message.error('Unknown error occured while processing query: ' + JSON.stringify(msg));
+      }
+
+      return {...state};
     }
   },
 
@@ -173,6 +191,20 @@ export default {
       }
     },
 
+    /**
+     * Sends a document query to the Tantivy-backed document store.  Registers interest in responses with the UUID
+     * of the sent query and handles the responses by updating the `queryResults` state.
+     */
+    *sendDocQuery ({query}, {call, put}) {
+      let cmd = {QueryDocumentStore: {query: query}};
+      yield put({
+        type: 'sendCommandToInstance',
+        cb_action: 'queryResultReceived',
+        cmd: cmd,
+        instance_name: 'Spawner',
+      });
+    },
+
     /*
      * adds the command to the state, removing the oldest one if the buffer is larger than the size limit
      */
@@ -191,8 +223,8 @@ export default {
      * sends a command to the first instance (selected arbitrarily) with the specified `instanceType`.
      */
     *sendCommandToInstance ({cmd, cb_action, instance_name}, {call, put}) {
-      let livingInstances = yield select(gstate => gstate.instances.livingInstances);
-      let instanceUuid = getInstance(instance_name, livingInstances);
+      let living_instances = yield select(gstate => gstate.instances.living_instances);
+      let instanceUuid = getInstance(instance_name, living_instances).uuid;
 
       // actually send the command to the instance
       yield put({type: 'sendCommand', channel: instanceUuid, cb_action: cb_action, cmd: cmd});
@@ -203,8 +235,8 @@ export default {
      *  Same as `sendCommandToInstance` but lets you supply a UUID for the command to be sent.
      */
     *sendCommandToInstanceWithUuid ({cmd, cb_action, instance_name, uuid}, {call, put}) {
-      let livingInstances = yield select(gstate => gstate.instances.livingInstances);
-      let instanceUuid = getInstance(instance_name, livingInstances);
+      let living_instances = yield select(gstate => gstate.instances.living_instances);
+      let instanceUuid = getInstance(instance_name, living_instances).uuid;
 
       // actually send the command to the instance
       yield put({type: 'sendCommandWithUuid', channel: instanceUuid, cb_action: cb_action, cmd: cmd, uuid: uuid});
@@ -238,7 +270,7 @@ export default {
       for (var i = 0; i < pendingCbs.length; i++) {
         if (pendingCbs[i].uuid === msg.uuid) {
           // if the uuids match, call the pending callback with the dummy dispatch function
-          pendingCbs[i].cb(dummyDispatch(put), msg);
+          yield pendingCbs[i].cb(dummyDispatch(put), msg);
         }
       }
     },

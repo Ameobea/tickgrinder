@@ -85,8 +85,8 @@ function getResponse (command, uuid) {
  * Given the list of all currently running instances, returns the UUIDs of all instances with the specified name.
  *  Returns an empty list if there are no living instances with the specified name.
  */
-const getInstance = (name, livingInstances) => {
-  return livingInstances.filter(inst => inst.instance_type === name);
+const getInstance = (name, living_instances) => {
+  return living_instances.filter(inst => inst.instance_type === name);
 };
 
 /**
@@ -97,7 +97,7 @@ function *dummyDispatch (put) {
 }
 
 /**
- * defines the shape of a WrappedCommand for use in `PropTypes` declarations
+ * defines the shape of a `WrappedCommand` for use in `PropTypes` declarations
  */
 const WrappedCommand = React.PropTypes.shape({
   uuid: React.PropTypes.string.isRequired,
@@ -105,7 +105,7 @@ const WrappedCommand = React.PropTypes.shape({
 });
 
 /**
- * defines the shape of a WrappedResponse for use in `PropTypes` declarations
+ * defines the shape of a `WrappedResponse` for use in `PropTypes` declarations
  */
 const WrappedResponse = React.PropTypes.shape({
   uuid: React.PropTypes.string.isRequired,
@@ -120,6 +120,17 @@ const InstanceShape = React.PropTypes.shape({
   instance_type: React.PropTypes.string.isRequired,
 });
 
+/**
+ * defines the shape of a `Document` for use in `PropTypes` declarations
+ */
+const DocumentShape = React.PropTypes.shape({
+  title: React.PropTypes.string.isRequired,
+  body: React.PropTypes.string.isRequired,
+  tags: React.PropTypes.arrayOf(React.PropTypes.string),
+  creation_date: React.PropTypes.string.isRequired,
+  modification_date: React.PropTypes.string.isRequired,
+});
+
 export default {
   initWs: initWs,
   getResponse: getResponse,
@@ -129,4 +140,5 @@ export default {
   WrappedCommand: WrappedCommand,
   WrappedResponse: WrappedResponse,
   InstanceShape: InstanceShape,
+  DocumentShape: DocumentShape,
 };
