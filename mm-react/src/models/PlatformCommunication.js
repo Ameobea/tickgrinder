@@ -133,8 +133,9 @@ export default {
 
     docQueryResponseReceived (state, {msg}) {
       let matchedDocs;
+      console.log(msg);
       if(msg.res.DocumentQueryResult) {
-        matchedDocs = JSON.parse(msg.DocumeQueryResult.results);
+        matchedDocs = msg.res.DocumentQueryResult.results.map(o => JSON.parse(o).title[0]);
         return {...state,
           queryResults: matchedDocs,
         };
@@ -199,7 +200,7 @@ export default {
       let cmd = {QueryDocumentStore: {query: query}};
       yield put({
         type: 'sendCommandToInstance',
-        cb_action: 'queryResultReceived',
+        cb_action: 'docQueryResponseReceived',
         cmd: cmd,
         instance_name: 'Spawner',
       });
@@ -224,7 +225,7 @@ export default {
      */
     *sendCommandToInstance ({cmd, cb_action, instance_name}, {call, put}) {
       let living_instances = yield select(gstate => gstate.instances.living_instances);
-      let instanceUuid = getInstance(instance_name, living_instances).uuid;
+      let instanceUuid = getInstance(instance_name, living_instances)[0].uuid;
 
       // actually send the command to the instance
       yield put({type: 'sendCommand', channel: instanceUuid, cb_action: cb_action, cmd: cmd});

@@ -25,11 +25,13 @@ const handleDocInputSelect = dispatch => {
 };
 
 const DocSearcher = ({dispatch, queryResults}) => {
+  console.log(queryResults);
   return (
     <div>
       <h2>{'Search Documentation'}</h2>
       <AutoComplete
         dataSource={queryResults}
+        filterOption={() => true}
         onChange={handleDocInputChange(dispatch)}
         onSelect={handleDocInputSelect(dispatch)}
         placeholder="Enter a term to search for in the documentation"

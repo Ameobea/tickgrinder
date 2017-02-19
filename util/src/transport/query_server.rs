@@ -35,7 +35,7 @@ fn execute_query(query: &str, client: &postgres::Connection) {
 // Creates a query processor that awaits requests
 fn init_query_processor(rx: UnboundedReceiver<(String, Sender<()>)>, query_queue: QueryQueue) {
     // get a connection to the postgres database
-    let client = get_client().expect("Couldn't create postgres connection.");
+    let client = get_client().expect("Couldn't create postgres connection."); // TODO: Logging for this
     // Handler for new queries from main thread
     // This blocks the worker thread until a new message is received
     // .wait() consumes the stream immediately, so the main thread has to wait
