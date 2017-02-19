@@ -3,43 +3,51 @@
 
 import React from 'react';
 import { connect } from 'dva';
-import { AutoComplete } from 'antd';
+import { AutoComplete, Input } from 'antd';
 
-/**
- * Returns a function that submits a query to the document store which will eventually update the state's `queryResults`
- * attribute when it completes.
- */
-const handleDocInputChange = dispatch => {
-  return (value) => {
-    dispatch({type: 'platform_communication/sendDocQuery', query: value});
-  };
-};
+const returnTrue = () => true;
 
-/**
- * Returns a function that, given the doc page selected by the user, brings that doc up in the main view.
- */
-const handleDocInputSelect = dispatch => {
-  return (selected) => {
-    // TODO
-  };
-};
+class DocSearcher extends React.Component {
+  componentWillMount() {
+    // register outself as a recipient of query results and re-draw ourself when they're received
+    this.props.dispatch({type: 'platform_communication/registerDocQueryReceiver', cb: (results) => {
+      // simulate a click on the input box to force the component to update
+      document.getElementById('autocompleteInput').click();
+    }});
+  }
 
-const DocSearcher = ({dispatch, queryResults}) => {
-  console.log(queryResults);
-  return (
-    <div>
-      <h2>{'Search Documentation'}</h2>
-      <AutoComplete
-        dataSource={queryResults}
-        filterOption={() => true}
-        onChange={handleDocInputChange(dispatch)}
-        onSelect={handleDocInputSelect(dispatch)}
-        placeholder="Enter a term to search for in the documentation"
-        style={{ width: 200 }}
-      />
-    </div>
-  );
-};
+  handleDocInputSelect(dispatch) {
+    return (value, option) => {
+      console.log(value);
+      console.log(option);
+      // TODO
+    };
+  }
+
+  handleDocInputChange(dispatch) {
+    return (value, label) => {
+      dispatch({type: 'platform_communication/sendDocQuery', query: value});
+    };
+  }
+
+  render() {
+    return (
+      <div>
+        <h2>{'Search Documentation'}</h2>
+        <AutoComplete
+          dataSource={this.props.queryResults}
+          filterOption={returnTrue}
+          onChange={this.handleDocInputChange(this.props.dispatch)}
+          onSelect={this.handleDocInputSelect(this.props.dispatch)}
+          placeholder="Enter a term to search for in the documentation"
+          style={{ width: 200 }}
+        >
+          <Input id="autocompleteInput" />
+        </AutoComplete>
+      </div>
+    );
+  }
+}
 
 DocSearcher.propTypes = {
   dispatch: React.PropTypes.func.isRequired,
