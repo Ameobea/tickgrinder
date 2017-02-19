@@ -32,7 +32,8 @@ export default {
     socket: undefined,
     uuid: v4(),
     interestList: [], // list of UUIDs of responses we're interested in and callbacks to run for when they're received
-    queryResults: [] // list of all document titles returned in response to a query
+    queryResults: [], // list of all document titles returned in response to a query
+    docQueryCbs: [], // list of functions that are called with the list of matched titles every time a query response is received
   },
 
   reducers: {
@@ -131,10 +132,25 @@ export default {
       };
     },
 
+    /**
+     * Registers a callback to be executed every time a new `DocQueryResponse` is received.
+     */
+    registerDocQueryReceiver (state, {cb}) {
+      return {...state,
+        docQueryCbs: [...state.docQueryCbs, cb]
+      };
+    },
+
     docQueryResponseReceived (state, {msg}) {
       let matchedDocs;
       if(msg.res.DocumentQueryResult) {
-        matchedDocs = JSON.parse(msg.DocumeQueryResult.results);
+        matchedDocs = msg.res.DocumentQueryResult.results.map(o => JSON.parse(o).title[0]);
+
+        // execute all registered callbacks
+        for(var i=0; i<state.docQueryCbs.length; i++) {
+          state.docQueryCbs[i](matchedDocs);
+        }
+
         return {...state,
           queryResults: matchedDocs,
         };
@@ -199,7 +215,7 @@ export default {
       let cmd = {QueryDocumentStore: {query: query}};
       yield put({
         type: 'sendCommandToInstance',
-        cb_action: 'queryResultReceived',
+        cb_action: 'docQueryResponseReceived',
         cmd: cmd,
         instance_name: 'Spawner',
       });
@@ -224,7 +240,7 @@ export default {
      */
     *sendCommandToInstance ({cmd, cb_action, instance_name}, {call, put}) {
       let living_instances = yield select(gstate => gstate.instances.living_instances);
-      let instanceUuid = getInstance(instance_name, living_instances).uuid;
+      let instanceUuid = getInstance(instance_name, living_instances)[0].uuid;
 
       // actually send the command to the instance
       yield put({type: 'sendCommand', channel: instanceUuid, cb_action: cb_action, cmd: cmd});
