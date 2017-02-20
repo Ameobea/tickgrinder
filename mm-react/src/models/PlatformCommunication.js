@@ -161,7 +161,7 @@ export default {
       }
 
       return {...state};
-    }
+    },
   },
 
   effects: {
@@ -216,6 +216,21 @@ export default {
       yield put({
         type: 'sendCommandToInstance',
         cb_action: 'docQueryResponseReceived',
+        cmd: cmd,
+        instance_name: 'Spawner',
+      });
+    },
+
+    /**
+     * Given the content of a CKEditor document, saves it in the document store
+     */
+    *saveDocument ({title, tags, body}, {call, put}) {
+      let d = new Date();
+      let doc = {title: title, tags: tags, body: body, creation_date: d.getTime() + "", modification_date: d.getTime() + ""};
+      let cmd = {InsertIntoDocumentStore: {doc: JSON.stringify(doc)}};
+      yield put({
+        type: 'sendCommandToInstance',
+        cb_action: 'documentStoreResponseReceived',
         cmd: cmd,
         instance_name: 'Spawner',
       });

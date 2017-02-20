@@ -5,13 +5,14 @@ import { Row, Col } from 'antd';
 
 import ContentContainer from '../components/ContentContainer';
 import DocSearcher from '../components/DocSearcher';
+import DocCreator  from '../components/DocCreator';
 
 function Documentation() {
   return (
     <div>
       <Row>
         <Col span={12}>
-          {/* TODO: Note system for writing journals (with markdown editor), saving + indexing them, tagging, etc.*/}
+          <DocCreator />
         </Col>
         <Col span={12}>
           <DocSearcher />

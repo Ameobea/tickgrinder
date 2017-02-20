@@ -17,7 +17,7 @@ use Uuid;
 use serde_json::from_str;
 
 use tickgrinder_util::transport::command_server::CommandServer;
-use tickgrinder_util::transport::commands::Response;
+use tickgrinder_util::transport::commands::{Response, SrcDocument};
 use tickgrinder_util::conf::CONF;
 
 /// Contains senders and receivers for interacting with the document store
@@ -29,16 +29,6 @@ pub struct StoreHandle {
     /// The `Sender` used to add new documents to the index.  Contains the document as a `String` and a `Complete`
     /// to be fulfilled when the insertion has finished.
     pub insertion_tx: Option<Sender<(String, Complete<Response>)>>,
-}
-
-/// A document that can be stored in the database.
-#[derive(Serialize, Deserialize)]
-struct SrcDocument {
-    title: String,
-    body: String,
-    tags: Vec<String>,
-    creation_date: String,
-    modification_date: String,
 }
 
 /// Contains all of the `Field` objects for the different fields of the `Schema`
