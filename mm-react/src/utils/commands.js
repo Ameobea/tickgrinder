@@ -99,37 +99,37 @@ function *dummyDispatch (put) {
 /**
  * defines the shape of a `WrappedCommand` for use in `PropTypes` declarations
  */
-const WrappedCommand = React.PropTypes.shape({
+const WrappedCommand = {
   uuid: React.PropTypes.string.isRequired,
   cmd: React.PropTypes.any.isRequired,
-});
+};
 
 /**
  * defines the shape of a `WrappedResponse` for use in `PropTypes` declarations
  */
-const WrappedResponse = React.PropTypes.shape({
+const WrappedResponse ={
   uuid: React.PropTypes.string.isRequired,
   cmd: React.PropTypes.any.isRequired,
-});
+};
 
 /**
  * defines the shape of an `Instance` for use in `PropTypes` declarations
  */
-const InstanceShape = React.PropTypes.shape({
+const InstanceShape = {
   uuid: React.PropTypes.string.isRequired,
   instance_type: React.PropTypes.string.isRequired,
-});
+};
 
 /**
  * defines the shape of a `Document` for use in `PropTypes` declarations
  */
-const DocumentShape = React.PropTypes.shape({
+const DocumentShape = {
   title: React.PropTypes.string.isRequired,
   body: React.PropTypes.string.isRequired,
   tags: React.PropTypes.arrayOf(React.PropTypes.string),
   creation_date: React.PropTypes.string.isRequired,
   modification_date: React.PropTypes.string.isRequired,
-});
+};
 
 export default {
   initWs: initWs,

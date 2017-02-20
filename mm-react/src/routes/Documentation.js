@@ -4,20 +4,22 @@ import React from 'react';
 import { Row, Col } from 'antd';
 
 import ContentContainer from '../components/ContentContainer';
-import DocSearcher from '../components/DocSearcher';
-import DocCreator  from '../components/DocCreator';
+import DocSearcher from '../components/docs/DocSearcher';
+import DocCreator  from '../components/docs/DocCreator';
+import DocViewer   from '../components/docs/DocViewer';
 
 function Documentation() {
   return (
     <div>
       <Row>
-        <Col span={12}>
+        <Col span={18}>
           <DocCreator />
         </Col>
-        <Col span={12}>
+        <Col span={6}>
           <DocSearcher />
         </Col>
       </Row>
+      <DocViewer />
     </div>
   );
 }

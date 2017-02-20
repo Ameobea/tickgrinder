@@ -6,7 +6,7 @@ import { connect } from 'dva';
 import { Input, Button } from 'antd';
 
 import CKEditor from './Ckeditor';
-import gstyles from '../static/css/globalStyle.css';
+import gstyles from '../../static/css/globalStyle.css';
 
 /**
  * Returns a function that gets the HTML content from the inner CKEditor instance and saves it to the document store
@@ -15,7 +15,7 @@ const saveDocument = (dispatch, rand) => {
   return () => {
     let content = CKEDITOR.instances['ckeditor-' + rand].getData();
     dispatch({
-      type: 'platform_communication/saveDocument',
+      type: 'documents/saveDocument',
       title: document.getElementById('ck-title-' + rand).value,
       tags: document.getElementById('ck-tags-' + rand).value.split(" "),
       body: content,

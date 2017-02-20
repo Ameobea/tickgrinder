@@ -8,27 +8,43 @@ use std::io::{Read, ErrorKind};
 
 use futures::{Stream, Complete};
 use futures::stream::MergedItem;
-use futures::sync::mpsc::{channel, Sender, Receiver};
-use tantivy::schema::{Schema, SchemaBuilder, Field, TEXT, STORED, STRING};
+use futures::sync::mpsc::{channel, unbounded, Sender, Receiver, UnboundedSender, UnboundedReceiver};
+use tantivy::schema::{Schema, SchemaBuilder, Field, Value, TEXT, STORED, STRING};
 use tantivy::collector::TopCollector;
-use tantivy::query::QueryParser;
+use tantivy::query::{Query, QueryParser};
 use tantivy::{Index, IndexWriter, Document};
 use Uuid;
-use serde_json::from_str;
+use serde_json::{to_string, from_str};
 
 use tickgrinder_util::transport::command_server::CommandServer;
 use tickgrinder_util::transport::commands::{Response, SrcDocument};
 use tickgrinder_util::conf::CONF;
+
+/// The type of query to run on the database.
+#[derive(Copy, Clone)]
+pub enum QueryType {
+    BasicMatch, // returns documents that contain a single word
+    TitleMatch, // returns documents that match the title only
+}
 
 /// Contains senders and receivers for interacting with the document store
 #[derive(Clone)]
 pub struct StoreHandle {
     /// The `Sender` used to submit work to the search engine.  Contains the query as a `String and a `Complete`
     /// to be fulfilled when the query has finished
-    pub query_tx: Option<Sender<(String, Complete<Response>)>>,
+    pub query_tx: UnboundedSender<(String, QueryType, Complete<Response>)>,
     /// The `Sender` used to add new documents to the index.  Contains the document as a `String` and a `Complete`
     /// to be fulfilled when the insertion has finished.
     pub insertion_tx: Option<Sender<(String, Complete<Response>)>>,
+}
+
+impl StoreHandle {
+    /// Attempts to return the document with the specified title from the store.
+    pub fn get_doc_by_title(&mut self, title: String, c: Complete<Response>) {
+        let query_type = QueryType::TitleMatch;
+        let query_tx = &self.query_tx;
+        query_tx.send((title, query_type, c)).unwrap();
+    }
 }
 
 /// Contains all of the `Field` objects for the different fields of the `Schema`
@@ -44,6 +60,8 @@ struct StoreFields {
 fn debug_err<T: Debug>(x: T) -> String {
     format!("{:?}", x)
 }
+
+// TODO: Prevent creation of documents with duplicate titles
 
 /// Called to initialize the document store.  If the directory for document storage does not already exist, is is created
 /// and if it does exist, it is indexed.
@@ -101,14 +119,14 @@ pub fn init_store_handle() -> Result<StoreHandle, String> {
     };
 
     // create channels to communicate with the server
-    let (query_tx, query_rx) = channel(3);
+    let (query_tx, query_rx) = unbounded();
     let (insertion_tx, insertion_rx) = channel(3);
 
     // start the server on another thread and start it listening for queries and insertion requests on the input channels
     init_server_thread(query_rx, insertion_rx, index, cs, is_new);
 
     Ok(StoreHandle {
-        query_tx: Some(query_tx),
+        query_tx: query_tx,
         insertion_tx: Some(insertion_tx),
     })
 }
@@ -116,7 +134,7 @@ pub fn init_store_handle() -> Result<StoreHandle, String> {
 /// Initializes main event loop that the server listens on.  Takes in queries via the provided `Receiver`s and returns responses
 /// through the returned `Receiver`.
 fn init_server_thread (
-        query_rx: Receiver<(String, Complete<Response>)>, insertion_rx: Receiver<(String, Complete<Response>)>, index: Index,
+        query_rx: UnboundedReceiver<(String, QueryType, Complete<Response>)>, insertion_rx: Receiver<(String, Complete<Response>)>, index: Index,
         mut cs: CommandServer, is_new: bool
     ) {
     // merge the query and inserion streams so that they can be processed together in the event loop
@@ -134,15 +152,31 @@ fn init_server_thread (
 
         for msg in merged_rx.wait() {
             match msg.expect("Msg was err in store event loop") {
-                MergedItem::First((query, complete)) => {
+                MergedItem::First((query, query_type, complete)) => {
                     // execute the query and send the results through the `res_tx`
-                    let query_result = query_document(&query, &index, &schema, 50);
+                    let query_result = query_document(&query, query_type, &index, &schema, 50);
                     match query_result {
                         Ok(res_vec) => {
                             // send response to client by completing the oneshot
-                            complete.complete(Response::DocumentQueryResult{
-                                results: res_vec,
-                            });
+                            match query_type {
+                                QueryType::TitleMatch => {
+                                    let res = if res_vec.len() > 0 {
+                                        Response::Document{
+                                            doc: from_str(&res_vec[0]).expect("Unable to parse stored document into `SrcDocument`"),
+                                        }
+                                    } else {
+                                        Response::Error{
+                                            status: format!("No documents matched the title {}", query),
+                                        }
+                                    };
+                                    complete.complete(res);
+                                },
+                                _ => {
+                                    complete.complete(Response::DocumentQueryResult{
+                                        results: res_vec,
+                                    });
+                                }
+                            }
                         },
                         Err(err) => {
                             let errmsg = format!("Got error while executing query: {}", err);
@@ -164,9 +198,9 @@ fn init_server_thread (
                         },
                     }
                 },
-                MergedItem::Both((query, q_complete), (doc_string, i_complete)) => {
+                MergedItem::Both((query, query_type, q_complete), (doc_string, i_complete)) => {
                     // both execute the query and insert a document into the store
-                    let query_result = query_document(&query, &index, &schema, 50);
+                    let query_result = query_document(&query, query_type, &index, &schema, 50);
                     match query_result {
                         Ok(res_vec) => {
                             // send response to client by completing the oneshot
@@ -317,23 +351,50 @@ fn insert_document(doc_str: &str, mut index_writer: &mut IndexWriter) -> Result<
 
 /// Executes a query against the store, returning all matched documents.
 fn query_document(
-    raw_query: &str, index: &Index, schema: &Schema, n_results: usize
+    raw_query: &str, query_type: QueryType, index: &Index, schema: &Schema, n_results: usize
 ) -> Result<Vec<String>, String> {
-    let StoreFields {title, body, tags: _, creation_date: _, modification_date: _} = get_fields(&schema);
+    let StoreFields {title, body, tags, creation_date, modification_date} = get_fields(&schema);
     let searcher = index.searcher();
-    let query_parser = QueryParser::new(index.schema(), vec!(title, body));
 
     // convert the string-based query into a `Query` object and run the query
-    let query = try!(query_parser.parse_query(raw_query).map_err(debug_err));
+    let query: Box<Query> = match query_type {
+        QueryType::BasicMatch => {
+            let mut query_parser = QueryParser::new(index.schema(), vec!(title, body, tags));
+            query_parser.set_conjunction_by_default();
+            try!(query_parser.parse_query(raw_query.trim()).map_err(debug_err))
+        },
+        QueryType::TitleMatch => {
+            let mut query_parser = QueryParser::new(index.schema(), vec!(title));
+            query_parser.set_conjunction_by_default();
+            try!(query_parser.parse_query(raw_query.trim()).map_err(debug_err))
+        },
+    };
     let mut top_collector = TopCollector::with_limit(n_results);
     try!(query.search(&searcher, &mut top_collector).map_err(debug_err));
 
     // collect the matched documents and return them as JSON
     let doc_addresses = top_collector.docs();
     let mut results = Vec::new();
+
+    let val_to_string = |v: &Value| -> String {
+        match v {
+            &Value::Str(ref s) => s.clone(), // not the most efficient but it's the easiest and this isn't very hot code
+            _ => panic!("Got a u32 value but expected a String"),
+        }
+    };
+
     for doc_address in doc_addresses {
         let retrieved_doc = try!(searcher.doc(&doc_address).map_err(debug_err));
-        results.push(schema.to_json(&retrieved_doc));
+        // convert into a SrcDocument
+        let src_doc = SrcDocument {
+            title: val_to_string(retrieved_doc.get_first(title).unwrap()),
+            body: val_to_string(retrieved_doc.get_first(body).unwrap()),
+            tags: val_to_string(retrieved_doc.get_first(tags).unwrap()).split_whitespace().map(|s| String::from(s)).collect(),
+            creation_date: val_to_string(retrieved_doc.get_first(creation_date).unwrap()),
+            modification_date: val_to_string(retrieved_doc.get_first(modification_date).unwrap()),
+        };
+        // convert that SrcDocument into JSON and push it into the results
+        results.push(to_string(&src_doc).expect("Unable to convert our own `SrcDocument` to `String`"));
     }
 
     Ok(results)
@@ -343,10 +404,10 @@ fn query_document(
 fn get_schema() -> Schema {
     let mut schema_builder = SchemaBuilder::default();
     schema_builder.add_text_field("title", TEXT | STORED);
-    schema_builder.add_text_field("body", TEXT);
-    schema_builder.add_text_field("tags", TEXT);
-    schema_builder.add_text_field("create-date", STRING);
-    schema_builder.add_text_field("modify-date", STRING);
+    schema_builder.add_text_field("body", TEXT | STORED);
+    schema_builder.add_text_field("tags", TEXT | STORED);
+    schema_builder.add_text_field("create-date", STRING | STORED);
+    schema_builder.add_text_field("modify-date", STRING | STORED);
 
     schema_builder.build()
 }
