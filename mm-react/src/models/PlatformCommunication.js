@@ -2,7 +2,6 @@
 
 import { delay } from 'redux-saga';
 import { select } from 'redux-saga/effects';
-import { message } from 'antd';
 
 const CONF = require('../conf');
 import { initWs, getResponse, getInstance, v4, dummyDispatch } from '../utils/commands';
@@ -32,8 +31,6 @@ export default {
     socket: undefined,
     uuid: v4(),
     interestList: [], // list of UUIDs of responses we're interested in and callbacks to run for when they're received
-    queryResults: [], // list of all document titles returned in response to a query
-    docQueryCbs: [], // list of functions that are called with the list of matched titles every time a query response is received
   },
 
   reducers: {
@@ -131,37 +128,6 @@ export default {
         postgresCbs: [...state.postgresCbs, {query: query, cb: cb}]
       };
     },
-
-    /**
-     * Registers a callback to be executed every time a new `DocQueryResponse` is received.
-     */
-    registerDocQueryReceiver (state, {cb}) {
-      return {...state,
-        docQueryCbs: [...state.docQueryCbs, cb]
-      };
-    },
-
-    docQueryResponseReceived (state, {msg}) {
-      let matchedDocs;
-      if(msg.res.DocumentQueryResult) {
-        matchedDocs = msg.res.DocumentQueryResult.results.map(o => JSON.parse(o).title[0]);
-
-        // execute all registered callbacks
-        for(var i=0; i<state.docQueryCbs.length; i++) {
-          state.docQueryCbs[i](matchedDocs);
-        }
-
-        return {...state,
-          queryResults: matchedDocs,
-        };
-      } else if(msg.res.Error) {
-        message.error('Error while processing query: ' + msg.res.Error.status);
-      } else {
-        message.error('Unknown error occured while processing query: ' + JSON.stringify(msg));
-      }
-
-      return {...state};
-    },
   },
 
   effects: {
@@ -205,35 +171,6 @@ export default {
           yield put({type: matched[i].cb_action, msg: msg});
         }
       }
-    },
-
-    /**
-     * Sends a document query to the Tantivy-backed document store.  Registers interest in responses with the UUID
-     * of the sent query and handles the responses by updating the `queryResults` state.
-     */
-    *sendDocQuery ({query}, {call, put}) {
-      let cmd = {QueryDocumentStore: {query: query}};
-      yield put({
-        type: 'sendCommandToInstance',
-        cb_action: 'docQueryResponseReceived',
-        cmd: cmd,
-        instance_name: 'Spawner',
-      });
-    },
-
-    /**
-     * Given the content of a CKEditor document, saves it in the document store
-     */
-    *saveDocument ({title, tags, body}, {call, put}) {
-      let d = new Date();
-      let doc = {title: title, tags: tags, body: body, creation_date: d.getTime() + "", modification_date: d.getTime() + ""};
-      let cmd = {InsertIntoDocumentStore: {doc: JSON.stringify(doc)}};
-      yield put({
-        type: 'sendCommandToInstance',
-        cb_action: 'documentStoreResponseReceived',
-        cmd: cmd,
-        instance_name: 'Spawner',
-      });
     },
 
     /*

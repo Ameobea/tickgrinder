@@ -10,6 +10,8 @@ let PlatformCommunication = require('./models/PlatformCommunication');
 let Logging = require('./models/Logging');
 let InstanceManagement = require('./models/InstanceManagement');
 let Macros = require('./models/macros');
+let Documents = require('./models/Documents');
+// if I remove this line the compilation fails, so here it remains
 
 // 1. Initialize
 const app = dva();
@@ -18,16 +20,15 @@ const app = dva();
 // app.use({});
 
 // 3. Model
-// app.model(require('./models/example'));
 app.model(GlobalState);
 app.model(PlatformCommunication);
 app.model(Logging);
 app.model(InstanceManagement);
 app.model(Macros);
+app.model(Documents);
 
 // 4. Router
 app.router(require('./router'));
-// app.router(() => <App />)
 
 // 5. Start
 const App = app.start();

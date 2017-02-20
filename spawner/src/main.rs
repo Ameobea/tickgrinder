@@ -252,13 +252,15 @@ impl InstanceManager {
                         dup.handle_command(wr_cmd.cmd, c);
 
                         let uuid = wr_cmd.uuid;
-                        let _ = o.and_then(|status: Response| {
-                            redis::cmd("PUBLISH")
-                                .arg(CONF.redis_responses_channel)
-                                .arg(status.wrap(uuid).to_string().unwrap().as_str())
-                                .execute(&redis_client);
-                            Ok(())
-                        }).wait();
+                        let status_res = o.wait();
+                        let status = match status_res {
+                            Ok(status) => status,
+                            Err(_) => { return Ok(());}
+                        };
+                        redis::cmd("PUBLISH")
+                            .arg(CONF.redis_responses_channel)
+                            .arg(status.wrap(uuid).to_string().unwrap().as_str())
+                            .execute(&redis_client);
                     },
                     Err(_) => {
                         let errmsg = format!("Couldn't parse WrappedCommand from: {:?}", cmd_string);
@@ -305,14 +307,21 @@ impl InstanceManager {
                 return;
             },
             Command::QueryDocumentStore{query} => {
-                let tx = mem::replace(&mut self.store_handle.query_tx, None).unwrap();
-                let new_tx = tx.send((query, c)).wait().unwrap();
-                let _ = mem::replace(&mut self.store_handle.query_tx, Some(new_tx));
+                let query_type = match query.split_whitespace().collect::<Vec<&str>>().len() {
+                    0 => { return; },
+                    _ => QueryType::BasicMatch,
+                };
+                let query_tx = &self.store_handle.query_tx;
+                query_tx.send((query, query_type, c)).unwrap();
                 return;
             },
+            Command::GetDocument{title} => {
+                self.store_handle.get_doc_by_title(title, c);
+                return;
+            }
             Command::SpawnFxcmDataDownloader => self.spawn_fxcm_dd(),
             _ => Response::Error{
-                status: "Command not accepted by the instance spawner".to_string()
+                status: format!("Command not accepted by the instance spawner: {:?}", cmd),
             },
         };
 

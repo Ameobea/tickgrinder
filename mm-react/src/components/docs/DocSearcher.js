@@ -10,7 +10,7 @@ const returnTrue = () => true;
 class DocSearcher extends React.Component {
   componentWillMount() {
     // register outself as a recipient of query results and re-draw ourself when they're received
-    this.props.dispatch({type: 'platform_communication/registerDocQueryReceiver', cb: (results) => {
+    this.props.dispatch({type: 'documents/registerDocQueryReceiver', cb: (results) => {
       // simulate a click on the input box to force the component to update
       document.getElementById('autocompleteInput').click();
     }});
@@ -18,15 +18,13 @@ class DocSearcher extends React.Component {
 
   handleDocInputSelect(dispatch) {
     return (value, option) => {
-      console.log(value);
-      console.log(option);
-      // TODO
+      dispatch({type: 'documents/requestDocument', title: value});
     };
   }
 
   handleDocInputChange(dispatch) {
     return (value, label) => {
-      dispatch({type: 'platform_communication/sendDocQuery', query: value});
+      dispatch({type: 'documents/sendDocQuery', query: value});
     };
   }
 
@@ -56,7 +54,7 @@ DocSearcher.propTypes = {
 
 function mapProps(state) {
   return {
-    queryResults: state.platform_communication.queryResults,
+    queryResults: state.documents.queryResults,
   };
 }
 

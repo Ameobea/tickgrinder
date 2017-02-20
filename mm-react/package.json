@@ -16,6 +16,7 @@
     "dva": "^1.2.1",
     "dva-loading": "^0.2.0",
     "eslint-plugin-promise": "^3.4.1",
+    "html-to-react": "^1.2.4",
     "react": "^15.4.0",
     "react-dom": "^15.4.0"
   },
