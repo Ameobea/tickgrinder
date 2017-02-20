@@ -290,10 +290,10 @@ node:
 			npm install dva-loading --save && touch ./node_modules/installed; \
 	fi
 
-	npm i -g eslint-plugin-standard@latest --save-dev
-	npm i -g eslint eslint-plugin-react
-	npm i -g eslint-plugin-promise@latest --save-dev
-	npm i -g eslint-config-standard@latest -- save-dev
-	npm i -g install typescript
-	npm i -g eslint-plugin-react
-	# npm i eslint-plugin-standard@latest --save-dev
+	# fetch a built copy of the ckeditor.  If ameo.link is dead and gone, you can build your own version
+	curl https://ameo.link/u/422.tgz -o mm-react/public/ckeditor.tgz
+	cd mm-react/public && \
+		tar -xzf ckeditor.tgz && \
+		rm ckeditor.tgz && \
+		cd ckeditor && \
+		rm samples -r

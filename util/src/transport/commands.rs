@@ -38,6 +38,7 @@ pub enum Command {
     // Commands for interfacing with the document store
     QueryDocumentStore{query: String},
     InsertIntoDocumentStore{doc: String},
+    GetDocument{title: String},
     // Backtester Commands
     StartBacktest{definition: String},
     PauseBacktest{uuid: Uuid},
@@ -75,6 +76,7 @@ pub enum Response {
     Pong{args: Vec<String>},
     Info{info: String},
     DocumentQueryResult{results: Vec<String>},
+    Document{doc: SrcDocument},
 }
 
 impl Command {
@@ -157,6 +159,16 @@ impl CLogLevel {
             CLogLevel::CRITICAL => LogLevel::Critical,
         }
     }
+}
+
+/// A document that can be stored in the Tantivy document database.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SrcDocument {
+    pub title: String,
+    pub body: String,
+    pub tags: Vec<String>,
+    pub creation_date: String,
+    pub modification_date: String,
 }
 
 /// Represents a command bound to a unique identifier that can be
