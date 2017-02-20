@@ -5,6 +5,7 @@ import { connect } from 'dva';
 var HtmlToReactParser = require('html-to-react').Parser;
 
 import { DocumentShape } from '../../utils/commands';
+import gstyles from '../../static/css/globalStyle.css';
 
 const DocViewer = ({dispatch, selectedDoc}) => {
   let {title, body, tags} = selectedDoc;
@@ -12,7 +13,8 @@ const DocViewer = ({dispatch, selectedDoc}) => {
   const RenderedBody = htmlToReactParser.parse('<div>' + body + '</div>');
 
   return (
-    <div className='docViewer'>
+    <div className='docViewer' className={gstyles.leftText}>
+      <br />
       <h3>{title}</h3>
       {RenderedBody}
     </div>

@@ -61,8 +61,6 @@ fn debug_err<T: Debug>(x: T) -> String {
     format!("{:?}", x)
 }
 
-// TODO: Prevent creation of documents with duplicate titles
-
 /// Called to initialize the document store.  If the directory for document storage does not already exist, is is created
 /// and if it does exist, it is indexed.
 pub fn init_store_handle() -> Result<StoreHandle, String> {
@@ -154,77 +152,16 @@ fn init_server_thread (
             match msg.expect("Msg was err in store event loop") {
                 MergedItem::First((query, query_type, complete)) => {
                     // execute the query and send the results through the `res_tx`
-                    let query_result = query_document(&query, query_type, &index, &schema, 50);
-                    match query_result {
-                        Ok(res_vec) => {
-                            // send response to client by completing the oneshot
-                            match query_type {
-                                QueryType::TitleMatch => {
-                                    let res = if res_vec.len() > 0 {
-                                        Response::Document{
-                                            doc: from_str(&res_vec[0]).expect("Unable to parse stored document into `SrcDocument`"),
-                                        }
-                                    } else {
-                                        Response::Error{
-                                            status: format!("No documents matched the title {}", query),
-                                        }
-                                    };
-                                    complete.complete(res);
-                                },
-                                _ => {
-                                    complete.complete(Response::DocumentQueryResult{
-                                        results: res_vec,
-                                    });
-                                }
-                            }
-                        },
-                        Err(err) => {
-                            let errmsg = format!("Got error while executing query: {}", err);
-                            cs.error(None, &errmsg);
-                            complete.complete(Response::Error{status: errmsg});
-                        },
-                    }
+                    do_exec_query(query, query_type, complete, &index, &schema, &mut cs);
                 },
                 MergedItem::Second((doc_string, complete)) => {
                     // insert the document into the store
-                    match insert_document(&doc_string, &mut index_writer) {
-                        Ok(_) => {
-                            // let the client know the document was successfully inserted
-                            complete.complete(Response::Ok);
-                        },
-                        Err(err) => {
-                            cs.error(Some("Tantivy Document Store"), &format!("Error while inserting document into store: {}", err));
-                            complete.complete(Response::Error{status: format!("Unable to insert document into the store: {}", err)})
-                        },
-                    }
+                    do_insert_doc(doc_string, complete, &mut index_writer, &mut cs)
                 },
                 MergedItem::Both((query, query_type, q_complete), (doc_string, i_complete)) => {
                     // both execute the query and insert a document into the store
-                    let query_result = query_document(&query, query_type, &index, &schema, 50);
-                    match query_result {
-                        Ok(res_vec) => {
-                            // send response to client by completing the oneshot
-                            q_complete.complete(Response::DocumentQueryResult{
-                                results: res_vec,
-                            });
-                        },
-                        Err(err) => {
-                            let errmsg = format!("Got error while executing query: {}", err);
-                            cs.error(None, &errmsg);
-                            q_complete.complete(Response::Error{status: errmsg});
-                        },
-                    }
-
-                    match insert_document(&doc_string, &mut index_writer) {
-                        Ok(_) => {
-                            // let the client know the document was successfully inserted
-                            i_complete.complete(Response::Ok);
-                        },
-                        Err(err) => {
-                            cs.error(None, &format!("Error while inserting document into store: {}", err));
-                            i_complete.complete(Response::Error{status: format!("Unable to insert document into the store: {}", err)})
-                        },
-                    }
+                    do_exec_query(query, query_type, q_complete, &index, &schema, &mut cs);
+                    do_insert_doc(doc_string, i_complete, &mut index_writer, &mut cs);
                 },
             }
         }
@@ -232,6 +169,59 @@ fn init_server_thread (
         let hmm: Result<(), ()> = Ok(());
         return hmm
     });
+}
+
+/// Inserts the document into the store and fulfills the oneshot once it's finished.
+#[inline(always)]
+fn do_insert_doc(doc_string: String, complete: Complete<Response>, index_writer: &mut IndexWriter, cs: &mut CommandServer) {
+    match insert_document(&doc_string, index_writer) {
+        Ok(_) => {
+            // let the client know the document was successfully inserted
+            complete.complete(Response::Ok);
+        },
+        Err(err) => {
+            cs.error(Some("Tantivy Document Store"), &format!("Error while inserting document into store: {}", err));
+            complete.complete(Response::Error{status: format!("Unable to insert document into the store: {}", err)})
+        },
+    }
+}
+
+/// Executes the query in the store and handles the result.  Depending on the `QueryType`, the response is either a list of
+/// matched titles in the case of a general query or the complete matched document if it was a title match.
+#[inline(always)]
+fn do_exec_query(
+    query: String, query_type: QueryType, complete: Complete<Response>, index: &Index, schema: &Schema, cs: &mut CommandServer
+) {
+    let query_result = query_document(&query, query_type, index, &schema, 50);
+    match query_result {
+        Ok(res_vec) => {
+            // send response to client by completing the oneshot
+            match query_type {
+                QueryType::TitleMatch => {
+                    let res = if res_vec.len() > 0 {
+                        Response::Document{
+                            doc: from_str(&res_vec[0]).expect("Unable to parse stored document into `SrcDocument`"),
+                        }
+                    } else {
+                        Response::Error{
+                            status: format!("No documents matched the title {}", query),
+                        }
+                    };
+                    complete.complete(res);
+                },
+                _ => {
+                    complete.complete(Response::DocumentQueryResult{
+                        results: res_vec,
+                    });
+                }
+            }
+        },
+        Err(err) => {
+            let errmsg = format!("Got error while executing query: {}", err);
+            cs.error(None, &errmsg);
+            complete.complete(Response::Error{status: errmsg});
+        },
+    }
 }
 
 fn get_fields(schema: &Schema) -> StoreFields {
@@ -421,3 +411,6 @@ fn export_documents(dst_dir: &Path) {
 fn import_documents(src_dir: &Path) {
     unimplemented!(); // TODO
 }
+
+// TODO: Allow backing up of the document store/restoring it
+// TODO: keep non-indexed copies of all documents somewhere outside of the store
