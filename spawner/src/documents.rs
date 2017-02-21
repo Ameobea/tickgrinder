@@ -1,10 +1,11 @@
 //! Interface to the flatfile document storage database.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::fs::{create_dir_all, remove_file, read_dir, File, DirEntry};
 use std::thread;
 use std::fmt::Debug;
 use std::io::{Read, ErrorKind};
+use std::io::prelude::*;
 
 use futures::{Stream, Complete};
 use futures::stream::MergedItem;
@@ -14,7 +15,7 @@ use tantivy::collector::TopCollector;
 use tantivy::query::{Query, QueryParser};
 use tantivy::{Index, IndexWriter, Document};
 use Uuid;
-use serde_json::{to_string, from_str};
+use serde_json::{to_string, to_string_pretty, from_str};
 
 use tickgrinder_util::transport::command_server::CommandServer;
 use tickgrinder_util::transport::commands::{Response, SrcDocument};
@@ -54,6 +55,7 @@ struct StoreFields {
     tags: Field,
     creation_date: Field,
     modification_date: Field,
+    id: Field,
 }
 
 /// Utility function used to map errors of generic type to Strings by debug-formatting them
@@ -70,16 +72,17 @@ pub fn init_store_handle() -> Result<StoreHandle, String> {
     data_dir.push("documents");
     data_dir.push("tantivy_index");
 
+    // set up the index if it doesn't already exist and if it does, load it
     let (is_new, index) = if !data_dir.is_dir() {
         // create the directory if it doesn't exist
-        cs.notice(Some("Tantivy Document Store"), &format!("Creating the document store directory at {:?}", data_dir));
+        cs.notice(None, &format!("Creating the document store directory at {:?}", data_dir));
         try!(create_dir_all(data_dir.clone()).map_err(debug_err));
         let schema = get_schema();
         (true, try!(Index::create(&data_dir, schema).map_err(debug_err)))
     } else {
         // delete the lock file if it exists from last time
         let mut lock_file_path = data_dir.clone();
-        cs.notice(Some("Tantivy Document Store"), &format!("Deleting old lock file at {:?}", lock_file_path));
+        cs.notice(None, &format!("Deleting old lock file at {:?}", lock_file_path));
         lock_file_path.push(".tantivy-indexer.lock");
         match remove_file(lock_file_path) {
             Ok(_) => (),
@@ -87,11 +90,11 @@ pub fn init_store_handle() -> Result<StoreHandle, String> {
                 match err.kind() {
                     ErrorKind::NotFound => {
                         // No file there so no issue we can't delete it
-                        cs.notice(Some("Tantivy Document Store"), "Not deleting lock file because it doesn't exist.");
+                        cs.notice(None, "Not deleting lock file because it doesn't exist.");
                     },
                     ErrorKind::PermissionDenied => {
                         cs.error(
-                            Some("Tantivy Document Store"),
+                            None,
                             &format!(
                                 "Permissions error while deleting lockfile from Tantivy store: {}; {}{}{}",
                                 err,
@@ -103,7 +106,7 @@ pub fn init_store_handle() -> Result<StoreHandle, String> {
                     },
                     _ => {
                         cs.error(
-                            Some("Tantivy Document Store"),
+                            None,
                             &format!("Unhandled error while deleting lockfile from Tantivy store: {}", err)
                         );
                     }
@@ -111,8 +114,16 @@ pub fn init_store_handle() -> Result<StoreHandle, String> {
             }
         }
 
+        // set up the flatfile storage directory if it doesn't exist
+        let mut flatfile_dir = PathBuf::from(CONF.data_dir);
+        flatfile_dir.push("documents");
+        flatfile_dir.push("user_documents");
+        if !flatfile_dir.is_dir() {
+            try!(create_dir_all(flatfile_dir).map_err(debug_err));
+        }
+
         // load the index from the directory
-        cs.notice(Some("Tantivy Document Store"), &format!("Loading the index stored at {:?}", data_dir));
+        cs.notice(None, &format!("Loading the index stored at {:?}", data_dir));
         (false, try!(Index::open(&data_dir).map_err(|err| format!("{:?}", err))))
     };
 
@@ -145,7 +156,7 @@ fn init_server_thread (
 
         if is_new {
             // load all the reference documents into the index if it's a new store
-            load_reference_docs(&mut cs, &mut index_writer);
+            load_static_docs(&mut cs, &mut index_writer);
         }
 
         for msg in merged_rx.wait() {
@@ -174,13 +185,13 @@ fn init_server_thread (
 /// Inserts the document into the store and fulfills the oneshot once it's finished.
 #[inline(always)]
 fn do_insert_doc(doc_string: String, complete: Complete<Response>, index_writer: &mut IndexWriter, cs: &mut CommandServer) {
-    match insert_document(&doc_string, index_writer) {
+    match insert_document(&doc_string, index_writer, cs, true) {
         Ok(_) => {
             // let the client know the document was successfully inserted
             complete.complete(Response::Ok);
         },
         Err(err) => {
-            cs.error(Some("Tantivy Document Store"), &format!("Error while inserting document into store: {}", err));
+            cs.error(None, &format!("Error while inserting document into store: {}", err));
             complete.complete(Response::Error{status: format!("Unable to insert document into the store: {}", err)})
         },
     }
@@ -230,30 +241,46 @@ fn get_fields(schema: &Schema) -> StoreFields {
         body: schema.get_field("body").unwrap(),
         tags: schema.get_field("tags").unwrap(),
         creation_date: schema.get_field("create-date").unwrap(),
-        modification_date: schema.get_field("modify-date").unwrap()
+        modification_date: schema.get_field("modify-date").unwrap(),
+        id: schema.get_field("id").unwrap()
     }
 }
 
-/// Loads all of the JSON-encoded reference documents in the `documents/reference' directory into Tantivy index.
-fn load_reference_docs(cs: &mut CommandServer, index_writer: &mut IndexWriter) {
+/// Loads all of the JSON-encoded reference and user-created documents in the `documents/reference' and 'documents/user_documents'
+/// directories into the Tantivy index.
+fn load_static_docs(cs: &mut CommandServer, index_writer: &mut IndexWriter) {
+    // iterator over the static documentation
     let mut reference_dir_path = PathBuf::from(CONF.data_dir);
     reference_dir_path.push("documents");
     reference_dir_path.push("reference");
-
-    let dir_iterator = match read_dir(reference_dir_path) {
+    let ref_iterator = match read_dir(reference_dir_path) {
         Ok(iter) => iter,
         Err(err) => {
             // if we can't load the reference for some reason, oh well too bad.
-            cs.error(Some("Tantivy Document Store"), &format!("Unable to create iterator over documentaton directory: {}", err));
+            cs.error(None, &format!("Unable to create iterator over documentaton directory: {}", err));
             return;
         }
     };
 
-    for doc_res in dir_iterator {
+    // iterator over the user-created documents
+    let mut user_dir_path = PathBuf::from(CONF.data_dir);
+    user_dir_path.push("documents");
+    user_dir_path.push("user_documents");
+    let user_iterator = match read_dir(user_dir_path) {
+        Ok(iter) => iter,
+        Err(err) => {
+            // if we can't load the reference for some reason, oh well too bad.
+            cs.error(None, &format!("Unable to create iterator over documentaton directory: {}", err));
+            return;
+        }
+    };
+
+    // iterate over all documents in both of the directories
+    for doc_res in ref_iterator.chain(user_iterator) {
         let doc = match doc_res {
             Ok(f) => f,
             Err(ref err) => {
-                cs.error(Some("Tantivy Document Store"), &format!("Got error reading file from documenation directory: {:?}", err));
+                cs.error(None, &format!("Got error reading file from documenation directory: {:?}", err));
                 continue;
             },
         };
@@ -269,16 +296,16 @@ fn load_reference_docs(cs: &mut CommandServer, index_writer: &mut IndexWriter) {
                     };
 
                     // insert the document into the index
-                    match insert_document(&doc_string, index_writer) {
+                    match insert_document(&doc_string, index_writer, cs, false) {
                         Ok(_) => {
                             cs.debug(
-                                Some("Tantivy Document Store"),
+                                None,
                                 &format!("Successfully inserted reference doc into store: {:?}", doc.path())
                             );
                         },
                         Err(err) => {
                             cs.error(
-                                Some("Tantivy Document Store"),
+                                None,
                                 &format!("Unable to insert reference doc into store: {:?}", err)
                             );
                         }
@@ -289,14 +316,14 @@ fn load_reference_docs(cs: &mut CommandServer, index_writer: &mut IndexWriter) {
         }
     }
 
-    cs.notice(Some("Tantivy Document Store"), "Finished loading all reference documents into index");
+    cs.notice(None, "Finished loading all reference documents into index");
 }
 
 /// Given a `DirEntry`, attempts to read it into a `String`
 fn load_doc_file(cs: &mut CommandServer, doc: &DirEntry) -> Result<String, ()> {
     let mut file = match File::open(&doc.path()) {
         Err(err) => {
-            cs.error(Some("Tantivy Document Store"), &format!("Error reading file {:?}: {}", &doc.path(), err));
+            cs.error(None, &format!("Error reading file {:?}: {}", &doc.path(), err));
             return Err(());
         },
         Ok(file) => file,
@@ -305,7 +332,7 @@ fn load_doc_file(cs: &mut CommandServer, doc: &DirEntry) -> Result<String, ()> {
     let mut doc_contents = String::new();
     match file.read_to_string(&mut doc_contents) {
         Err(err) => {
-            cs.error(Some("Tantivy Document Store"), &format!("Error reading file into string {:?}, {}", &doc.path(), err));
+            cs.error(None, &format!("Error reading file into string {:?}, {}", &doc.path(), err));
             return Err(());
         },
         Ok(_) => (),
@@ -315,15 +342,42 @@ fn load_doc_file(cs: &mut CommandServer, doc: &DirEntry) -> Result<String, ()> {
 }
 
 /// Inserts a document into the store and commits the changes to disk
-fn insert_document(doc_str: &str, mut index_writer: &mut IndexWriter) -> Result<u64, String> {
+fn insert_document(doc_str: &str, mut index_writer: &mut IndexWriter, cs: &mut CommandServer, is_new: bool) -> Result<u64, String> {
     let src_doc: SrcDocument = match from_str(doc_str) {
         Ok(doc) => doc,
         Err(err) => {
             return Err(format!("Unable to parse string into `SrcDocument`: {}, {}", doc_str, err))
         },
     };
+
+    // write the document to a JSON flatfile if it's newly created
+    if is_new {
+        let mut doc_path = PathBuf::from(CONF.data_dir);
+        doc_path.push("documents");
+        doc_path.push("user_documents");
+        doc_path.push(src_doc.id.hyphenated().to_string());
+        doc_path.set_extension("json");
+        match File::create(&doc_path) {
+            Err(err) => {
+                cs.error(None, &format!("Unable to create flatfile to store document: {:?}", err));
+            }
+            Ok(mut file) => {
+                // Encode the `SrcDocument` into pretty-printed JSON and write it all into the file
+                match to_string_pretty(&src_doc) {
+                    Ok(json) => {
+                        match file.write_all(json.as_bytes()) {
+                            Ok(_) => cs.notice(None, &format!("Successfully wrote document to JSON file: {:?}", doc_path)),
+                            Err(err) => cs.error(None, &format!("Unable to write document to JSON file: {:?}", err)),
+                        }
+                    },
+                    Err(err) => cs.error(None, &format!("Unable to convert `SrcDocument` into pretty-printed JSON: {:?}", err)),
+                };
+            },
+        }
+    }
+
     let schema = get_schema();
-    let StoreFields {title, body, tags, creation_date, modification_date} = get_fields(&schema);
+    let StoreFields {title, body, tags, creation_date, modification_date, id} = get_fields(&schema);
 
     let mut doc = Document::default();
     doc.add_text(title, &src_doc.title);
@@ -333,6 +387,7 @@ fn insert_document(doc_str: &str, mut index_writer: &mut IndexWriter) -> Result<
     doc.add_text(tags, &tags_string);
     doc.add_text(creation_date, &src_doc.creation_date);
     doc.add_text(modification_date, &src_doc.modification_date);
+    doc.add_text(id, &src_doc.id.hyphenated().to_string());
 
     // add the document to the store and commit the changes to disk
     try!(index_writer.add_document(doc).map_err(debug_err));
@@ -343,7 +398,7 @@ fn insert_document(doc_str: &str, mut index_writer: &mut IndexWriter) -> Result<
 fn query_document(
     raw_query: &str, query_type: QueryType, index: &Index, schema: &Schema, n_results: usize
 ) -> Result<Vec<String>, String> {
-    let StoreFields {title, body, tags, creation_date, modification_date} = get_fields(&schema);
+    let StoreFields {title, body, tags, creation_date, modification_date, id} = get_fields(&schema);
     let searcher = index.searcher();
 
     // convert the string-based query into a `Query` object and run the query
@@ -382,6 +437,7 @@ fn query_document(
             tags: val_to_string(retrieved_doc.get_first(tags).unwrap()).split_whitespace().map(|s| String::from(s)).collect(),
             creation_date: val_to_string(retrieved_doc.get_first(creation_date).unwrap()),
             modification_date: val_to_string(retrieved_doc.get_first(modification_date).unwrap()),
+            id: Uuid::parse_str(&val_to_string(retrieved_doc.get_first(id).unwrap())).expect("Unable to parse document id into UUID!"),
         };
         // convert that SrcDocument into JSON and push it into the results
         results.push(to_string(&src_doc).expect("Unable to convert our own `SrcDocument` to `String`"));
@@ -398,19 +454,7 @@ fn get_schema() -> Schema {
     schema_builder.add_text_field("tags", TEXT | STORED);
     schema_builder.add_text_field("create-date", STRING | STORED);
     schema_builder.add_text_field("modify-date", STRING | STORED);
+    schema_builder.add_text_field("id", STRING | STORED);
 
     schema_builder.build()
 }
-
-/// Exports all the indexed documents into JSON format.
-fn export_documents(dst_dir: &Path) {
-    unimplemented!(); // TODO
-}
-
-/// Imports all the JSON-encoded documents from the source directory and adds them to the store.
-fn import_documents(src_dir: &Path) {
-    unimplemented!(); // TODO
-}
-
-// TODO: Allow backing up of the document store/restoring it
-// TODO: keep non-indexed copies of all documents somewhere outside of the store

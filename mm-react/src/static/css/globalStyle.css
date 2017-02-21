@@ -25,3 +25,8 @@
 .leftText {
   text-align: left;
 }
+
+.inlineH1 {
+  display: inline;
+  padding-right: 15px;
+}

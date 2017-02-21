@@ -129,6 +129,7 @@ const DocumentShape = {
   tags: React.PropTypes.arrayOf(React.PropTypes.string),
   creation_date: React.PropTypes.string.isRequired,
   modification_date: React.PropTypes.string.isRequired,
+  id: React.PropTypes.string.isRequired,
 };
 
 export default {

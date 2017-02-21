@@ -2,6 +2,7 @@
 /* global CKEDITOR */
 
 import React from 'react';
+import { connect } from 'dva';
 
 /**
  * After the CKEditor plugin has loaded, initialize the editor
@@ -35,6 +36,9 @@ class CKEditor extends React.Component {
 
     // wait for the CKEditor script to load and then initialize the editor
     awaitCk(this.props.rand);
+
+    // register our id as the active editor instance
+    this.props.dispatch({type: 'documents/setEditorId', id: this.props.rand});
   }
 
   shouldComponentUpdate(...args) {
@@ -52,4 +56,4 @@ CKEditor.propTypes = {
   rand: React.PropTypes.number.isRequired,
 };
 
-export default CKEditor;
+export default connect()(CKEditor);

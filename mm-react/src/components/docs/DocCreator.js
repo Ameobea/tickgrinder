@@ -5,6 +5,7 @@ import React from 'react';
 import { connect } from 'dva';
 import { Input, Button } from 'antd';
 
+import { v4 } from '../../utils/commands';
 import CKEditor from './Ckeditor';
 import gstyles from '../../static/css/globalStyle.css';
 
@@ -19,6 +20,7 @@ const saveDocument = (dispatch, rand) => {
       title: document.getElementById('ck-title-' + rand).value,
       tags: document.getElementById('ck-tags-' + rand).value.split(" "),
       body: content,
+      id: v4(), // generate a random id for this document
     });
   };
 };

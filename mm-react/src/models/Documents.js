@@ -16,7 +16,9 @@ export default {
       tags: [],
       creation_date: '' + d.getTime(),
       modification_date: '' + d.getTime(),
+      id: "00000000-0000-0000-0000-000000000000",
     },
+    activeEditorId: 0, // the random numeric id of the active document CKEditor instance
   },
 
   reducers: {
@@ -26,6 +28,15 @@ export default {
     registerDocQueryReceiver (state, {cb}) {
       return {...state,
         docQueryCbs: [...state.docQueryCbs, cb]
+      };
+    },
+
+    /**
+     * Sets the ID of the active editor instance
+     */
+    setEditorId (state, {id}) {
+      return {...state,
+        activeEditorId: id,
       };
     },
 
@@ -106,9 +117,9 @@ export default {
     /**
      * Given the content of a CKEditor document, saves it in the document store
      */
-    *saveDocument ({title, tags, body}, {call, put}) {
+    *saveDocument ({title, tags, body, id}, {call, put}) {
       let d = new Date();
-      let doc = {title: title, tags: tags, body: body, creation_date: d.getTime() + '', modification_date: d.getTime() + ''};
+      let doc = {title: title, tags: tags, body: body, id: id, creation_date: d.getTime() + '', modification_date: d.getTime() + ''};
       let cmd = {InsertIntoDocumentStore: {doc: JSON.stringify(doc)}};
 
       yield put({

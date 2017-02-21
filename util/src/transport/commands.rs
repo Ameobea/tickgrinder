@@ -169,6 +169,7 @@ pub struct SrcDocument {
     pub tags: Vec<String>,
     pub creation_date: String,
     pub modification_date: String,
+    pub id: Uuid,
 }
 
 /// Represents a command bound to a unique identifier that can be
