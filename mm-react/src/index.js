@@ -5,13 +5,13 @@ import ReactDOM from 'react-dom';
 import { LocaleProvider } from 'antd';
 import enUS from 'antd/lib/locale-provider/en_US';
 
-let GlobalState = require('./models/GlobalState');
-let PlatformCommunication = require('./models/PlatformCommunication');
-let Logging = require('./models/Logging');
-let InstanceManagement = require('./models/InstanceManagement');
-let Macros = require('./models/macros');
-let Documents = require('./models/Documents');
-// if I remove this line the compilation fails, so here it remains
+const GlobalState = require('./models/GlobalState');
+const PlatformCommunication = require('./models/PlatformCommunication');
+const Logging = require('./models/Logging');
+const InstanceManagement = require('./models/InstanceManagement');
+const Macros = require('./models/macros');
+const Documents = require('./models/Documents');
+const Data = require('./models/Data');
 
 // 1. Initialize
 const app = dva();
@@ -26,6 +26,7 @@ app.model(Logging);
 app.model(InstanceManagement);
 app.model(Macros);
 app.model(Documents);
+app.model(Data);
 
 // 4. Router
 app.router(require('./router'));
