@@ -9,6 +9,7 @@ export default {
   state: {
     runningDownloads: [], // all actively running data downloads
     downloadedData: [], // contains information about data that the platform has stored
+    downloadProgresses: [], // contains the progress of all running backtests
   },
 
   reducers: {
@@ -18,12 +19,52 @@ export default {
      * a message.  If unsuccessful, displays an error message.
      */
     downloadStarted (state, {msg}) {
-      if(msg.res.DataDownloadStarted) {
-        // TODO
+      if(msg.res.DownloadStarted) {
+        message.loading(`Data download for symbol ${msg.DownloadStarted.symbol} has been successfully initialized.`);
+        return {...state,
+          runningDownloads: [...state.runningDownloads, msg.res.DownloadStarted],
+        };
       } else if(msg.res.Error) {
         message.error('Error starting data download: ' + msg.res.Error.status);
       } else {
         message.error('Received unexpected response to data download request: ' + JSON.stringify(msg));
+      }
+
+      // TODO: Remove the download request from the list of pending download requests
+      return {...state};
+    },
+
+    /**
+     * Called as a callback for `DownloadComplete` commands send by data downloaders.  Removes the download from
+     * the list of running downloads and displays a message indicating its completion.
+     */
+    downloadFinished (state, {msg}) {
+      // display a notification of the download's success
+      let {symbol, id, start_time, end_time} = msg.DownloadComplete;
+      message.success(`Data download for symbol ${symbol} with ID ${id} has completed after ${end_time - start_time} seconds!`);
+
+      return {...state,
+        // remove the completed download from the list
+        runningDownloads: [state.runningDownloads.filter(download => download.id !== id)]
+      };
+    },
+
+    /**
+     * Called as a callback for `GetDownloadProgress` commands.
+     */
+    downloadProgressReceived (state, {msg}) {
+      if(msg.res.DownloadProgress) {
+        // remove the old progress from the state (if it exists) and put the new progress in
+        let newProgresses = state.downloadProgresses.filter(prog => prog.id !== msg.res.DownloadProgress.id);
+        newProgresses.push(msg.res.DownloadProgress);
+
+        return {...state,
+          downloadProgresses: newProgresses,
+        };
+      } else if(msg.res.Error) {
+        message.error(`Received error when requesting progress of data download: ${msg.res.Error.status}`);
+      } else {
+        message.error(`Received unexpected response when requesting progress of data download: ${JSON.stringify(msg)}`);
       }
 
       return {...state};
@@ -50,8 +91,26 @@ export default {
       switch (downloaderName) {
         // TODO
       }
-      yield put({type: 'instances/sendCommand', channel: downloaderUuid, cmd: cmd});
+      yield put({
+        type: 'instances/sendCommand',
+        channel: downloaderUuid,
+        cmd: cmd,
+        cb_action: 'data/downloadStarted'
+      });
       // TODO
     },
+
+    /**
+     * Sends a request to get the progress of the current download.
+    */
+    *getDownloadProgress ({downloaderUuid, downloadId}, {call, put}) {
+      let cmd = {GetDownloadProgress: {id: downloadId}};
+      yield put({
+        type: 'platform_communication/sendCommand',
+        channel: downloaderUuid,
+        cmd: cmd,
+        cb_action: 'data/downloadProgressReceived'
+      });
+    }
   },
 };

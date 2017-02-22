@@ -48,19 +48,32 @@ pub enum Command {
     ListSimbrokers,
     SpawnSimbroker{settings: HashMap<String, String>},
     // Data Downloader Commands
+    // TODO: Create a `DataDownload` struct and replace these with that
     DownloadTicks {
-        start_time: String,
-        end_time: String,
+        start_time: u64,
+        end_time: u64,
         symbol: String,
         dst: HistTickDst,
     },
     ListRunningDownloads,
     DownloadComplete {
-        start_time: String,
-        end_time: String,
+        id: Uuid,
+        downloader: Instance, // the `Instance` managing this download
+        start_time: u64,
+        end_time: u64,
         symbol: String,
         dst: HistTickDst,
     },
+    DownloadStarted {
+        id: Uuid,
+        downloader: Instance, // the `Instance` managing this download
+        start_time: u64,
+        end_time: u64,
+        symbol: String,
+        dst: HistTickDst,
+    },
+    GetDownloadProgress {id: Uuid},
+    CancelDataDownload{download_id: Uuid},
     TransferHistData { src: HistTickDst, dst: HistTickDst },
     // Logger Commands
     Log { msg: LogMessage },
@@ -77,6 +90,12 @@ pub enum Response {
     Info{info: String},
     DocumentQueryResult{results: Vec<String>},
     Document{doc: SrcDocument},
+    DownloadProgress{
+        id: Uuid,
+        start_time: u64,
+        cur_time: u64,
+        end_time: u64,
+    },
 }
 
 impl Command {

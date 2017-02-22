@@ -121,6 +121,28 @@ const InstanceShape = {
 };
 
 /**
+ * defines the shape of a `HistTickDst` for use in `PropTypes` declarations.  Corresponds to the Rust
+ * `HistTickDst` enum.
+ */
+const HistTickDstShape = {
+  Flatfile: React.PropTypes.shape({
+    filename: React.PropTypes.string.isRequired,
+  }),
+  Postgres: React.PropTypes.shape({
+    table: React.PropTypes.string.isRequired,
+  }),
+  RedisChannel: React.PropTypes.shape({
+    host: React.PropTypes.string.isRequired,
+    channel: React.PropTypes.string.isRequired,
+  }),
+  RedisSet: React.PropTypes.shape({
+    host: React.PropTypes.string.isRequired,
+    set_name: React.PropTypes.string.isRequired,
+  }),
+  Console: React.PropTypes.string,
+};
+
+/**
  * defines the shape of a `Document` for use in `PropTypes` declarations
  */
 const DocumentShape = {
@@ -142,4 +164,5 @@ export default {
   WrappedResponse: WrappedResponse,
   InstanceShape: InstanceShape,
   DocumentShape: DocumentShape,
+  HistTickDstShape: HistTickDstShape,
 };
