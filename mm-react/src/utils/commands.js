@@ -72,6 +72,9 @@ function getResponse (command, uuid) {
     if (command.Ready) {
       res = 'Ok';
       action = 'instances/instanceSpawned';
+    } else if(command.DownloadComplete) {
+      res = 'Ok';
+      action = 'data/downloadFinished';
     } else {
       res = {Error: {status: 'Command not recognized.'}};
     }

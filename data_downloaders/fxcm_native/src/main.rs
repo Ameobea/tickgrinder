@@ -146,16 +146,34 @@ impl DataDownloader {
                 Command::Type => Response::Info{ info: "FXCM Native Data Downloader".to_string() },
                 Command::DownloadTicks{start_time, end_time, symbol, dst} => {
                     let running_downloads = self.running_downloads.clone();
-                    let cs = self.cs.clone();
+                    let mut cs = self.cs.clone();
+                    let our_instance = Instance {
+                        uuid: self.uuid,
+                        instance_type: String::from("FXCM Native Data Downloader"),
+                    };
                     thread::spawn(move || {
                         let res = DataDownloader::init_download::<TxCallback>(
-                            symbol.as_str(), dst, start_time.as_str(), end_time.as_str(), running_downloads, cs
+                            our_instance, symbol.as_str(), dst, start_time, end_time, running_downloads, &mut cs
                         );
                         println!("Results of download: {:?}", res);
                     });
                     Response::Ok
                 },
                 Command::ListRunningDownloads => self.list_running_downloads(),
+                Command::GetDownloadProgress{id} => {
+                    // just create a dummy result because we don't actually support checking progress
+                    Response::DownloadProgress {
+                        id: id,
+                        start_time: 0,
+                        end_time: 1,
+                        cur_time: 0,
+                    }
+                },
+                Command::CancelDataDownload{download_id: _} => {
+                    Response::Error{
+                        status: String::from("The FXCM Native Data Downloader doesn't support cancelling downloads."),
+                    }
+                },
                 Command::TransferHistData{src, dst} => {
                     transfer_data(src, dst);
                     Response::Ok
@@ -176,7 +194,8 @@ impl DataDownloader {
     }
 
     pub fn init_download<F>(
-        symbol: &str, dst: HistTickDst, start_time: &str, end_time: &str, running_downloads: Arc<Mutex<Vec<DownloadDescriptor>>>, mut cs: CommandServer
+        downloader: Instance, symbol: &str, dst: HistTickDst, start_time: u64, end_time: u64,
+        running_downloads: Arc<Mutex<Vec<DownloadDescriptor>>>, mut cs: &mut CommandServer
     ) -> Result<(), String> where F: FnMut(uint64_t, c_double, c_double) {
         let (tx, rx) = channel::<CTick>();
 
@@ -188,16 +207,21 @@ impl DataDownloader {
             dst: dst.clone(),
         };
 
+        let download_id = Uuid::new_v4();
+
         // command to be broadcast after download is complete indicating its completion.
         let done_cmd = Command::DownloadComplete{
-            start_time: start_time.to_string(),
-            end_time: end_time.to_string(),
+            id: download_id,
+            downloader: downloader.clone(),
+
+            start_time: start_time,
+            end_time: end_time,
             symbol: symbol.to_string(),
             dst: dst.clone(),
         };
 
         // get the digit count after the decimal for tick conversion
-        let symbol     = CString::new(symbol).unwrap();
+        let c_symbol     = CString::new(symbol).unwrap();
         let username   = CString::new(CONF.fxcm_username).unwrap();
         let password   = CString::new(CONF.fxcm_password).unwrap();
         let url        = CString::new(CONF.fxcm_url).unwrap();
@@ -209,7 +233,7 @@ impl DataDownloader {
             if session_ptr.is_null() {
                 return Err(String::from("External login function returned nullptr; FXCM servers are likely down."))
             }
-            let offer_row = get_offer_row(session_ptr, symbol.as_ptr());
+            let offer_row = get_offer_row(session_ptr, c_symbol.as_ptr());
             digit_count = getDigits(offer_row) as usize;
         }
 
@@ -218,8 +242,9 @@ impl DataDownloader {
         let _ = try!(get_rx_closure(dst.clone()));
 
         // initialize the thread that blocks waiting for ticks
+        let dst_clone = dst.clone();
         thread::spawn(move ||{
-            let mut rx_closure = get_rx_closure(dst).unwrap();
+            let mut rx_closure = get_rx_closure(dst_clone).unwrap();
 
             for ct in rx.iter() {
                 let t: Tick = ct.to_tick(digit_count);
@@ -232,16 +257,27 @@ impl DataDownloader {
             running_downloads.push(descriptor.clone())
         }
 
-        let start_time = CString::new(start_time).unwrap();
-        let end_time   = CString::new(end_time).unwrap();
+        let c_start_time = CString::new(start_time.to_string()).unwrap();
+        let c_end_time   = CString::new(end_time.to_string()).unwrap();
+
+        // notify the platform that the download has started
+        cs.send_forget(&Command::DownloadStarted {
+            id: download_id,
+            downloader: downloader,
+            start_time: start_time,
+            end_time: end_time,
+            symbol: String::from(symbol),
+            dst: dst,
+        }, CONF.redis_control_channel);
+
         unsafe {
             let tx_ptr = &tx as *const _ as *mut c_void;
 
             init_history_download(
                 session_ptr,
-                symbol.as_ptr(),
-                start_time.as_ptr(),
-                end_time.as_ptr(),
+                c_symbol.as_ptr(),
+                c_start_time.as_ptr(),
+                c_end_time.as_ptr(),
                 Some(handler),
                 tx_ptr
             );

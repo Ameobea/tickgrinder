@@ -32,7 +32,8 @@ pub enum Command {
     SpawnTickParser{symbol: String},
     SpawnBacktester,
     SpawnLogger,
-    SpawnFxcmDataDownloader,
+    SpawnFxcmNativeDataDownloader,
+    SpawnFxcmFlatfileDataDownloader,
     KillInstance{uuid: Uuid},
     KillAllInstances,
     // Commands for interfacing with the document store

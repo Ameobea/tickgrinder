@@ -1,0 +1,10 @@
+[package]
+name = "fxcm_flatfile"
+version = "0.1.0"
+authors = ["Casey Primozic <me@ameo.link>"]
+description = "Data downloader to download the officially hosted FXCM flatfile tick archives"
+
+[profile.release]
+opt-level = 3
+debug = true
+debug-assertions = false

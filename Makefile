@@ -55,9 +55,11 @@ release:
 	cd tick_parser && CARGO_INCREMENTAL=1 cargo build --release
 	cp tick_parser/target/release/tick_processor dist
 
-	# build the FXCM native data downloader
+	# build the FXCM data downloaders
 	cd data_downloaders/fxcm_native && CARGO_INCREMENTAL=1 cargo build --release
 	cp data_downloaders/fxcm_native/target/release/fxcm_native dist/fxcm_native_downloader
+	cd data_downloaders/fxcm_flatfile && CARGO_INCREMENTAL=1 cargo build --release
+	cp data_downloaders/fxcm_flatfile/target/release/fxcm_flatfile dist/fxcm_flatfile_downloader
 
 	cd optimizer && CARGO_INCREMENTAL=1 cargo build --release
 	cp optimizer/target/release/optimizer dist
@@ -129,6 +131,8 @@ debug:
 	# build the FXCM native data downloader
 	cd data_downloaders/fxcm_native && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp data_downloaders/fxcm_native/target/debug/fxcm_native dist/fxcm_native_downloader
+	cd data_downloaders/fxcm_flatfile && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
+	cp data_downloaders/fxcm_flatfile/target/debug/fxcm_flatfile dist/fxcm_flatfile_downloader
 
 	cd optimizer && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp optimizer/target/debug/optimizer dist
@@ -195,6 +199,7 @@ test:
 	cd mm && npm install
 	cp private/target/debug/libprivate.so dist/lib
 	cd data_downloaders/fxcm_native && LD_LIBRARY_PATH="../../dist/lib" RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
+	cd data_downloaders/fxcm_flatfile && LD_LIBRARY_PATH="../../dist/lib" RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	# TODO: Collect the results into a nice format
 
 bench:
@@ -295,5 +300,4 @@ node:
 	cd mm-react/public && \
 		tar -xzf ckeditor.tgz && \
 		rm ckeditor.tgz && \
-		cd ckeditor && \
-		rm samples -r
+		cd ckeditor
