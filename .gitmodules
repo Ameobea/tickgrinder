@@ -3,5 +3,5 @@
 	path = broker_shims/FXCM/native/native/include/ForexConnectAPI-Linux-x86_64
 	url = https://github.com/FXCMAPI/ForexConnectAPI-Linux-x86_64
 [submodule "data_downloaders/fxcm_flatfile"]
-	path = data_downloaders/fxcm_flatfile
+	path = data_downloaders/fxcm_py_flatfile
 	url = https://github.com/FXCMAPI/FXCMTickData.git

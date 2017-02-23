@@ -12,6 +12,7 @@ ws = "0.5.3"
 serde = "0.9.7"
 serde_json = "0.9.6"
 serde_derive = "0.9.7"
+lazy_static = "0.1.*"
 uuid = { version = "=0.4", features = ["serde", "v4",] }
 indoc = "^0.1"
 time = "0.1.35"

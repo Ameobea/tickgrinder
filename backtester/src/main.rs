@@ -16,6 +16,8 @@ extern crate serde;
 extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate lazy_static;
 extern crate test;
 #[macro_use]
 extern crate from_hashmap;
@@ -39,9 +41,14 @@ use tickgrinder_util::transport::redis::{sub_multiple, get_client};
 use tickgrinder_util::transport::commands::*;
 use tickgrinder_util::transport::tickstream::*;
 use tickgrinder_util::trading::tick::Tick;
+use tickgrinder_util::instance::PlatformInstance;
 use tickgrinder_util::conf::CONF;
 use backtest::*;
 use simbroker::*;
+
+lazy_static!{
+    static ref NO_BACKTEST: String = String::from("No backtest with that UUID!");
+}
 
 /// Starts the backtester module, initializing its interface to the rest of the platform
 fn main() {
@@ -56,8 +63,10 @@ fn main() {
         _ => panic!("Wrong number of arguments provided!  Usage: ./tick_processor [uuid] [symbol]"),
     }
 
-    let mut backtester = Backtester::new(uuid);
-    backtester.listen();
+    let backtester = Backtester::new(uuid);
+    let mut csc = backtester.cs.clone();
+    let uuid = backtester.uuid;
+    backtester.listen(uuid, &mut csc);
 }
 
 /// What kind of method used to time the output of data
@@ -93,6 +102,90 @@ struct Backtester {
     pub simbrokers: Arc<Mutex<HashMap<Uuid, SimBrokerClient>>>,
 }
 
+impl PlatformInstance for Backtester {
+    fn handle_command(&mut self, cmd: Command) -> Option<Response> {
+        match cmd {
+            Command::Ping => Some(Response::Pong{ args: vec![self.uuid.hyphenated().to_string()] }),
+            Command::Type => Some(Response::Info{ info: String::from("Backtester") }),
+            Command::StartBacktest{definition: definition_str} => {
+                let definition = serde_json::from_str(&definition_str);
+                if definition.is_err() {
+                    let err_msg = definition.err().unwrap();
+                    Some(Response::Error{
+                        status: format!("Can't parse backtest defition from String: {}", err_msg)
+                    })
+                } else {
+                    // start the backtest and register a handle internally
+                    let uuid = self.start_backtest(definition.unwrap());
+
+                    Some(match uuid {
+                        Ok(uuid) => Response::Info{info: uuid.hyphenated().to_string()},
+                        Err(err) => Response::Error{status: err}
+                    })
+                }
+            },
+            Command::Kill => {
+                thread::spawn(|| {
+                    thread::sleep(std::time::Duration::from_secs(3));
+                    std::process::exit(0);
+                });
+
+                Some(Response::Info{info: String::from("Backtester will self-destruct in 3 seconds.")})
+            }
+            Command::PauseBacktest{uuid} => {
+                Some(match self.send_backtest_cmd(&uuid, TickstreamCommand::Pause) {
+                    Ok(()) => Response::Ok,
+                    Err(()) => Response::Error{status: NO_BACKTEST.clone()},
+                })
+            },
+            Command::ResumeBacktest{uuid} => {
+                Some(match self.send_backtest_cmd(&uuid, TickstreamCommand::Resume) {
+                    Ok(()) => Response::Ok,
+                    Err(()) => Response::Error{status: NO_BACKTEST.clone()},
+                })
+            },
+            Command::StopBacktest{uuid} => {
+                Some(match self.send_backtest_cmd(&uuid, TickstreamCommand::Stop) {
+                    Ok(()) => {
+                        // deregister from internal running backtest list
+                        self.remove_backtest(&uuid);
+                        Response::Ok
+                    },
+                    Err(()) => Response::Error{status: NO_BACKTEST.clone()},
+                })
+            },
+            Command::ListBacktests => {
+                let backtests = self.running_backtests.lock().unwrap();
+                let mut message_vec = Vec::new();
+                for (uuid, backtest) in backtests.iter() {
+                    let ser_handle = SerializableBacktestHandle::from_handle(backtest, *uuid);
+                    message_vec.push(ser_handle);
+                }
+
+                let message = to_string(&message_vec);
+                Some(match message {
+                    Ok(msg) => Response::Info{ info: msg },
+                    Err(e) => Response::Error{ status: format!("Unable to convert backtest list into String: {:?}", e) },
+                })
+            },
+            Command::SpawnSimbroker{settings} => {
+                let uuid = self.init_simbroker(settings);
+                Some(Response::Info{info: uuid.hyphenated().to_string()})
+            },
+            Command::ListSimbrokers => {
+                let simbrokers = self.simbrokers.lock().unwrap();
+                let mut uuids = Vec::new();
+                for (uuid, _) in simbrokers.iter() {
+                    uuids.push(uuid.hyphenated().to_string());
+                }
+                let message = serde_json::to_string(&uuids).unwrap();
+                Some(Response::Info{info: message})
+            },
+            _ => Some(Response::Error{ status: String::from("Backtester doesn't recognize that command.") })
+        }
+    }
+}
+
 impl Backtester {
     pub fn new(uuid: Uuid) -> Backtester {
         Backtester {
@@ -111,118 +204,6 @@ impl Backtester {
         let uuid = Uuid::new_v4();
         simbrokers.insert(uuid, simbroker);
         uuid
-    }
-
-    /// Starts listening for commands from the rest of the platform
-    pub fn listen(&mut self) {
-        // subscribe to the command channels
-        let rx = sub_multiple(
-            CONF.redis_host, &[CONF.redis_control_channel, self.uuid.hyphenated().to_string().as_str()]
-        );
-        let redis_client = get_client(CONF.redis_host);
-        let mut copy = self.clone();
-
-        // Signal to the platform that we're ready to receive commands
-        let _ = send_command(&WrappedCommand::from_command(
-            Command::Ready{instance_type: "Backtester".to_string(), uuid: self.uuid}), &redis_client, "control"
-        );
-
-        for res in rx.wait() {
-            let (_, msg) = res.expect("Received err in the listen() event loop for the backtester!");
-            let wr_cmd = match WrappedCommand::from_str(msg.as_str()) {
-                Ok(wr) => wr,
-                Err(e) => {
-                    self.cs.error(Some("CommandProcessing"), &format!("Unable to parse WrappedCommand from String: {:?}", e));
-                    return;
-                }
-            };
-
-            let res: Response = match wr_cmd.cmd {
-                Command::Ping => Response::Pong{ args: vec![copy.uuid.hyphenated().to_string()] },
-                Command::Type => Response::Info{ info: "Backtester".to_string() },
-                Command::StartBacktest{definition: definition_str} => {
-                    let definition = serde_json::from_str(definition_str.as_str());
-                    if definition.is_err() {
-                        let err_msg = definition.err().unwrap();
-                        Response::Error{
-                            status: format!("Can't parse backtest defition from String: {}", err_msg)
-                        }
-                    } else {
-                        // start the backtest and register a handle internally
-                        let uuid = copy.start_backtest(definition.unwrap());
-
-                        match uuid {
-                            Ok(uuid) => Response::Info{info: uuid.hyphenated().to_string()},
-                            Err(err) => Response::Error{status: err}
-                        }
-                    }
-                },
-                Command::Kill => {
-                    thread::spawn(|| {
-                        thread::sleep(std::time::Duration::from_secs(3));
-                        std::process::exit(0);
-                    });
-
-                    Response::Info{info: "Backtester will self-destruct in 3 seconds.".to_string()}
-                }
-                Command::PauseBacktest{uuid} => {
-                    match copy.send_backtest_cmd(&uuid, TickstreamCommand::Pause) {
-                        Ok(()) => Response::Ok,
-                        Err(()) => Response::Error{status: "No backtest with that uuid!".to_string()},
-                    }
-                },
-                Command::ResumeBacktest{uuid} => {
-                    match copy.send_backtest_cmd(&uuid, TickstreamCommand::Resume) {
-                        Ok(()) => Response::Ok,
-                        Err(()) => Response::Error{status: "No backtest with that uuid!".to_string()},
-                    }
-                },
-                Command::StopBacktest{uuid} => {
-                    match copy.send_backtest_cmd(&uuid, TickstreamCommand::Stop) {
-                        Ok(()) => {
-                            // deregister from internal running backtest list
-                            copy.remove_backtest(&uuid);
-                            Response::Ok
-                        },
-                        Err(()) => Response::Error{status: "No backtest with that uuid!".to_string()},
-                    }
-                },
-                Command::ListBacktests => {
-                    let backtests = copy.running_backtests.lock().unwrap();
-                    let mut message_vec = Vec::new();
-                    for (uuid, backtest) in backtests.iter() {
-                        let ser_handle = SerializableBacktestHandle::from_handle(backtest, *uuid);
-                        message_vec.push(ser_handle);
-                    }
-
-                    let message = to_string(&message_vec);
-                    match message {
-                        Ok(msg) => Response::Info{ info: msg },
-                        Err(e) => Response::Error{ status: format!("Unable to convert backtest list into String: {:?}", e) },
-                    }
-                },
-                Command::SpawnSimbroker{settings} => {
-                    let uuid = copy.init_simbroker(settings);
-                    Response::Info{info: uuid.hyphenated().to_string()}
-                },
-                Command::ListSimbrokers => {
-                    let simbrokers = copy.simbrokers.lock().unwrap();
-                    let mut uuids = Vec::new();
-                    for (uuid, _) in simbrokers.iter() {
-                        uuids.push(uuid.hyphenated().to_string());
-                    }
-                    let message = serde_json::to_string(&uuids).unwrap();
-                    Response::Info{info: message}
-                },
-                _ => Response::Error{ status: "Backtester doesn't recognize that command.".to_string() }
-            };
-
-            redis::cmd("PUBLISH")
-                .arg(CONF.redis_responses_channel)
-                .arg(res.wrap(wr_cmd.uuid).to_string().unwrap().as_str())
-                .execute(&redis_client);
-            // TODO: Test to make sure this actually works
-        }
     }
 
     /// Initiates a new backtest and adds it to the internal list of monitored backtests.

@@ -295,5 +295,4 @@ node:
 	cd mm-react/public && \
 		tar -xzf ckeditor.tgz && \
 		rm ckeditor.tgz && \
-		cd ckeditor && \
-		rm samples -r
+		cd ckeditor
