@@ -19,6 +19,7 @@ lazy_static = "0.1.*"
 uuid = { version = "=0.4", features = ["serde", "v4",] }
 indoc = "^0.1"
 time = "0.1.35"
+chrono = "0.3.0"
 rand = "0.3"
 from_hashmap = { path = "from_hashmap" }
 clippy = { git = "https://github.com/Manishearth/rust-clippy.git", optional = true  }
