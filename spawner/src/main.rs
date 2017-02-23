@@ -318,8 +318,9 @@ impl InstanceManager {
             Command::GetDocument{title} => {
                 self.store_handle.get_doc_by_title(title, c);
                 return;
-            }
-            Command::SpawnFxcmDataDownloader => self.spawn_fxcm_dd(),
+            },
+            Command::SpawnFxcmFlatfileDataDownloader => self.spawn_fxcm_flatfile_dd(),
+            Command::SpawnFxcmNativeDataDownloader => self.spawn_fxcm_dd(),
             _ => Response::Error{
                 status: format!("Command not accepted by the instance spawner: {:?}", cmd),
             },
@@ -403,22 +404,33 @@ impl InstanceManager {
         let mod_uuid = Uuid::new_v4();
         let path = "./backtester";
         let _ = process::Command::new(path)
-                                .arg(mod_uuid.to_string().as_str())
+                                .arg(&mod_uuid.to_string())
                                 .spawn()
                                 .expect("Unable to spawn Optimizer");
 
         Response::Ok
     }
 
-    /// Spawns a FXCM Data Downloader instance.
+    /// Spawns a FXCM Native Data Downloader instance.
     fn spawn_fxcm_dd(&mut self) -> Response {
         let mod_uuid = Uuid::new_v4();
         let path = "./fxcm_native_downloader";
         let _ = process::Command::new(path)
-                                .arg(mod_uuid.to_string().as_str())
+                                .arg(&mod_uuid.to_string())
                                 .spawn()
-                                .expect("Unable to spawn FXCM Data Downloader");
+                                .expect("Unable to spawn FXCM Native Data Downloader");
 
+        Response::Ok
+    }
+
+    /// Spawns a FXCM Flatfile Data Downloader
+    fn spawn_fxcm_flatfile_dd(&mut self) -> Response {
+        let mod_uuid = Uuid::new_v4();
+        let path = "./fxcm_flatfile_downloader";
+        let _ = process::Command::new(path)
+                                .arg(&mod_uuid.to_string())
+                                .spawn()
+                                .expect("Unable to spawn FXCM Flatfile Data Downloader");
         Response::Ok
     }
 
