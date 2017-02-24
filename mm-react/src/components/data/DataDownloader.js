@@ -3,10 +3,12 @@
 
 import React from 'react';
 import { connect } from 'dva';
-import { Select, Table, Button, Popconfirm, Tooltip, Progress } from 'antd';
+import { Select, Table, Button, Popconfirm, Tooltip, Progress, Form, Input } from 'antd';
 const Option = Select.Option;
+const FormItem = Form.Item;
 
 import { InstanceShape, HistTickDstShape } from '../../utils/commands';
+import { dataDownloaders } from '../../utils/const';
 import { Instance } from '../instances/Instance';
 
 /**
@@ -65,6 +67,30 @@ DownloadProgress.propTypes = {
   dispatch: React.PropTypes.func.isRequired,
   endTime: React.PropTypes.number.isRequired,
   startTime: React.PropTypes.number.isRequired,
+};
+
+/**
+ * Returns a function that, when called, attempts to start a data download with the specified parameters.
+ */
+const downloadData = dispatch => {
+  return () => {
+    dispatch({type: 'data/startDataDownload'});
+  };
+};
+
+/**
+ * Returns a function that, when called, updates the state regarding the currently selected data download
+ * settings that are used when starting data downloads.
+ */
+const downloadSettingChanged = (dispatch, settingName) => {
+  return (value, option) => {
+    let args = {
+      type: 'data/downloadSettingChanged',
+    };
+    args[settingName] = value;
+
+    dispatch(args);
+  };
 };
 
 // TODO: Auto-update progress of all running data downloads every few seconds
@@ -126,9 +152,31 @@ class DataDownloader extends React.Component {
     return (
       <div>
         <h2>{'Start Data Download'}</h2>
-        <Select>
-          {available_downloaders}
-        </Select>
+        <Form inline onSubmit={downloadData(this.props.dispatch)}>
+          <FormItem>
+            <Select onSelect={downloadSettingChanged(this.props.dispatch, 'downloaderId')}>
+              {available_downloaders}
+            </Select>
+          </FormItem>
+
+          <FormItem label='Symbol'>
+            <Input type='text' />
+          </FormItem>
+
+          <FormItem label='Start Time'>
+            {/* TODO: Date Picker */}
+          </FormItem>
+
+          <FormItem label='End Time'>
+            {/* TODO: Date Picker */}
+          </FormItem>
+
+          <FormItem>
+            <Button htmlType="submit" onClick={downloadData(this.props.dispatch)} type='primary'>
+              {'Start Data Download'}
+            </Button>
+          </FormItem>
+        </Form>
 
         <h2>{'Running Downloads'}</h2>
         <Table columns={columns} dataSource={dataSource} />
@@ -145,7 +193,7 @@ DataDownloader.propTypes = {
     id: React.PropTypes.string.isRequired,
     start_time: React.PropTypes.number.isRequired,
   })).isRequired,
-  livingInstances: React.PropTypes.arrayOf(InstanceShape).isRequired,
+  livingInstances: React.PropTypes.arrayOf(React.PropTypes.shape(InstanceShape)).isRequired,
   runningDownloads: React.PropTypes.arrayOf(React.PropTypes.shape({
     // TODO: Create a `DataDownloadShape` and move this to there
     id: React.PropTypes.string.isRequired,
