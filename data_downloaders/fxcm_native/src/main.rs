@@ -2,7 +2,7 @@
 //!
 //! See README.txt for more information
 
-#![feature(custom_derive, plugin, libc, conservative_impl_trait, fn_traits, unboxed_closures)]
+#![feature(custom_derive, plugin, libc, conservative_impl_trait, unboxed_closures)]
 
 extern crate libc;
 extern crate tickgrinder_util;
@@ -20,10 +20,6 @@ use std::thread;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Sender};
 use std::ffi::CString;
-use std::fs::{File, OpenOptions};
-use std::path::Path;
-use std::io::prelude::*;
-use std::fmt;
 use std::str::FromStr;
 
 use uuid::Uuid;
@@ -33,14 +29,10 @@ use futures::stream::Stream;
 use tickgrinder_util::transport::commands::*;
 use tickgrinder_util::transport::redis::get_client as get_redis_client;
 use tickgrinder_util::transport::redis::sub_multiple;
-use tickgrinder_util::transport::postgres::*;
-use tickgrinder_util::transport::query_server::QueryServer;
 use tickgrinder_util::transport::command_server::CommandServer;
+use tickgrinder_util::transport::data::{transfer_data, get_rx_closure, TxCallback};
 use tickgrinder_util::trading::tick::*;
 use tickgrinder_util::conf::CONF;
-
-mod util;
-use util::transfer_data;
 
 #[link(name="fxtp")]
 #[link(name="gsexpat")]
@@ -103,8 +95,9 @@ impl CTick {
 #[derive(Serialize, PartialEq, Clone)]
 struct DownloadDescriptor {
     symbol: String,
-    start_time: String,
-    end_time: String,
+    start_time: u64,
+    cur_time: u64,
+    end_time: u64,
     dst: HistTickDst,
 }
 
@@ -175,7 +168,7 @@ impl DataDownloader {
                     }
                 },
                 Command::TransferHistData{src, dst} => {
-                    transfer_data(src, dst);
+                    transfer_data(src, dst, self.cs.clone());
                     Response::Ok
                 },
                 Command::Kill => {
@@ -202,8 +195,9 @@ impl DataDownloader {
         // create these now before we convert our arguments into CStrings
         let descriptor = DownloadDescriptor {
             symbol: symbol.to_string(),
-            start_time: start_time.to_string(),
-            end_time: end_time.to_string(),
+            start_time: start_time,
+            cur_time: start_time, // :shrug:
+            end_time: end_time,
             dst: dst.clone(),
         };
 
@@ -308,6 +302,7 @@ impl DataDownloader {
     }
 }
 
+/// A function passed off as a tick callback to the native C++ application.
 #[no_mangle]
 pub extern fn handler(tx_ptr: *mut c_void, timestamp: uint64_t, bid: c_double, ask: c_double) {
     let sender: &Sender<CTick> = unsafe { &*(tx_ptr as *const std::sync::mpsc::Sender<CTick>) };
@@ -316,178 +311,6 @@ pub extern fn handler(tx_ptr: *mut c_void, timestamp: uint64_t, bid: c_double, a
         bid: bid,
         ask: ask
     });
-}
-
-pub fn get_rx_closure(dst: HistTickDst) -> Result<RxCallback, String> {
-    let cb = match dst.clone() {
-        HistTickDst::Console => {
-            let inner = |t: Tick| {
-                println!("{:?}", t);
-            };
-
-            RxCallback{
-                dst: dst,
-                inner: Box::new(inner),
-            }
-        },
-        HistTickDst::RedisChannel{host, channel} => {
-            let client = get_redis_client(host.as_str());
-            // buffer up 5000 ticks in memory and send all at once to avoid issues
-            // with persistant redis connections taking up lots of ports
-            let mut buffer: Vec<String> = Vec::with_capacity(5000);
-
-            let inner = move |t: Tick| {
-                let client = &client;
-                let tick_string = serde_json::to_string(&t).unwrap();
-                buffer.push(tick_string);
-
-                // Send all buffered ticks once the buffer is full
-                if buffer.len() >= 5000 {
-                    let mut pipe = redis::pipe();
-                    for item in buffer.drain(..) {
-                        pipe.cmd("PUBLISH")
-                            .arg(&channel)
-                            .arg(item);
-                    }
-                    pipe.execute(client);
-                }
-            };
-
-            RxCallback {
-                dst: dst,
-                inner: Box::new(inner),
-            }
-        },
-        HistTickDst::RedisSet{host, set_name} => {
-            let client = get_redis_client(host.as_str());
-            // buffer up 5000 ticks in memory and send all at once to avoid issues
-            // with persistant redis connections taking up lots of ports
-            let mut buffer: Vec<String> = Vec::with_capacity(5000);
-
-            let inner = move |t: Tick| {
-                let client = &client;
-                let tick_string = serde_json::to_string(&t).unwrap();
-                buffer.push(tick_string);
-
-                // Send all buffered ticks once the buffer is full
-                if buffer.len() >= 5000 {
-                    let mut pipe = redis::pipe();
-                    for item in buffer.drain(..) {
-                        pipe.cmd("SADD")
-                            .arg(&set_name)
-                            .arg(item);
-                    }
-                    pipe.execute(client);
-                }
-            };
-
-            RxCallback {
-                dst: dst,
-                inner: Box::new(inner),
-            }
-        },
-        HistTickDst::Flatfile{filename} => {
-            let fnc = filename.clone();
-            let path = Path::new(&fnc);
-            // create the file if it doesn't exist
-            if !path.exists() {
-                let _ = File::create(path).unwrap();
-            }
-
-            // try to open the specified filename in append mode
-            let file_opt = OpenOptions::new().append(true).open(path);
-            if file_opt.is_err() {
-                return Err(format!("Unable to open file with path {}", filename));
-            }
-            let mut file = file_opt.unwrap();
-
-            let inner = move |t: Tick| {
-                let tick_string = t.to_csv_row();
-                file.write_all(tick_string.as_str().as_bytes())
-                    .expect(format!("couldn't write to output file: {}, {}", filename, tick_string).as_str());
-            };
-
-            RxCallback {
-                dst: dst,
-                inner: Box::new(inner),
-            }
-        },
-        HistTickDst::Postgres{table} => {
-            let connection_opt = get_client();
-            if connection_opt.is_err() {
-                return Err(String::from("Unable to connect to PostgreSQL!"))
-            }
-            let connection = connection_opt.unwrap();
-            try!(init_hist_data_table(table.as_str(), &connection, CONF.postgres_user));
-            let mut qs = QueryServer::new(10);
-
-            let mut inner_buffer = Vec::with_capacity(5000);
-
-            let inner = move |t: Tick| {
-                let val = format!("({}, {}, {})", t.timestamp, t.bid, t.ask);
-                inner_buffer.push(val);
-                if inner_buffer.len() > 4999 {
-                    let mut query = String::from(format!("INSERT INTO {} (tick_time, bid, ask) VALUES ", table));
-                    let values = inner_buffer.as_slice().join(", ");
-                    query += &values;
-                    query += ";";
-
-                    qs.execute(query);
-                    inner_buffer.clear();
-                }
-            };
-
-            RxCallback {
-                dst: dst,
-                inner: Box::new(inner),
-            }
-        },
-    };
-
-    Ok(cb)
-}
-
-pub struct RxCallback {
-    dst: HistTickDst,
-    inner: Box<FnMut(Tick)>,
-}
-
-impl FnOnce<(Tick,)> for RxCallback {
-    type Output = ();
-    extern "rust-call" fn call_once(self, args: (Tick,)) {
-        let mut inner = self.inner;
-        inner(args.0)
-    }
-}
-
-impl FnMut<(Tick,)> for RxCallback {
-    extern "rust-call" fn call_mut(&mut self, args: (Tick,)) {
-        (*self.inner)(args.0)
-    }
-}
-
-impl fmt::Debug for RxCallback {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "RxCallback: {:?}",  self.dst)
-    }
-}
-
-struct TxCallback {
-    inner: Box<FnMut(uint64_t, c_double, c_double)>,
-}
-
-impl FnOnce<(uint64_t, c_double, c_double,)> for TxCallback {
-    type Output = ();
-    extern "rust-call" fn call_once(self, args: (uint64_t, c_double, c_double,)) {
-        let mut inner = self.inner;
-        inner(args.0, args.1, args.2)
-    }
-}
-
-impl FnMut<(uint64_t, c_double, c_double,)> for TxCallback {
-    extern "rust-call" fn call_mut(&mut self, args: (uint64_t, c_double, c_double,)) {
-        (*self.inner)(args.0, args.1, args.2)
-    }
 }
 
 fn main() {

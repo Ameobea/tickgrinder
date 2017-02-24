@@ -10,6 +10,10 @@ extern crate tickgrinder_util;
 #[macro_use]
 extern crate lazy_static;
 extern crate tempdir;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde_json;
 
 use std::env;
 use std::thread;
@@ -29,6 +33,7 @@ use tempdir::TempDir;
 use tickgrinder_util::instance::PlatformInstance;
 use tickgrinder_util::transport::commands::{Command, Response, Instance, HistTickDst};
 use tickgrinder_util::transport::command_server::CommandServer;
+use tickgrinder_util::transport::data::transfer_data;
 use tickgrinder_util::conf::CONF;
 
 const NAME: &'static str = "FXCM Flatfile Data Downloader";
@@ -61,7 +66,33 @@ fn get_data_url(symbol: &str, year: i32, month: u32) -> String {
 
 /// Represents an in-progress data download.
 struct RunningDownload {
+    symbol: String,
+    start_time: u64,
+    cur_year: i32,
+    cur_week: u32,
+    end_time: u64,
+    dst: HistTickDst,
+}
 
+impl RunningDownload {
+    pub fn to_descriptor(&self) -> DownloadDescriptor {
+        DownloadDescriptor {
+            symbol: self.symbol.clone(),
+            start_time: self.start_time,
+            cur_time: ym_to_ns(self.cur_year, self.cur_week),
+            end_time: self.end_time,
+            dst: self.dst.clone(),
+        }
+    }
+}
+
+#[derive(Serialize, PartialEq, Clone)]
+struct DownloadDescriptor {
+    symbol: String,
+    start_time: u64,
+    cur_time: u64,
+    end_time: u64,
+    dst: HistTickDst,
 }
 
 #[derive(Clone)]
@@ -70,6 +101,14 @@ struct Downloader {
     cs: CommandServer,
     running_downloads: Arc<Mutex<HashMap<Uuid, RunningDownload>>>,
     http_client: Arc<Client>,
+}
+
+/// Converts a given year and week of the year into nanoseconds.
+fn ym_to_ns(year: i32, week: u32) -> u64 {
+    let mut dt: NaiveDateTime = NaiveDate::from_ymd(year, 1, 1).and_hms(1, 1, 1);
+    dt = dt.with_ordinal0((week - 1) * 7).expect("Unable to create `NaiveDate` from weeks");
+    let cur_secs: i64 = dt.timestamp();
+    (cur_secs as u64) * 1000 * 1000 * 1000
 }
 
 impl PlatformInstance for Downloader {
@@ -86,7 +125,45 @@ impl PlatformInstance for Downloader {
 
                 Some(Response::Info{info: format!("{} will terminate in 3 seconds.", NAME)})
             },
-            Command::DownloadTicks{start_time, end_time, symbol, dst} => Some(self.init_download(start_time, end_time, symbol, dst)),
+            Command::DownloadTicks{start_time, end_time, symbol, dst} => {
+                Some(self.init_download(start_time, end_time, symbol, dst))
+            },
+            Command::GetDownloadProgress{id} => {
+                let running_downloads = self.running_downloads.lock().unwrap();
+                match running_downloads.get(&id) {
+                    Some(download) => {
+                        Some(Response::DownloadProgress {
+                            id: id,
+                            start_time: download.start_time,
+                            cur_time: ym_to_ns(download.cur_year, download.cur_week),
+                            end_time: download.end_time,
+
+                        })
+                    },
+                    None => Some(Response::Error {
+                        status: format!("No such data download running with that id: {}", id),
+                    }),
+                }
+            },
+            Command::CancelDataDownload{download_id: _} => {
+                Some(Response::Error{status: String::from("The FXCM Flatfile Downloader does not support cancelling downloads.")})
+            },
+            Command::ListRunningDownloads => {
+                // create a `HashMap` full of `DownloadDescriptor`s, stringify it, and return it.
+                let mut hm: HashMap<Uuid, DownloadDescriptor> = HashMap::new();
+                let downloads = self.running_downloads.lock().unwrap();
+                for (id, download) in downloads.iter() {
+                    hm.insert(*id, download.to_descriptor()).expect("Unable to insert descriptor");
+                }
+
+                Some(Response::Info{
+                    info: serde_json::to_string(&hm).expect("Unable to stringify descriptor `HashMap`"),
+                })
+            },
+            Command::TransferHistData{src, dst} => {
+                transfer_data(src, dst, self.cs.clone());
+                Some(Response::Ok)
+            },
             _ => None,
         }
     }
@@ -109,7 +186,7 @@ impl Downloader {
     /// Starts a download of historical ticks
     pub fn init_download(&mut self, start_time: u64, end_time: u64, symbol: String, dst: HistTickDst) -> Response {
         let download_id = Uuid::new_v4();
-        let symbol: String = symbol.trim().to_uppercase();
+        let symbol: String = symbol.trim().to_uppercase().replace("/", "");
         if !SUPPORTED_PAIRS.contains(&symbol.as_str()) {
             return Response::Error{status: format!("The FXCM Flatfile Data Downloader does not support the symbol {}", symbol)};
         }
@@ -122,6 +199,9 @@ impl Downloader {
         }
         let mut year = naive.year();
         let mut week = (naive.day() / 7) + 1; // gets current week of the year starting at 1
+        // make copies to remember where we started at
+        let mut start_year = year;
+        let mut start_week = week;
 
         // start the data download in another thread
         let mut clone = self.clone();
@@ -129,7 +209,7 @@ impl Downloader {
             let dst_dir = TempDir::new(&symbol).expect("Unable to create temporary directory");
             loop {
                 let download_url = get_data_url(&symbol, year, week);
-                let dst_path = &dst_dir.path().join(&format!("{}.csv", week));
+                let dst_path = &dst_dir.path().join(&format!("{}_{}.csv", year, week));
 
                 match download_chunk(&*clone.http_client, &download_url, dst_path) {
                     Ok(true) => {
@@ -137,10 +217,29 @@ impl Downloader {
                             week = 1;
                             year += 1;
                         }
+
+                        // update the entry in the running downloads list
+                        let mut downloads = clone.running_downloads.lock().unwrap();
+                        let entry = downloads.get_mut(&download_id).expect("Unable to get running download entry");
+                        entry.cur_year = year;
+                        entry.cur_week = week;
                     },
                     Ok(false) => { // download is complete
-                        // write the data into the `HistTickDst`
-                        unimplemented!(); // TODO
+                        // transfer the data from the temporary .csv files into the `HistTickDst`
+                        loop {
+                            let filename = String::from(dst_dir.path().join(&format!("{}_{}.csv", start_year, start_week))
+                                .to_str().expect("Unable to convert path to `str`"));
+                            transfer_data(HistTickDst::Flatfile{filename: filename}, dst.clone(), clone.cs.clone());
+
+                            if start_year == year && start_week == week {
+                                break;
+                            }
+
+                            if start_week < 52 { start_week += 1; } else {
+                                start_week = 1;
+                                start_year += 1;
+                            }
+                        }
 
                         // send `DownloadComplete` message to the platform
                         let cmd = Command::DownloadComplete {
@@ -162,7 +261,7 @@ impl Downloader {
             }
         });
 
-        unimplemented!();
+        Response::Ok
     }
 }
 

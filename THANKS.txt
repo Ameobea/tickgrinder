@@ -1,0 +1,5 @@
+This project wouldn't have happened were it not for a wide range of people.
+
+ - Alex Jensen (https://github.com/dalexj): For helping me learn programming and always being there for me to spam screenshots to
+ - Prof. Rosasco (http://www.valpo.edu/computing-information-sciences/about-us/faculty/nicholas-rosasco/): For being a great professor and lending some awesome ideas to the platform
+ - Shepmaster (Jake Goulding; https://github.com/shepmaster): For practically running the Rust stack overflow and keeping everything high-quality
