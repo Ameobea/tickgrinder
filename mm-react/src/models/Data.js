@@ -3,6 +3,8 @@
 import { message } from 'antd';
 import { select } from 'redux-saga/effects';
 
+import { dataDownloaders } from '../utils/const';
+
 export default {
   namespace: 'data',
 
@@ -10,9 +12,63 @@ export default {
     runningDownloads: [], // all actively running data downloads
     downloadedData: [], // contains information about data that the platform has stored
     downloadProgresses: [], // contains the progress of all running backtests
+    dataDownloadSettings: {
+      startTime: false,
+      endTime: false,
+      symbol: false,
+      downloaderId: false,
+      tickDst: false,
+    },
   },
 
   reducers: {
+    /**
+     * Called whenever the user changes his or her selection of settings for the download.  Only takes into
+     * account the setting that was changed.
+     */
+    downloadSettingChanged (state, {startTime, endTime, symbol, downloaderId}) {
+      if(startTime) {
+        return{...state,
+          dataDownloadSettings: {...state.dataDownloadSettings,
+            startTime: startTime,
+          },
+        };
+      } else if(startTime) {
+        return{...state,
+          dataDownloadSettings: {...state.dataDownloadSettings,
+            startTime: startTime,
+          },
+        };
+      } else if(symbol) {
+        return{...state,
+          dataDownloadSettings: {...state.dataDownloadSettings,
+            symbol: symbol,
+          },
+        };
+      } else if(downloaderId) {
+        return{...state,
+          dataDownloadSettings: {...state.dataDownloadSettings,
+            downloaderId: downloaderId,
+          },
+        };
+      }
+    },
+
+    /**
+     * Called when the spawner responds to a request to spawn a data downloader
+     */
+    dataDownloaderSpawnResponseReceived (state, {msg}) {
+      if(msg.res == 'Ok') {
+        message.success('Data downloader spawn request accepted');
+      } else if(msg.res.Error) {
+        message.error('Error when attempting to spawn data downloader: ' + msg.res.Error.status);
+      } else {
+        message.error('Unexpected response received from spawner when attempting to spawn data downloader: ' + JSON.stringify(msg));
+      }
+
+      return {...state};
+    },
+
     /**
      * Called as a callback for responses received from commands dispatched to start data downloads.
      * If the download started successfully, adds the download to the list of running downloads and displays
@@ -71,29 +127,49 @@ export default {
     }
   },
 
-  /**
-   * Dispatches the correct command to initialize the specified data download.
-   */
   effects: {
-    *startDataDownload ({downloaderUuid, symbol, metadata}, {call, put}) {
-      // get the type of data downloader that the selected instance is
-      let runningInstances = yield select(gstate => gstate.instances.living_instances);
-      let downloaderInstance = runningInstances.filter(inst => inst.uuid == downloaderUuid);
-      let downloaderName;
-      if(downloaderInstance.length === 0) {
-        message.error('Selected downloader instance is not in list of living instances: ' + downloaderUuid);
-        return;
-      } else {
-        downloaderName = downloaderInstance[0].uuid;
+    /**
+     * Sends a command to the Spawner instance to spawn a data downloader of the specified type
+     */
+    *spawnDataDownloader ({downloaderName}, {call, put}) {
+      // get the proper command to spawn the downloader of the specified type
+      let cmd = false;
+      for(var i=0; i<dataDownloaders.length; i++) {
+        if(dataDownloaders[i].name == downloaderName) {
+          cmd = dataDownloaders[i].cmd;
+        }
       }
 
-      let cmd;
-      switch (downloaderName) {
-        // TODO
+      yield put({
+        cb_action: 'data/dataDownloaderSpawnResponseReceived',
+        cmd: cmd,
+        instance_name: 'Spawner',
+        type: 'platform_communication/sendCommandToInstance',
+      });
+    },
+
+    /**
+     * Dispatches the correct command to initialize the specified data download.
+     */
+    *startDataDownload ({}, {call, put}) {
+      // get the currently selected download settings and make sure that they're all set
+      let downloadSettings = yield select(gstate => gstate.data.dataDownloadSettings);
+      if(downloadSettings.startTime === false || downloadSettings.endTime === false || downloadSettings.symbol === false ||
+         downloadSettings.downloaderId === false || downloadSettings.tickDst === false) {
+        message.error('You must set all the download settings before initializing a data downoad');
+        return;
       }
+
+      let cmd = {DownloadTicks: {
+        start_time: downloadSettings.startTime,
+        end_time: downloadSettings.endTime,
+        symbol: downloadSettings.symbol,
+        dst: downloadSettings.tickDst,
+      }};
+
       yield put({
         type: 'instances/sendCommand',
-        channel: downloaderUuid,
+        channel: downloadSettings.downloaderId,
         cmd: cmd,
         cb_action: 'data/downloadStarted'
       });
