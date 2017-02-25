@@ -3,9 +3,10 @@
 
 import React from 'react';
 import { connect } from 'dva';
-import { Select, Table, Button, Popconfirm, Tooltip, Progress, Form, Input } from 'antd';
+import { Select, Table, Button, Popconfirm, Tooltip, Progress, Form, Input, DatePicker } from 'antd';
 const Option = Select.Option;
 const FormItem = Form.Item;
+const { RangePicker } = DatePicker;
 
 import { InstanceShape, HistTickDstShape } from '../../utils/commands';
 import { dataDownloaders } from '../../utils/const';
@@ -69,34 +70,21 @@ DownloadProgress.propTypes = {
   startTime: React.PropTypes.number.isRequired,
 };
 
-/**
- * Returns a function that, when called, attempts to start a data download with the specified parameters.
- */
-const downloadData = dispatch => {
-  return () => {
-    dispatch({type: 'data/startDataDownload'});
-  };
-};
-
-/**
- * Returns a function that, when called, updates the state regarding the currently selected data download
- * settings that are used when starting data downloads.
- */
-const downloadSettingChanged = (dispatch, settingName) => {
-  return (value, option) => {
-    let args = {
-      type: 'data/downloadSettingChanged',
-    };
-    args[settingName] = value;
-
-    dispatch(args);
-  };
-};
-
 // TODO: Auto-update progress of all running data downloads every few seconds
 
 class DataDownloader extends React.Component {
+  handleSubmit = e => {
+    e.preventDefault();
+    this.props.form.validateFields((err, values) => {
+      if (!err) {
+        console.log(this.props.form);
+        // this.props.dispatch({type: 'data/startDataDownload'}); // TODO
+      }
+    });
+  }
+
   render() {
+    const { getFieldDecorator } = this.props.form;
     // get a list of all available data downloaders from the platform
     let available_downloaders = getDownloaders(this.props.livingInstances); // TODO
 
@@ -152,9 +140,9 @@ class DataDownloader extends React.Component {
     return (
       <div>
         <h2>{'Start Data Download'}</h2>
-        <Form inline onSubmit={downloadData(this.props.dispatch)}>
+        <Form inline onSubmit={this.handleSubmit}>
           <FormItem>
-            <Select onSelect={downloadSettingChanged(this.props.dispatch, 'downloaderId')}>
+            <Select>
               {available_downloaders}
             </Select>
           </FormItem>
@@ -163,16 +151,16 @@ class DataDownloader extends React.Component {
             <Input type='text' />
           </FormItem>
 
-          <FormItem label='Start Time'>
-            {/* TODO: Date Picker */}
-          </FormItem>
-
-          <FormItem label='End Time'>
-            {/* TODO: Date Picker */}
+          <FormItem label='Timeframe (UTC)'>
+            <RangePicker
+              format="YYYY-MM-DD HH:mm:ss"
+              showTime
+              placeholder={['Start Time', 'End Time']}
+            />
           </FormItem>
 
           <FormItem>
-            <Button htmlType="submit" onClick={downloadData(this.props.dispatch)} type='primary'>
+            <Button htmlType="submit" type='primary'>
               {'Start Data Download'}
             </Button>
           </FormItem>
@@ -213,4 +201,4 @@ function mapProps(state) {
   };
 }
 
-export default connect(mapProps)(DataDownloader);
+export default connect(mapProps)(Form.create()(DataDownloader));

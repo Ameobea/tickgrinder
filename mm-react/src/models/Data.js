@@ -12,48 +12,9 @@ export default {
     runningDownloads: [], // all actively running data downloads
     downloadedData: [], // contains information about data that the platform has stored
     downloadProgresses: [], // contains the progress of all running backtests
-    dataDownloadSettings: {
-      startTime: false,
-      endTime: false,
-      symbol: false,
-      downloaderId: false,
-      tickDst: false,
-    },
   },
 
   reducers: {
-    /**
-     * Called whenever the user changes his or her selection of settings for the download.  Only takes into
-     * account the setting that was changed.
-     */
-    downloadSettingChanged (state, {startTime, endTime, symbol, downloaderId}) {
-      if(startTime) {
-        return{...state,
-          dataDownloadSettings: {...state.dataDownloadSettings,
-            startTime: startTime,
-          },
-        };
-      } else if(startTime) {
-        return{...state,
-          dataDownloadSettings: {...state.dataDownloadSettings,
-            startTime: startTime,
-          },
-        };
-      } else if(symbol) {
-        return{...state,
-          dataDownloadSettings: {...state.dataDownloadSettings,
-            symbol: symbol,
-          },
-        };
-      } else if(downloaderId) {
-        return{...state,
-          dataDownloadSettings: {...state.dataDownloadSettings,
-            downloaderId: downloaderId,
-          },
-        };
-      }
-    },
-
     /**
      * Called when the spawner responds to a request to spawn a data downloader
      */
@@ -151,25 +112,17 @@ export default {
     /**
      * Dispatches the correct command to initialize the specified data download.
      */
-    *startDataDownload ({}, {call, put}) {
-      // get the currently selected download settings and make sure that they're all set
-      let downloadSettings = yield select(gstate => gstate.data.dataDownloadSettings);
-      if(downloadSettings.startTime === false || downloadSettings.endTime === false || downloadSettings.symbol === false ||
-         downloadSettings.downloaderId === false || downloadSettings.tickDst === false) {
-        message.error('You must set all the download settings before initializing a data downoad');
-        return;
-      }
-
+    *startDataDownload ({startTime, endtime, symbol, tickDst, downloaderId}, {call, put}) {
       let cmd = {DownloadTicks: {
-        start_time: downloadSettings.startTime,
-        end_time: downloadSettings.endTime,
-        symbol: downloadSettings.symbol,
-        dst: downloadSettings.tickDst,
+        start_time: startTime,
+        end_time: endTime,
+        symbol: symbol,
+        dst: tickDst,
       }};
 
       yield put({
         type: 'instances/sendCommand',
-        channel: downloadSettings.downloaderId,
+        channel: downloaderId,
         cmd: cmd,
         cb_action: 'data/downloadStarted'
       });
