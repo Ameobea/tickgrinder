@@ -78,13 +78,12 @@ class DataDownloader extends React.Component {
     this.props.form.validateFields((err, values) => {
       if (!err) {
         console.log(this.props.form);
-        // this.props.dispatch({type: 'data/startDataDownload'}); // TODO
+        let command = this.props.form.getFieldValue
       }
     });
   }
 
   render() {
-    const { getFieldDecorator } = this.props.form;
     // get a list of all available data downloaders from the platform
     let available_downloaders = getDownloaders(this.props.livingInstances); // TODO
 
@@ -137,30 +136,41 @@ class DataDownloader extends React.Component {
       };
     });
 
+    const { getFieldDecorator } = this.props.form;
     return (
       <div>
         <h2>{'Start Data Download'}</h2>
         <Form inline onSubmit={this.handleSubmit}>
-          <FormItem>
-            <Select>
-              {available_downloaders}
-            </Select>
+          <FormItem label='Data Downloader'>
+            {getFieldDecorator('downloader', {})(
+              <Select style={{ width: 200 }}>
+                {available_downloaders}
+              </Select>
+            )}
           </FormItem>
 
           <FormItem label='Symbol'>
-            <Input type='text' />
+            {getFieldDecorator('symbol', {
+              rules: [{ required: true, message: 'Please select a symbol to download!' }],
+            })(
+              <Input type='text' />
+            )}
           </FormItem>
 
           <FormItem label='Timeframe (UTC)'>
-            <RangePicker
-              format="YYYY-MM-DD HH:mm:ss"
-              showTime
-              placeholder={['Start Time', 'End Time']}
-            />
+            {getFieldDecorator('range-picker', {
+              rules: [{ type: 'array', required: true, message: 'Please select a start and end time!' }],
+            })(
+              <RangePicker
+                format='YYYY-MM-DD HH:mm:ss'
+                placeholder={['Start Time', 'End Time']}
+                showTime
+              />
+            )}
           </FormItem>
 
           <FormItem>
-            <Button htmlType="submit" type='primary'>
+            <Button htmlType='submit' type='primary'>
               {'Start Data Download'}
             </Button>
           </FormItem>
@@ -181,6 +191,7 @@ DataDownloader.propTypes = {
     id: React.PropTypes.string.isRequired,
     start_time: React.PropTypes.number.isRequired,
   })).isRequired,
+  form: React.PropTypes.any.isRequired,
   livingInstances: React.PropTypes.arrayOf(React.PropTypes.shape(InstanceShape)).isRequired,
   runningDownloads: React.PropTypes.arrayOf(React.PropTypes.shape({
     // TODO: Create a `DataDownloadShape` and move this to there
