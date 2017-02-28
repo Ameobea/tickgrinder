@@ -74,7 +74,7 @@ const SingleSpawner = ({dispatch, living_instances, spawn_opt}) => {
 
 SingleSpawner.propTypes = {
   dispatch: React.PropTypes.func.isRequired,
-  living_instances: React.PropTypes.arrayOf(InstanceShape).isRequired,
+  living_instances: React.PropTypes.arrayOf(React.PropTypes.shape(InstanceShape)).isRequired,
   spawn_opt: React.PropTypes.shape({name: React.PropTypes.string.isRequired, cmd: React.PropTypes.any}).isRequired,
 };
 
@@ -101,7 +101,7 @@ const InstanceSpawner = ({dispatch, living_instances, spawn_opt}) => {
 
 InstanceSpawner.propTypes = {
   dispatch: React.PropTypes.func.isRequired,
-  living_instances: React.PropTypes.arrayOf(InstanceShape).isRequired,
+  living_instances: React.PropTypes.arrayOf(React.PropTypes.shape(InstanceShape)).isRequired,
   spawn_opt: React.PropTypes.shape({name: React.PropTypes.string.isRequired, cmd: React.PropTypes.any}).isRequired,
 };
 

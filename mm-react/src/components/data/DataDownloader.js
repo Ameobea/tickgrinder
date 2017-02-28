@@ -13,11 +13,16 @@ import { dataDownloaders } from '../../utils/const';
 import { Instance } from '../instances/Instance';
 
 /**
- * Given a list of running instances, returns the set of those instances that are data downloaders
+ * Given a list of running instances, returns the set of those instances that are data downloaders as `Option`s
  */
 const getDownloaders = livingInstances => {
   // It is assumed that all data downloader instances will have the phrase "Data Downloader" in their instance type
-  return livingInstances.filter(inst => inst.instance_type.toLowerCase().indexOf('data downloader') !== -1);
+  return livingInstances.filter(inst => inst.instance_type.toLowerCase().indexOf('data downloader') !== -1)
+    .map(inst => (
+      <Option key={inst.uuid} value={inst.uuid}>
+        {inst.instance_type}
+      </Option>
+    ));
 };
 
 /**
@@ -77,8 +82,29 @@ class DataDownloader extends React.Component {
     e.preventDefault();
     this.props.form.validateFields((err, values) => {
       if (!err) {
-        console.log(this.props.form);
-        let command = this.props.form.getFieldValue
+        // get the data out of the form
+        let {downloader, timeframe, symbol, destination} = this.props.form.getFieldsValue(
+          ['downloader', 'timeframe', 'symbol', 'destination']
+        );
+
+        // convert start and end times to nanoseconds and send command to start the download
+        let startTime = timeframe[0]._d.getTime() * 1000 * 1000;
+        let endTime = timeframe[1]._d.getTime() * 1000 * 1000;
+        let cmd = {DownloadTicks: {
+          start_time: startTime,
+          end_time: endTime,
+          symbol: symbol,
+          dst: destination,
+        }};
+
+        // send the command to the chosen data downloader
+        this.props.dispatch({
+          instance_name: 'Spawner',
+          cb_action: 'data/downloadStarted',
+          channel: downloader,
+          cmd: cmd,
+          type: 'platform_communication/sendCommand',
+        });
       }
     });
   }
@@ -142,7 +168,9 @@ class DataDownloader extends React.Component {
         <h2>{'Start Data Download'}</h2>
         <Form inline onSubmit={this.handleSubmit}>
           <FormItem label='Data Downloader'>
-            {getFieldDecorator('downloader', {})(
+            {getFieldDecorator('downloader', {
+              rules: [{ required: true, message: 'Please select a data downloader to use for this download.'}]
+            })(
               <Select style={{ width: 200 }}>
                 {available_downloaders}
               </Select>
@@ -151,15 +179,15 @@ class DataDownloader extends React.Component {
 
           <FormItem label='Symbol'>
             {getFieldDecorator('symbol', {
-              rules: [{ required: true, message: 'Please select a symbol to download!' }],
+              rules: [{ required: true, message: 'Please select a symbol to download.' }],
             })(
               <Input type='text' />
             )}
           </FormItem>
 
           <FormItem label='Timeframe (UTC)'>
-            {getFieldDecorator('range-picker', {
-              rules: [{ type: 'array', required: true, message: 'Please select a start and end time!' }],
+            {getFieldDecorator('timeframe', {
+              rules: [{ type: 'array', required: true, message: 'Please select a start and end time.' }],
             })(
               <RangePicker
                 format='YYYY-MM-DD HH:mm:ss'
@@ -167,6 +195,12 @@ class DataDownloader extends React.Component {
                 showTime
               />
             )}
+          </FormItem>
+
+          <FormItem>
+            {getFieldDecorator('destination', {
+              rules: [{}]
+            })}
           </FormItem>
 
           <FormItem>
