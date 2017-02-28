@@ -5,7 +5,7 @@ import { connect } from 'dva';
 
 const BacktesterSpawner = ({dispatch}) => {
   return (
-
+    <div />
   );
 };
 

@@ -296,8 +296,8 @@ node:
 	fi
 
 	# fetch a built copy of the ckeditor.  If ameo.link is dead and gone, you can build your own version
-	curl https://ameo.link/u/422.tgz -o mm-react/public/ckeditor.tgz
-	cd mm-react/public && \
-		tar -xzf ckeditor.tgz && \
-		rm ckeditor.tgz && \
-		cd ckeditor
+	# curl https://ameo.link/u/422.tgz -o mm-react/public/ckeditor.tgz
+	# cd mm-react/public && \
+	# 	tar -xzf ckeditor.tgz && \
+	# 	rm ckeditor.tgz && \
+	# 	cd ckeditor

@@ -6,7 +6,7 @@ import { Table } from 'antd';
 
 const BacktestMonitor = ({dispatch}) => {
   return (
-
+    <div />
   );
 };
 

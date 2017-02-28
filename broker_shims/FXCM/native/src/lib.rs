@@ -28,6 +28,7 @@ use futures::sync::mpsc::unbounded;
 use tickgrinder_util::transport::commands::{LogLevel, CLogLevel};
 use tickgrinder_util::transport::command_server::CommandServer;
 use tickgrinder_util::transport::redis::*;
+use tickgrinder_util::transport::ffi::ptr_to_cstring;
 use tickgrinder_util::trading::broker::*;
 use tickgrinder_util::trading::tick::*;
 use tickgrinder_util::trading::trading_condition::TradingAction;
@@ -157,15 +158,6 @@ extern fn tick_cb(env_ptr: *mut c_void, cst: CSymbolTick) {
             return
         }
     }
-}
-
-/// Takes a pointer to a string from C and copies it into a Rust-owned `CString`.
-unsafe fn ptr_to_cstring(ptr: *mut c_char) -> CString {
-    // expect that no strings are longer than 100000 bytes
-    let end_ptr = memchr(ptr as *const c_void, 0, 100000);
-    let len: usize = end_ptr as usize - ptr as usize;
-    let slice: &[u8] = slice::from_raw_parts(ptr as *const u8, len);
-    CString::new(slice).expect("Unable to convert the slice into a CString")
 }
 
 impl Broker for FXCMNative {

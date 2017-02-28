@@ -5,8 +5,8 @@ import { connect } from 'dva';
 
 const BacktestStarter = ({dispatch}) => {
   return (
-
+    <div />
   );
 };
 
-export default connnect()(BacktestStarter);
+export default connect()(BacktestStarter);

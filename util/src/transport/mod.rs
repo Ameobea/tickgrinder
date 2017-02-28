@@ -8,3 +8,4 @@ pub mod command_server;
 pub mod tickstream;
 pub mod textlog;
 pub mod data;
+pub mod ffi;
