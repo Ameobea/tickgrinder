@@ -7,6 +7,8 @@ use libc::{c_int, c_char, c_void, memchr};
 use std::mem;
 use uuid::Uuid;
 
+use transport::data::{RxCallback, get_rx_closure};
+use trading::tick::Tick;
 pub use transport::commands::CLogLevel;
 
 /// Takes a pointer to a string from C and copies it into a Rust-owned `CString`.
@@ -64,8 +66,31 @@ pub unsafe extern "C" fn c_transfer_data(
     true
 }
 
+/// Given a `HistTickDst` as a pointer, returns a `RxCallback` as a pointer.  Takes in the raw parts of a
+/// `HistTickDst` as arguments.
+#[no_mangle]
+pub unsafe extern "C" fn c_get_rx_closure(id: c_int, arg1: *mut c_void, arg2: *mut c_void) -> *mut c_void {
+    let htd = build_htd(id, arg1, arg2);
+    Box::into_raw(Box::new(get_rx_closure(htd).expect("Unable to get rx closure"))) as *mut c_void
+}
+
+/// Given a `RxCallback` in the form of a `*mut c_void`, executes it with the provided raw tick parts.
+#[no_mangle]
+pub unsafe extern "C" fn exec_c_rx_closure(closure: *mut c_void, timestamp: u64, bid: usize, ask: usize) {
+    let t = Tick {
+        timestamp: timestamp,
+        bid: bid,
+        ask: ask,
+    };
+
+    let rxc: &mut RxCallback = &mut *(closure as *mut RxCallback);
+    // call the callback with the supplied tick.
+    rxc(t);
+    mem::forget(rxc);
+}
+
 /// Given the raw parts from the FFI, attempts to build a `HistTickDst` from them.
-unsafe fn build_htd(id: c_int, arg1: *mut c_void, arg2: *mut c_void) -> HistTickDst {
+pub unsafe fn build_htd(id: c_int, arg1: *mut c_void, arg2: *mut c_void) -> HistTickDst {
     match id {
         FLATFILE => {
             let filename_cstring = ptr_to_cstring(arg1 as *mut c_char);

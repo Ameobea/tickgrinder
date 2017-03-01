@@ -29,6 +29,9 @@ pub mod stream_sink;
 // maps
 pub mod maps;
 
+// generics
+pub mod generics;
+
 pub use self::flatfile_reader::*;
 pub use self::postgres_reader::*;
 pub use self::random_reader::*;
@@ -38,6 +41,7 @@ pub use self::null_sink::*;
 pub use self::redis_sink::*;
 pub use self::stream_sink::*;
 pub use self::maps::*;
+pub use self::generics::*;
 
 pub type CommandStream = mpsc::Receiver<TickstreamCommand>;
 

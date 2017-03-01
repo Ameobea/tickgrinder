@@ -22,6 +22,8 @@ use transport::command_server::CommandServer;
 use trading::tick::Tick;
 use conf::CONF;
 
+// TODO: Some kind of drop implementation that automatically clears the buffers when they're dropped
+
 /// Initializes the transfer of data from a `HistTickGen` to a `HistTickDst`.  Data is read into an internal buffer within
 /// the generator and then written into the sink.
 pub fn transfer_data(src: HistTickDst, dst: HistTickDst, cs: CommandServer) {
