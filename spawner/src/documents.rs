@@ -390,7 +390,7 @@ fn insert_document(doc_str: &str, mut index_writer: &mut IndexWriter, cs: &mut C
     doc.add_text(id, &src_doc.id.hyphenated().to_string());
 
     // add the document to the store and commit the changes to disk
-    try!(index_writer.add_document(doc).map_err(debug_err));
+    index_writer.add_document(doc);
     index_writer.commit().map_err(debug_err)
 }
 

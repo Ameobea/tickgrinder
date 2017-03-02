@@ -68,10 +68,10 @@ manager.start = function(port){
   uuid = process.argv[2];
 
   if(!uuid) {
-    console.log("Usage: node manager.js uuid");
+    console.error("Usage: node manager.js uuid");
     process.exit(0);
   } else {
-    console.log(`MM now listening for commands on ${conf.redis_control_channel} and ${uuid}`);
+    console.error(`MM now listening for commands on ${conf.redis_control_channel} and ${uuid}`);
   }
 
   // Create two Redis clients - one for subscribing and one for publishing

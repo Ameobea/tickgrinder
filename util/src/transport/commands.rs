@@ -348,6 +348,7 @@ fn wrappedcmd_to_string(b: &mut test::Bencher) {
         uuid: Uuid::new_v4(),
         cmd: cmd,
     };
+
     b.iter(|| {
         let wr_cmd = &wr_cmd;
         let _ = serde_json::to_string(wr_cmd);

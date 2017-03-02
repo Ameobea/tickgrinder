@@ -12,6 +12,7 @@ pub const PAGE_LIST: &'static [&'static SettingsPage] = &[
     &COMMANDSERVER_QUERYSERVER_SETTINGS,
     &RUNTIME_SETTINGS,
     &FUZZER_SETTINGS,
+    &DATA_DOWNLOADER_SETTINGS,
 ];
 
 pub const POSTGRES_SETTINGS: SettingsPage = SettingsPage {
@@ -288,5 +289,19 @@ pub const FUZZER_SETTINGS: SettingsPage = SettingsPage {
             setting_type: SettingType::String,
             comment: Some("The string from which the fuzzer's RNG is seeded from (if the option is enabled)."),
         },
+    ],
+};
+
+pub const DATA_DOWNLOADER_SETTINGS: SettingsPage = SettingsPage {
+    name: "Data Downloader Settings",
+    comment: Some(&["Settings pertaining to the platform's data downloaders used to record or retreive data from external sources"]),
+    rows: &[
+        SettingRow {
+            id: "iex_data_downloader_tops_url",
+            name: "IEX TOPS API URL",
+            default: Some("https://ws-api.iextrading.com/1.0/tops"),
+            setting_type: SettingType::String,
+            comment: Some("The API endpoint for the IEX top-of-book API.  Should be good default unless they change it.  If they do, please open an issue."),
+        }
     ],
 };
