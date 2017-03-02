@@ -176,7 +176,7 @@ test:
 	cp private/src/strategies/fuzzer/extern/librand_bindings.so dist/lib
 
 	# build and test the broker shims
-	cd broker_shims/simbroker && LD_LIBRARY_PATH=../../util/target/debug/deps \
+	cd broker_shims/simbroker && LD_LIBRARY_PATH=../../util/target/debug/deps:../../dist/lib \
 		RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test && \
 		RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cp broker_shims/simbroker/target/debug/libsimbroker.so dist/lib
@@ -190,6 +190,9 @@ test:
 	# build private
 	cd private && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cd private && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
+
+	# run the flow type checker on the IEX data downloader
+	cd data_downloaders/iex && npm run flow
 
 	cd optimizer && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd logger && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
@@ -278,6 +281,7 @@ configure:
 	cd configurator && cargo run
 	cp configurator/conf.rs util/src
 	cp configurator/conf.js mm-react/src
+	cp configurator/conf.js data_downloaders/iex/src
 
 config:
 	make configure
@@ -288,16 +292,21 @@ init:
 	mkdir dist
 	mkdir dist/lib
 
+	cp util/js dist/lib -r
+
 node:
 	if [[ ! $$(which dva) ]]; then npm install -g dva-cli; fi
 	if [[ ! -f ./mm-react/node_modules/installed ]]; then \
+		npm install -g eslint-plugin-flowtype && npm install -g babel-eslint
 		cd mm-react && npm install react && npm install react-dom && npm install babel-plugin-import --save && npm install && \
 			npm install dva-loading --save && touch ./node_modules/installed; \
 	fi
 
-	# fetch a built copy of the ckeditor.  If ameo.link is dead and gone, you can build your own version
-	# curl https://ameo.link/u/422.tgz -o mm-react/public/ckeditor.tgz
-	# cd mm-react/public && \
-	# 	tar -xzf ckeditor.tgz && \
-	# 	rm ckeditor.tgz && \
-	# 	cd ckeditor
+	# fetch a built copy of the ckeditor if it doesn't exist.  If ameo.link is dead and gone, you can build your own version
+	if [[ ! -d ./mm-react/public/ckeditor ]]; then \
+		curl https://ameo.link/u/422.tgz -o mm-react/public/ckeditor.tgz && \
+		cd mm-react/public && \
+			tar -xzf ckeditor.tgz && \
+			rm ckeditor.tgz && \
+			cd ckeditor; \
+	fi

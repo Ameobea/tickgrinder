@@ -1,6 +1,10 @@
 //! Contains all the tests and benchmarks for the module.
 
-#[allow(unused_imports)]
+#![allow(unused_imports)]
+use std::sync::mpsc::{self, Receiver};
+
+use futures::{Future, Sink};
+
 use super::*;
 
 /// It should be an error to try to subscribe to a symbol that the SimBroker doesn't keep track of.
@@ -14,10 +18,8 @@ fn sub_ticks_err() {
 /// How long it takes to unwrap the sender, send a message, and re-store the sender.
 #[bench]
 fn send_push_message(b: &mut test::Bencher) {
-    use futures::sync::mpsc::unbounded;
-
     let settings = SimBrokerSettings::default();
-    let (_, dummy_rx) = unbounded();
+    let (_, dummy_rx) = mpsc::channel();
     let mut sim_b = SimBroker::new(settings, CommandServer::new(Uuid::new_v4(), "SimBroker Test"), dummy_rx).unwrap();
     let receiver = sim_b.push_stream_recv.take().unwrap().boxed();
     thread::spawn(move ||{
@@ -50,9 +52,9 @@ fn dynamic_base_rate_conversion() {
     let mut sim_client = SimBrokerClient::init(hm).wait().unwrap().unwrap();
 
     // wire tickstreams into the broker
-    let (mut base_tx, base_rx) = unbounded::<Tick>();
+    let (mut base_tx, base_rx) = channel::<Tick>(3);
     let base_pair    = String::from("EURUSD");
-    let (mut foreign_tx, foreign_rx) = unbounded::<Tick>();
+    let (mut foreign_tx, foreign_rx) = channel::<Tick>(3);
     let foreign_pair = String::from("EURJPY");
 
     base_tx = base_tx.send(Tick {timestamp: 1, bid: 106143, ask: 106147}).wait().unwrap();
@@ -77,7 +79,7 @@ fn oneshot_price_setting() {
 
     let price = (0999, 1001);
     let sym = String::from("TEST");
-    sim_client.oneshot_price_set(sym.clone(), price, false, 4);
+    sim_client.oneshot_price_set(sym.clone(), price, false, 4).unwrap();
     // TODO
 }
 
@@ -88,7 +90,8 @@ fn oneshot_base_rate_conversion() {
     let cs = CommandServer::new(Uuid::new_v4(), "SimBroker Test");
     let mut sim_client = SimBrokerClient::init(HashMap::new()).wait().unwrap().unwrap();
 
-    sim_client.oneshot_price_set(String::from("EURUSD"), (106143, 106147), true, 5);
+    sim_client.oneshot_price_set(String::from("EURUSD"), (106143, 106147), true, 5).unwrap();
+    // TODO
 }
 
 #[bench]
@@ -134,6 +137,6 @@ fn symbols_contains(b: &mut test::Bencher) {
     let name = String::from("TEST");
     let symbol = Symbol::new_oneshot((99, 103), true, 2, name.clone());
     let name_clone = name.clone();
-    symbols.add(name, symbol);
+    symbols.add(name, symbol).unwrap();
     b.iter(|| symbols.contains(&name_clone))
 }
