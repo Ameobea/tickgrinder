@@ -1,0 +1,14 @@
+{
+  "name": "poloniex",
+  "version": "1.0.0",
+  "dependencies": {
+		"autobahn": "*"
+	},
+  "description": "A data downloader using the Poloniex API to download data",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Casey Primozic <me@ameo.link>",
+  "license": "MIT"
+}
