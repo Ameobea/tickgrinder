@@ -292,12 +292,10 @@ init:
 	mkdir dist
 	mkdir dist/lib
 
-	cp util/js dist/lib -r
-
 node:
 	if [[ ! $$(which dva) ]]; then npm install -g dva-cli; fi
 	if [[ ! -f ./mm-react/node_modules/installed ]]; then \
-		npm install -g eslint-plugin-flowtype && npm install -g babel-eslint
+		npm install -g eslint-plugin-flowtype && npm install -g babel-eslint && \
 		cd mm-react && npm install react && npm install react-dom && npm install babel-plugin-import --save && npm install && \
 			npm install dva-loading --save && touch ./node_modules/installed; \
 	fi

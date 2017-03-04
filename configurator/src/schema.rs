@@ -302,6 +302,20 @@ pub const DATA_DOWNLOADER_SETTINGS: SettingsPage = SettingsPage {
             default: Some("https://ws-api.iextrading.com/1.0/tops"),
             setting_type: SettingType::String,
             comment: Some("The API endpoint for the IEX top-of-book API.  Should be good default unless they change it.  If they do, please open an issue."),
-        }
+        },
+        SettingRow {
+            id: "poloniex_ws_api_url",
+            name: "Poloniex WS API URL",
+            default: Some("wss://api.poloniex.com"),
+            setting_type: SettingType::String,
+            comment: Some("The API endpoint for the Poloniex websocket API.  Should be good as default; if it's changed please open an issue."),
+        },
+        SettingRow {
+            id: "poloniex_http_api_url",
+            name: "Poloniex HTTP API URL",
+            default: Some("https://poloniex.com/public"),
+            setting_type: SettingType::String,
+            comment: Some("The API endpoint for the Poloniex HTTP API.  Should be good as default; if it's changed please open an issue."),
+        },
     ],
 };
