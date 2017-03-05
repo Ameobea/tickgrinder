@@ -4,7 +4,7 @@ use redis::{Client, cmd};
 
 use transport::redis::get_client;
 use trading::tick::Tick;
-use super::TickSink;
+use transport::tickstream::TickSink;
 
 pub struct RedisSink {
     pub symbol: String,

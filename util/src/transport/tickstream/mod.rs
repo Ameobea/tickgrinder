@@ -14,32 +14,19 @@ use trading::tick::Tick;
 use transport::redis::get_client as get_redis_client;
 use conf::CONF;
 
-// readers
-pub mod flatfile_reader;
-pub mod postgres_reader;
-pub mod random_reader;
-pub mod redis_reader;
-
-// sinks
-pub mod console_sink;
-pub mod null_sink;
-pub mod redis_sink;
-pub mod stream_sink;
-
-// maps
+pub mod generators;
 pub mod maps;
-
-// generics
+pub mod sinks;
 pub mod generics;
 
-pub use self::flatfile_reader::*;
-pub use self::postgres_reader::*;
-pub use self::random_reader::*;
-pub use self::redis_reader::*;
-pub use self::console_sink::*;
-pub use self::null_sink::*;
-pub use self::redis_sink::*;
-pub use self::stream_sink::*;
+pub use self::generators::flatfile_reader::*;
+pub use self::generators::postgres_reader::*;
+pub use self::generators::random_reader::*;
+pub use self::generators::redis_reader::*;
+pub use self::sinks::console_sink::*;
+pub use self::sinks::null_sink::*;
+pub use self::sinks::redis_sink::*;
+pub use self::sinks::stream_sink::*;
 pub use self::maps::*;
 pub use self::generics::*;
 

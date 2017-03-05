@@ -5,7 +5,7 @@ const ffi = require('ffi');
 const ref = require('ref');
 
 const FLATFILE = 0; // { filename: String }
-const POSTGRES = 1;// { table: String },
+const POSTGRES = 1; // { table: String },
 const REDIS_CHANNEL = 2; // { host: String, channel: String },
 const REDIS_SET = 3; // { host: String, set_name: String },
 const CONSOLE = 4;
@@ -15,7 +15,7 @@ const stringPtr = ref.refType(ref.types.CString);
 /**
  * Contains the exported API of libtickgrinder
  */
-export const TickgrinderUtil = ffi.Library('../../dist/lib/libtickgrinder_util', {
+const TickgrinderUtil = ffi.Library('libtickgrinder_util', {
   // command server functions
   'get_command_server': ['pointer', [stringPtr]], // Returns a reference to a `CommandServer` given a name for it
   'c_cs_debug': ['void', ['pointer', stringPtr, stringPtr]], // equivalent to `cs.debug(category, msg)`
@@ -30,23 +30,36 @@ export const TickgrinderUtil = ffi.Library('../../dist/lib/libtickgrinder_util',
   'exec_c_rx_closure': ['void', ['pointer', 'int64', 'int64', 'int64']]
 });
 
-/**
- * Returns a wrapper around a `CommandServer` that can be used to send log messages to the platform
- */
-export const Log = {
-  debug: (category: string, msg: string) => {
-    TickgrinderUtil.c_cs_debug(ref.allocCString(category), ref.allocCString(msg));
-  },
-  notice: TickgrinderUtil.c_cs_notice,
-  warning: TickgrinderUtil.c_cs_warning,
-  error: TickgrinderUtil.c_cs_error,
-  critical: TickgrinderUtil.c_cs_critical,
-};
+module.exports = {
+  FLATFILE: FLATFILE,
+  POSTGRES: POSTGRES,
+  REDIS_CHANNEL: REDIS_CHANNEL,
+  REDIS_SET: REDIS_SET,
+  CONSOLE: CONSOLE,
 
-/**
- * Returns a pointer to a native `RxClosure` that is used to push ticks into a sink.
- */
-export const getRxClosure = (): ref.types.pointer => {
-  // TODO
-  return TickgrinderUtil.c_get_rx_closure(REDIS_CHANNEL, ref.allocCString('redis://localhost/'), ref.allocCString('TICKS_TEST'));
+  TickgrinderUtil: TickgrinderUtil,
+
+  /**
+   * Returns a wrapper around a `CommandServer` that can be used to send log messages to the platform
+   */
+  Log: {
+    debug: (cs: ref.types.pointer, category: string, msg: string) => {
+      TickgrinderUtil.c_cs_debug(ref.allocCString(category), ref.allocCString(msg));
+    },
+    notice: TickgrinderUtil.c_cs_notice,
+    warning: TickgrinderUtil.c_cs_warning,
+    error: TickgrinderUtil.c_cs_error,
+    critical: TickgrinderUtil.c_cs_critical,
+    get_cs: (name: string) => {
+      TickgrinderUtil.get_command_server(ref.allocCString(name));
+    }
+  },
+
+  /**
+   * Returns a pointer to a native `RxClosure` that is used to push ticks into a sink.
+   */
+  getRxClosure: (): ref.types.pointer => {
+    // TODO
+    return TickgrinderUtil.c_get_rx_closure(REDIS_CHANNEL, ref.allocCString('redis://localhost/'), ref.allocCString('TICKS_TEST'));
+  },
 };

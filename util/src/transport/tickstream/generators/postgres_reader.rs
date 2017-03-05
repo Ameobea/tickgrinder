@@ -14,7 +14,7 @@ use postgres::error::Error;
 use trading::tick::*;
 use transport::postgres::*;
 
-use super::*;
+use super::super::*;
 
 pub struct PostgresReader {
     pub symbol: String,

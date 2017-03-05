@@ -152,13 +152,18 @@ clean:
 	rm tick_parser/target -rf
 	rm util/target -rf
 	rm backtester/target -rf
-	rm mm/node_modules -rf
 	rm private/target -rf
 	rm broker_shims/simbroker/target -rf
 	rm broker_shims/FXCM/native/native/dist -rf
 	rm broker_shims/FXCM/native/target -rf
 	rm data_downloaders/fxcm_native/target -rf
 	rm configurator/target -rf
+
+	rm util/js/node_modules -rf
+	rm mm/node_modules -rf
+	rm mm-react/node_modules -rf
+	rm data_downloaders/iex/node_modules -rf
+	rm data_downloaders/poloniex/node_modules -rf
 
 test:
 	# copy libstd to the dist/lib directory if it's not already there
@@ -191,8 +196,10 @@ test:
 	cd private && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" CARGO_INCREMENTAL=1 cargo build
 	cd private && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 
-	# run the flow type checker on the IEX data downloader
+	# run the flow type checker on the JavaScript modules that have the Flow type checker enabled
+	cd util/js && npm run flow
 	cd data_downloaders/iex && npm run flow
+	cd data_downloaders/poloniex && npm run flow
 
 	cd optimizer && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd logger && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
@@ -282,6 +289,7 @@ configure:
 	cp configurator/conf.rs util/src
 	cp configurator/conf.js mm-react/src
 	cp configurator/conf.js data_downloaders/iex/src
+	cp configurator/conf.js data_downloaders/poloniex/src
 
 config:
 	make configure
@@ -295,7 +303,7 @@ init:
 node:
 	if [[ ! $$(which dva) ]]; then npm install -g dva-cli; fi
 	if [[ ! -f ./mm-react/node_modules/installed ]]; then \
-		npm install -g eslint-plugin-flowtype && npm install -g babel-eslint && \
+		npm install -g eslint-plugin-flowtype && npm install -g babel-cli && npm install -g babel-eslint && npm install -g flow-remove-types && \
 		cd mm-react && npm install react && npm install react-dom && npm install babel-plugin-import --save && npm install && \
 			npm install dva-loading --save && touch ./node_modules/installed; \
 	fi
@@ -308,3 +316,18 @@ node:
 			rm ckeditor.tgz && \
 			cd ckeditor; \
 	fi
+
+	# copy the JavaScript utility library to the modules that make use of it
+	if [[ ! -f ./util/js/node_modules/installed ]]; then \
+		cd util/js && npm install && touch ./node_modules/installed; \
+	fi
+
+	cd util/js && npm run-script strip
+	rm data_downloaders/poloniex/node_modules/tickgrinder_util -rf
+	cp util/js/stripped data_downloaders/poloniex/node_modules/tickgrinder_util -r
+	cp util/js/node_modules data_downloaders/poloniex/node_modules/tickgrinder_util/node_modules -r
+	cp util/js/package.json data_downloaders/poloniex/node_modules/tickgrinder_util
+	rm data_downloaders/iex/node_modules/tickgrinder_util -rf
+	cp util/js/stripped data_downloaders/iex/node_modules/tickgrinder_util -r
+	cp util/js/node_modules data_downloaders/iex/node_modules/tickgrinder_util/node_modules -r
+	cp util/js/package.json data_downloaders/iex/node_modules/tickgrinder_util
