@@ -8,7 +8,8 @@ use futures::stream::BoxStream;
 
 use trading::tick::Tick;
 use transport::redis::sub_channel;
-use super::*;
+
+use super::super::*;
 
 pub struct RedisReader {
     pub symbol: String,

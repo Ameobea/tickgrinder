@@ -5,14 +5,13 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::thread;
 
-
 use futures::sync::mpsc::channel;
 use futures::{Future, Stream, Sink};
 use futures::stream::BoxStream;
 use trading::tick::Tick;
 use conf::CONF;
 
-use super::*;
+use super::super::*;
 
 pub struct FlatfileReader {
     pub symbol: String,

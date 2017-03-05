@@ -4,6 +4,7 @@ use std::thread;
 use std::path::PathBuf;
 use std::fs::{DirBuilder, File};
 use std::io::Write;
+use std::fmt::Debug;
 use time::now;
 
 use futures::Stream;
@@ -57,4 +58,9 @@ pub fn get_logger_handle(dirname: String, chunk_size: usize) -> Sender<String> {
     });
 
     tx
+}
+
+/// Given a type that can be debug-formatted, returns a String that contains its debug-formatted version.
+pub fn debug<T>(x: T) -> String where T:Debug {
+    format!("{:?}", x)
 }

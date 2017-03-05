@@ -6,7 +6,7 @@ use std::sync::mpsc;
 use futures::sync::mpsc::UnboundedSender;
 
 use trading::tick::Tick;
-use super::TickSink;
+use transport::tickstream::TickSink;
 
 pub struct StreamSink {
     mpsc_tx: mpsc::Sender<Tick>,

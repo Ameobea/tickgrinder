@@ -5,7 +5,8 @@ const io = require('socket.io-client');
 const ref = require('ref');
 
 import { initWs, handleCommand } from './src/commands';
-import { TickgrinderUtil, Log, getRxClosure } from './src/ffi';
+import util from 'tickgrinder_util';
+const { TickgrinderUtil, Log, getRxClosure } = util.ffi;
 const CONF = require('./src/conf.js');
 
 // set up environment for the download

@@ -19,6 +19,7 @@ extern crate time;
 pub mod indicators;
 pub mod trading_conditions;
 pub mod strategies;
+pub mod sinks;
 
 // Sets up the defaults for your application
 pub use fxcm::FXCMNative as ActiveBroker;

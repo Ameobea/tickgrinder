@@ -5,7 +5,7 @@ use test;
 
 use trading::tick::Tick;
 
-use super::TickSink;
+use transport::tickstream::TickSink;
 
 pub struct NullSink {}
 

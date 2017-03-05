@@ -12,7 +12,7 @@ use futures::stream::BoxStream;
 
 use trading::tick::Tick;
 
-use super::*;
+use super::super::*;
 
 pub struct RandomReader {}
 
