@@ -2,6 +2,10 @@
 
 use super::*;
 
+pub mod poloniex;
+
+pub use self::poloniex::*;
+
 /// Inserts a static delay between each tick.
 pub struct FastMap {
     pub delay_ms: usize

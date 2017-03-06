@@ -1,5 +1,6 @@
 //! Hooks into the tickgrinder utility library compiled from rust to gain access to native platform functionality including data transferring,
 //! logging, and tick generator/sink functionality
+// @flow
 
 const ffi = require('ffi');
 const ref = require('ref');
@@ -9,6 +10,13 @@ const POSTGRES = 1; // { table: String },
 const REDIS_CHANNEL = 2; // { host: String, channel: String },
 const REDIS_SET = 3; // { host: String, set_name: String },
 const CONSOLE = 4;
+const CSV = 5;
+
+const POLONIEX_BOOK_MODIFY = 25;
+const POLONIEX_BOOK_REMOVE = 26;
+const POLONIEX_NEW_TRADE = 27;
+const POLONIEX_TROLLBOX = 28;
+const POLONIEX_TICKER = 29;
 
 const stringPtr = ref.refType(ref.types.CString);
 
@@ -27,8 +35,41 @@ const TickgrinderUtil = ffi.Library('libtickgrinder_util', {
   // equivalent to `c_transfer_data(src, dst, src_arg1, src_arg2, dst_arg1, dst_arg2, cs)``
   'c_transfer_data': ['bool', ['int64', 'int64', 'pointer', 'pointer', 'pointer', 'pointer', 'pointer']],
   'c_get_rx_closure': ['pointer', ['int64', 'pointer', 'pointer']],
-  'exec_c_rx_closure': ['void', ['pointer', 'int64', 'int64', 'int64']]
+  'exec_c_rx_closure': ['void', ['pointer', 'int64', 'int64', 'int64']],
+  // poloniex data functions
+  'get_book_modify_executor': ['pointer', ['int', 'pointer', 'pointer']],
+  'process_book_modification': ['void', ['pointer', 'int64', stringPtr]]
 });
+
+/**
+ * Contains functions for creating and working with the data processing pipelines that take the raw JSON-encoded strings provided
+ * by the Poloniex WebSocket API and process it down into a sink.
+ */
+const Tickstream = {
+  /**
+   * Returns a pointer to a tickstream executor that processes data of the specified type into a CSV sink.  The returned pointer should
+   * be used along with `Tickstream.executorExec` to process data into the sink.  `data_type` should be one of the `POLONIEX_TROLLBOX`,
+   * `POLONIEX_BOOK_MODIFY`, etc.
+   */
+  getCsvSinkExecutor: (data_type: number, output_path: string): ref.types.pointer => {
+    switch(data_type) {
+    case POLONIEX_BOOK_MODIFY:
+      return TickgrinderUtil.get_book_modify_executor(CSV, ref.allocCString(output_path), null);
+    default:
+      console.error('No handler for that data type!');
+      process.exit(1);
+    }
+  },
+
+  /**
+   * Given a reference to a tickstream executor provided by `getCsvSinkExecutor` and a JSON-encoded message from its corresponding
+   * data source, processes the data into the stream, through the internal map, and into the CSV file sink.  `timestamp` is the
+   * milliseconds since the epoch Unix timestamp of the data point.
+   */
+  executorExec: function(executor: ref.types.pointer, timestamp: number, json_string: string) {
+    return TickgrinderUtil.process_book_modification(executor, timestamp, ref.allocCString(json_string));
+  }
+};
 
 module.exports = {
   FLATFILE: FLATFILE,
@@ -36,22 +77,39 @@ module.exports = {
   REDIS_CHANNEL: REDIS_CHANNEL,
   REDIS_SET: REDIS_SET,
   CONSOLE: CONSOLE,
+  CSV: CSV,
+
+  POLONIEX_BOOK_MODIFY: POLONIEX_BOOK_MODIFY,
+  POLONIEX_BOOK_REMOVE: POLONIEX_BOOK_REMOVE,
+  POLONIEX_NEW_TRADE: POLONIEX_NEW_TRADE,
+  POLONIEX_TROLLBOX: POLONIEX_TROLLBOX,
+  POLONIEX_TICKER: POLONIEX_TICKER,
 
   TickgrinderUtil: TickgrinderUtil,
+
+  Tickstream: Tickstream,
 
   /**
    * Returns a wrapper around a `CommandServer` that can be used to send log messages to the platform
    */
   Log: {
     debug: (cs: ref.types.pointer, category: string, msg: string) => {
-      TickgrinderUtil.c_cs_debug(ref.allocCString(category), ref.allocCString(msg));
+      TickgrinderUtil.c_cs_debug(cs, ref.allocCString(category), ref.allocCString(msg));
     },
-    notice: TickgrinderUtil.c_cs_notice,
-    warning: TickgrinderUtil.c_cs_warning,
-    error: TickgrinderUtil.c_cs_error,
-    critical: TickgrinderUtil.c_cs_critical,
-    get_cs: (name: string) => {
-      TickgrinderUtil.get_command_server(ref.allocCString(name));
+    notice: (cs: ref.types.pointer, category: string, msg: string) => {
+      TickgrinderUtil.c_cs_notice(cs, ref.allocCString(category), ref.allocCString(msg));
+    },
+    warning: (cs: ref.types.pointer, category: string, msg: string) => {
+      TickgrinderUtil.c_cs_warning(cs, ref.allocCString(category), ref.allocCString(msg));
+    },
+    error: (cs: ref.types.pointer, category: string, msg: string) => {
+      TickgrinderUtil.c_cs_error(cs, ref.allocCString(category), ref.allocCString(msg));
+    },
+    critical: (cs: ref.types.pointer, category: string, msg: string) => {
+      TickgrinderUtil.c_cs_critical(cs, ref.allocCString(category), ref.allocCString(msg));
+    },
+    get_cs: (name: string): ref.types.pointer => {
+      return TickgrinderUtil.get_command_server(ref.allocCString(name));
     }
   },
 

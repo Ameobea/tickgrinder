@@ -2,44 +2,76 @@
 // @flow
 
 const https = require('https');
+const assert = require('assert');
 
 const autobahn = require('autobahn');
 
 const CONF = require('./src/conf');
 import util from 'tickgrinder_util';
-const { TickgrinderUtil, Log, getRxClosure } = util.ffi;
+const { Tickstream, Log, POLONIEX_BOOK_MODIFY } = util.ffi;
 
 type OrderBookMessage = {data: {type: string, rate: string, amount: ?string}, type: string};
 type CacheEntry = {msg: Array<OrderBookMessage>, seq: number};
 
-// TODO: shared node_modules directories for all platform modules that are writte in NodeJS
+// how large to grow the cache before writing the data into the sink.  Must be a multiple of 10.
+const CACHE_SIZE = 50;
+
+if(CACHE_SIZE % 10 !== 0) {
+  console.error('ERROR: `CACHE_SIZE` must be a multiple of 10!');
+  process.exit(1);
+}
+
+// TODO: shared node_modules directories for all platform modules that are written in NodeJS
+
+// TODO: Make dynamic and make it a fully fledged spawnable instance
+const pair = 'BTC_XMR';
+// a place to hold out-of-order messages until the missing messages are received
+var messageCache: Array<CacheEntry> = [];
+// set up some state for communicating with the platform's util library through FFI
+let cs = Log.get_cs('Poloniex Data Downloader');
+Log.debug(cs, 'test', 'test');
+// TODO: Make dynamic
+let book_modify_executor = Tickstream.getCsvSinkExecutor(POLONIEX_BOOK_MODIFY, `${CONF.data_dir + '/polo_output.csv'}`);
+if(book_modify_executor.isNull()) {
+  console.error('The `book_modify_executor` was null!');
+  process.exit(1);
+}
 
 /**
- * Attempts to drain the cache of all queued messages
+ * Attempts to drain the cache of all stored messages
  */
 function drainCache() {
+  console.log('draining cache');
   // sort the message cache by sequence number from most recent to oldest
   messageCache = messageCache.sort((a: CacheEntry, b: CacheEntry): number => {
     return (a.seq < b.seq) ? 1 : ((b.seq < a.seq) ? -1 : 0);
   });
 
-  // console.log(messageCache);
+  // make sure it's sorted correctly
+  assert(messageCache[0].seq > messageCache[messageCache.length - 1].seq);
 
-  // process any cached messages that were waiting for this message before being recorded
-  for(var j=messageCache.length; j--;) {
-    if(last_seq + 1 === messageCache[j].seq) {
-      let msg = messageCache.pop();
-      // process each of the individual events in the message
-      for(var k=0; k<msg.msg.length; k++) {
-        processOrderBookMessage(msg.msg[k]);
-      }
-    } else {
-      // there's another missing message, so stop processing and begin waiting for the missing one before going on.
-      console.log(`Encountered gap while draining cache; Expected ${last_seq + 1} and found ${messageCache[j].seq}`);
-      break;
+  // split the oldest 90% of the array off to process into the sink
+  let split = messageCache.splice(0, .9 * CACHE_SIZE);
+  assert(split.length === .9 * CACHE_SIZE);
+  // console.log(split);
+
+  // process the oldest 90% of messages that were waiting for this message before being recorded
+  let old_length = split.length;
+  for(var j=0; j<old_length; j++) {
+    let entry: CacheEntry = split.pop();
+    // console.log(split.length);
+    // process each of the individual events in the message
+    for(var k=0; k<entry.msg.length; k++) {
+      // console.log(entry.msg[k]);
+      processOrderBookMessage(entry.msg[k]);
     }
+  }
 
-    last_seq += 1;
+  // make sure that the correct number of elements are left in the message cache
+  assert(messageCache.length == .1 * CACHE_SIZE);
+
+  if(split.length !== 0) {
+    Log.error(cs, 'Message Cache', 'Error while draining message cache: The cache was expected to be empty but had elements remaining in it!');
   }
 }
 
@@ -47,35 +79,35 @@ function drainCache() {
  * Given an in-order message received on the orderbook channel, parses it and submits it to the correct recording endpoint.
  */
 function processOrderBookMessage(msg: OrderBookMessage) {
-  switch(msg.type) {
-  case 'orderBookModify': {
-    recordBookModification(parseFloat(msg.data.rate), msg.type == 'bid', parseFloat(msg.data.amount));
-    break;
-  }
-    // TODO: Add handlers for other message types
-  default: {
-      // TODO: Log error that we received unexpected message type
-  }
-
+  if(msg.type == 'orderBookModify') {
+    // console.log('calling `recordBookModification`...');
+    recordBookModification(msg.data.rate, msg.data.type, msg.data.amount);
+  } else if(msg.type == 'orderBookRemove') {
+    // TODO
+  } else { // TODO: Add handlers for other message types
+    Log.error(cs, 'processOrderBookMessage', `Unhandled message type received: ${msg.type}`);
   }
 }
 
 /**
  * Called for every received order book modification that is in-order.
  */
-function recordBookModification(rate: number, is_bid: boolean, amount: number) {
-  // TODO
-  console.log(rate);
+function recordBookModification(rate: string, type: string, amount: ?string) {
+  if(amount == null) {
+    amount = '0.0';
+    Log.error(cs, 'Message Cache', 'Received a `orderBookModify` message without an `amount` parameter');
+  }
+  let obj = {rate: rate, type: type, amount: amount};
+  let d = new Date();
+  // the following lines will remain as a tribute to the monumental effort related to a JavaScript classic "silent fail" of a FFI integer overflow
+  // console.log('Writing book modification into tickstream executor...');
+  // console.log(book_modify_executor.ref());
+  // console.log(JSON.stringify(obj));
+  // debugger;
+  // push the tick through the processing pipeline to its ultimate destionation.
+  Tickstream.executorExec(book_modify_executor, d.getTime(), JSON.stringify(obj));
+  // console.log('after executor write');
 }
-
-let cs = Log.get_cs('Poloniex Data Downloader');
-
-// TODO: Make dynamic and make it a fully fledged spawnable instance
-const pair = 'BTC_XMR';
-// a place to hold out-of-order messages until the missing messages are received
-var messageCache: Array<CacheEntry> = [];
-// the sequence number of the last received message
-var last_seq: number = 0;
 
 // fetch an image of the order book after giving the recorder a while to fire up
 setTimeout(() => {
@@ -91,25 +123,23 @@ setTimeout(() => {
     });
 
     res.on('end', () => {
+      let last_seq = 0;
       try {
         let parsedData = JSON.parse(rawData);
         last_seq = parsedData.seq;
+
+        // TODO: Read all of the updates in the ledger into the cache as simulated updates
       } catch(e) {
         console.error(`Unable to parse orderbook response into JSON: ${e}`);
         process.exit(1);
       }
 
-      // TODO: Read all of the updates in the ledger into the cache as simulated updates
-      // TODO: /TEAR OUT THIS HORRIBLE SYSTEM AND REPLACE IT WITH SOMETHING TINY AND SLIGHTLY LESS HORRIBLE/
-
       // drop all recorded updates that were before the order book's sequence number
       messageCache = messageCache.filter((msg: CacheEntry): boolean => msg.seq > last_seq);
-      // and process all the ones after it into the sink
-      console.log(`Received original copy of ledger with seq ${last_seq}; draining cache.`);
-      drainCache();
+      console.log(`Received original copy of ledger with seq ${last_seq}; clearing cache.`);
     });
   });
-}, 3674)
+}, 3674);
 
 // creates a new connection to the API endpoint
 var connection = new autobahn.Connection({
@@ -119,26 +149,9 @@ var connection = new autobahn.Connection({
 
 connection.onopen = session => {
   function marketEvent(args: Array<OrderBookMessage>, kwargs: {seq: number}) {
-    if(last_seq !== kwargs.seq - 1) {
-      // if there is a gap between the last received sequence number, write to cache instead of recording
-      messageCache.push({msg: args, seq: kwargs.seq});
-      console.log(`Gap so writing to cache: ${kwargs.seq}`);
-
-      // if the cache is a certain length, just give up on the missing message.
-      if(messageCache.length > 50 && last_seq !== 0) {
-        console.log('Dropping missing message due to extreme delay.');
-        last_seq += 1;
-
-        drainCache();
-      }
-    } else {
-      for(var i=0; i<args.length; i++) {
-        // the message is in-order, so process it into the correct endpoint
-        processOrderBookMessage(args[i]);
-      }
-
-      last_seq += 1;
-      // if there are out-of-order messages that can now be sent, send them
+    messageCache.push({msg: args, seq: kwargs.seq});
+    // if the cache is full, sort it and process it into the sink
+    if(messageCache.length >= CACHE_SIZE) {
       drainCache();
     }
   }

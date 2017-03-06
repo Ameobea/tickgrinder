@@ -21,6 +21,7 @@
   "scripts": {
     "flow": "flow; test $? -eq 0 -o $? -eq 2",
     "run": "babel-node index.js",
+		"debug": "babel-node debug index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Casey Primozic <me@ameo.link>",

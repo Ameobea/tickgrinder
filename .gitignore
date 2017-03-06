@@ -12,3 +12,4 @@ callgrind.*
 
 # wordgrinder documents
 *.wg
+npm-debug.log
