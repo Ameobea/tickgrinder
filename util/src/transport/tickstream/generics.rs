@@ -14,6 +14,7 @@ use futures::sync::mpsc::Receiver;
 use serde::{Serialize, Deserialize};
 
 use trading::tick::GenTick;
+use transport::command_server::CommandServer;
 
 /// Represents an external source of data that can be used to produce ticks.
 pub trait GenTickGenerator<T> {
@@ -26,6 +27,9 @@ pub trait GenTickGenerator<T> {
 
 /// Represents a transformation applied to ticks.
 pub trait GenTickMap<T, O> {
+    /// Given some settings and a `CommandServer` for logging purposes, returns a new instance of a map
+    fn new(settings: HashMap<String, String>, cs: CommandServer) -> Self where Self:Sized;
+
     /// Processes a tick through the map, optionally returning a new tick.
     fn map(&mut self, t: GenTick<T>) -> Option<GenTick<O>>;
 }

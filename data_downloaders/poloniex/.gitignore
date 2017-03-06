@@ -1,3 +1,4 @@
 node_modules/
 src/conf.js
 yarn.lock
+log.txt

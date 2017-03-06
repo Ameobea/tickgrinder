@@ -8,8 +8,12 @@ use std::mem;
 use uuid::Uuid;
 
 use transport::data::{RxCallback, get_rx_closure};
+use transport::tickstream::sinks::csv_sink;
 use trading::tick::Tick;
 pub use transport::commands::CLogLevel;
+
+pub mod poloniex;
+pub use self::poloniex::*;
 
 /// Takes a pointer to a string from C and copies it into a Rust-owned `CString`.
 pub unsafe fn ptr_to_cstring(ptr: *mut c_char) -> CString {
@@ -29,6 +33,10 @@ const POSTGRES: c_int = 1;// { table: String },
 const REDIS_CHANNEL: c_int = 2; // { host: String, channel: String },
 const REDIS_SET: c_int = 3; // { host: String, set_name: String },
 const CONSOLE: c_int = 4;
+const CSV: c_int = 5;
+
+// TODO: Convert the old `RxCallback`-based sinks into real `TickSink`s.
+
 const CSTRING_CONV_ERR: &'static str = "Unable to convert `CString` to `str`";
 
 /// Wrapper around the internal `transfer_data` function that moves stored historical tick data from one location to
@@ -203,4 +211,13 @@ pub unsafe extern "C" fn c_cs_critical(cs_ptr: *mut c_void, category: *mut c_cha
     let msg_str = msg_cstring.to_str().expect(CSTRING_CONV_ERR);
     cs.critical(Some(cat_str), msg_str);
     mem::forget(cs);
+}
+
+/// Creates a wrapper around a `GenTickSink` that can be passed to a sink executor to send data to it.
+pub fn get_gen_sink_wrapper(sink_id: c_int) -> Result<*mut c_void, ()> {
+    match sink_id {
+        POLONIEX_CSV => {
+            unimplemented!();
+        }
+    }
 }
