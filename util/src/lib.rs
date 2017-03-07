@@ -1,6 +1,6 @@
 //! Code shared by all modules of the platform
 
-#![feature(rustc_attrs, plugin, conservative_impl_trait, test, fn_traits, core, unboxed_closures, libc)]
+#![feature(rustc_attrs, plugin, conservative_impl_trait, test, fn_traits, core, unboxed_closures, libc, raw)]
 
 #![allow(unknown_lints)]
 #![cfg_attr(feature="clippy", feature(plugin))]
