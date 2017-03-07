@@ -37,8 +37,10 @@ const TickgrinderUtil = ffi.Library('libtickgrinder_util', {
   'c_get_rx_closure': ['pointer', ['int64', 'pointer', 'pointer']],
   'exec_c_rx_closure': ['void', ['pointer', 'int64', 'int64', 'int64']],
   // poloniex data functions
-  'get_book_modify_executor': ['pointer', ['int', 'pointer', 'pointer']],
-  'process_book_modification': ['void', ['pointer', 'int64', stringPtr]]
+  // get_executor(executor_id: i64, sink_id: i64, sink_arg1: *mut c_void, sink_arg2: *mut c_void) -> *mut c_void
+  'get_executor': ['pointer', ['int64', 'int64', 'pointer', 'pointer']],
+  // process_event(event_id: i64, state_ptr: *mut c_void, timestamp: i64, event: *mut c_char)
+  'process_event': ['void', ['int64', 'pointer', 'int64', 'pointer']]
 });
 
 /**
@@ -52,13 +54,13 @@ const Tickstream = {
    * `POLONIEX_BOOK_MODIFY`, etc.
    */
   getCsvSinkExecutor: (data_type: number, output_path: string): ref.types.pointer => {
-    switch(data_type) {
-    case POLONIEX_BOOK_MODIFY:
-      return TickgrinderUtil.get_book_modify_executor(CSV, ref.allocCString(output_path), null);
-    default:
-      console.error('No handler for that data type!');
+    let pointer = TickgrinderUtil.get_executor(data_type, CSV, ref.allocCString(output_path), null);
+    if(pointer.isNull()) {
+      console.error('The returned executor pointer was null!');
       process.exit(1);
     }
+
+    return {pointer: pointer, id: data_type};
   },
 
   /**
@@ -66,8 +68,8 @@ const Tickstream = {
    * data source, processes the data into the stream, through the internal map, and into the CSV file sink.  `timestamp` is the
    * milliseconds since the epoch Unix timestamp of the data point.
    */
-  executorExec: function(executor: ref.types.pointer, timestamp: number, json_string: string) {
-    return TickgrinderUtil.process_book_modification(executor, timestamp, ref.allocCString(json_string));
+  executorExec: function(executor: {id: number, pointer: ref.types.pointer}, timestamp: number, json_string: string) {
+    TickgrinderUtil.process_event(executor.id, executor.pointer, timestamp, ref.allocCString(json_string));
   }
 };
 

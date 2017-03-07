@@ -8,9 +8,9 @@ const autobahn = require('autobahn');
 
 const CONF = require('./src/conf');
 import util from 'tickgrinder_util';
-const { Tickstream, Log, POLONIEX_BOOK_MODIFY } = util.ffi;
+const { Tickstream, Log, POLONIEX_BOOK_MODIFY, POLONIEX_BOOK_REMOVE, POLONIEX_NEW_TRADE } = util.ffi;
 
-type OrderBookMessage = {data: {type: string, rate: string, amount: ?string}, type: string};
+type OrderBookMessage = {data: {type: string, rate: string, amount: ?string, tradeID: ?string, date: ?string, total: ?string}, type: string};
 type CacheEntry = {msg: Array<OrderBookMessage>, seq: number};
 
 // how large to grow the cache before writing the data into the sink.  Must be a multiple of 10.
@@ -22,26 +22,25 @@ if(CACHE_SIZE % 10 !== 0) {
 }
 
 // TODO: shared node_modules directories for all platform modules that are written in NodeJS
-
 // TODO: Make dynamic and make it a fully fledged spawnable instance
+// TODO: Periodic ledger synchronization to make sure we're keeping up correctly
+
 const pair = 'BTC_XMR';
 // a place to hold out-of-order messages until the missing messages are received
 var messageCache: Array<CacheEntry> = [];
 // set up some state for communicating with the platform's util library through FFI
 let cs = Log.get_cs('Poloniex Data Downloader');
 Log.debug(cs, 'test', 'test');
-// TODO: Make dynamic
-let book_modify_executor = Tickstream.getCsvSinkExecutor(POLONIEX_BOOK_MODIFY, `${CONF.data_dir + '/polo_output.csv'}`);
-if(book_modify_executor.isNull()) {
-  console.error('The `book_modify_executor` was null!');
-  process.exit(1);
-}
+
+// create the executors for processing the ticks into the CSV sink
+let book_modify_executor = Tickstream.getCsvSinkExecutor(POLONIEX_BOOK_MODIFY, `${CONF.data_dir + '/polo_book_modificiation.csv'}`);
+let book_remove_executor = Tickstream.getCsvSinkExecutor(POLONIEX_BOOK_REMOVE, `${CONF.data_dir + '/polo_book_removal.csv'}`);
+let book_new_trade_executor = Tickstream.getCsvSinkExecutor(POLONIEX_NEW_TRADE, `${CONF.data_dir + '/polo_book_rew_trade.csv'}`);
 
 /**
  * Attempts to drain the cache of all stored messages
  */
 function drainCache() {
-  console.log('draining cache');
   // sort the message cache by sequence number from most recent to oldest
   messageCache = messageCache.sort((a: CacheEntry, b: CacheEntry): number => {
     return (a.seq < b.seq) ? 1 : ((b.seq < a.seq) ? -1 : 0);
@@ -53,16 +52,13 @@ function drainCache() {
   // split the oldest 90% of the array off to process into the sink
   let split = messageCache.splice(0, .9 * CACHE_SIZE);
   assert(split.length === .9 * CACHE_SIZE);
-  // console.log(split);
 
   // process the oldest 90% of messages that were waiting for this message before being recorded
   let old_length = split.length;
   for(var j=0; j<old_length; j++) {
     let entry: CacheEntry = split.pop();
-    // console.log(split.length);
     // process each of the individual events in the message
     for(var k=0; k<entry.msg.length; k++) {
-      // console.log(entry.msg[k]);
       processOrderBookMessage(entry.msg[k]);
     }
   }
@@ -80,14 +76,17 @@ function drainCache() {
  */
 function processOrderBookMessage(msg: OrderBookMessage) {
   if(msg.type == 'orderBookModify') {
-    // console.log('calling `recordBookModification`...');
     recordBookModification(msg.data.rate, msg.data.type, msg.data.amount);
   } else if(msg.type == 'orderBookRemove') {
-    // TODO
+    recordBookRemoval(msg.data.rate, msg.data.type);
+  } else if(msg.type == 'newTrade') {
+    recordBookNewTrade(msg.data);
   } else { // TODO: Add handlers for other message types
     Log.error(cs, 'processOrderBookMessage', `Unhandled message type received: ${msg.type}`);
   }
 }
+
+// TODO: (IMPORTANT) change the timestamps of data points to be recorded when the point is received instead of when the cache is drained
 
 /**
  * Called for every received order book modification that is in-order.
@@ -107,6 +106,23 @@ function recordBookModification(rate: string, type: string, amount: ?string) {
   // push the tick through the processing pipeline to its ultimate destionation.
   Tickstream.executorExec(book_modify_executor, d.getTime(), JSON.stringify(obj));
   // console.log('after executor write');
+}
+
+/**
+ * Called for every received order book removal that is in-order
+ */
+function recordBookRemoval(rate: string, type: string) {
+  let obj = {rate: rate, type: type};
+  let d = new Date();
+  Tickstream.executorExec(book_remove_executor, d.getTime(), JSON.stringify(obj));
+}
+
+/**
+ * Called for every new trade that occurs on the book that is in-order
+ */
+function recordBookNewTrade(data: {tradeID: ?string, rate: string, amount: ?string, date: ?string, total: ?string, type: string}) {
+  let d = new Date();
+  Tickstream.executorExec(book_new_trade_executor, d.getTime(), JSON.stringify(data)); // TODO
 }
 
 // fetch an image of the order book after giving the recorder a while to fire up
@@ -170,7 +186,8 @@ connection.onopen = session => {
 };
 
 connection.onclose = function () {
-  console.log('Websocket connection closed');
+  Log.critical(cs, 'Websocket', 'Websocket connection closed!')
+  console.error('Websocket connection closed!');
 };
 
 connection.open();

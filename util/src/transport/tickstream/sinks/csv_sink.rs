@@ -40,5 +40,6 @@ impl<T> GenTickSink<T> for CsvSink<T> where T:Encodable, T:Decodable {
         if let Err(e) = self.writer.encode((t.timestamp, t.data)) {
             println!("Error while writing line to file: {:?}", e);
         }
+        self.writer.flush();
     }
 }
