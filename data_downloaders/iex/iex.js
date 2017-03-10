@@ -24,7 +24,7 @@ if(!our_uuid) {
   console.error('Usage: node manager.js uuid');
   process.exit(0);
 } else {
-  console.log(`IEX Data Downloader now listening for commands on ${CONF.redis_control_channel} and ${our_uuid}`);
+  Log.notice(cs, '', `IEX Data Downloader now listening for commands on ${CONF.redis_control_channel} and ${our_uuid}`);
 }
 
 // start listening for commands from the platform and responding to them
@@ -60,15 +60,15 @@ function startDownload(symbols: string[]) {
   socket.on('message', handleWsMessage);
 
   socket.on('connect_failed', function() {
-    Log.error('There seems to be an issue with the connection to the IEX socket.io API server!');
+    Log.error(cs, '', 'Unable to connect to the IEX socket.io API server!');
   });
 
   socket.on('connecting', function() {
-    Log.notice('', 'Connecting to IEX socket.io API server...');
+    Log.notice(cs, '', 'Connecting to IEX socket.io API server...');
   });
 
   socket.on('connected', function() {
-    Log.notice('', 'Successfully connected to IEX socket.io API server.');
+    Log.notice(cs, '', 'Successfully connected to IEX socket.io API server.');
   });
 
   socket.emit('subscribe', symbols.join(','));

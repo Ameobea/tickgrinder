@@ -287,6 +287,7 @@ kill:
 configure:
 	cd configurator && cargo run
 	cp configurator/conf.rs util/src
+	cp configurator/conf.js util/js/src
 	cp configurator/conf.js mm-react/src
 	cp configurator/conf.js data_downloaders/iex/src
 	cp configurator/conf.js data_downloaders/poloniex/src

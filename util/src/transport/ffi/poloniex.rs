@@ -59,28 +59,33 @@ pub unsafe extern "C" fn get_executor(
     executor_id: i64, sink_id: i64, sink_arg1: *mut c_void, sink_arg2: *mut c_void
 ) -> *mut c_void {
     // get a properly named `CommandServer` and the correct map (boxed and cast to a *mut c_void) that correspond to the executor
-    let (cs, map) = match executor_id as i32 {
+    match executor_id as i32 {
         POLONIEX_BOOK_MODIFY => {
             let cs = CommandServer::new(Uuid::new_v4(), "Poloniex Order Book Modification Executor");
-            (cs.clone(), Box::into_raw(Box::new(PoloniexBookModifyMap::new(HashMap::new(), cs))) as *mut c_void)
+            Box::into_raw(Box::new(BookModificationExecutor {
+                map: Box::into_raw(Box::new(PoloniexBookModifyMap::new(HashMap::new(), cs.clone()))) as *mut c_void,
+                sink: get_poloniex_gen_sink_wrapper(sink_id as i32, sink_arg1, sink_arg2),
+                cs: cs,
+            })) as *mut c_void
         },
         POLONIEX_BOOK_REMOVE => {
             let cs = CommandServer::new(Uuid::new_v4(), "Poloniex Order Book Removal Executor");
-            (cs.clone(), Box::into_raw(Box::new(PoloniexBookRemovalMap::new(HashMap::new(), cs))) as *mut c_void)
+            Box::into_raw(Box::new(BookRemovalExecutor {
+                map: Box::into_raw(Box::new(PoloniexBookRemovalMap::new(HashMap::new(), cs.clone()))) as *mut c_void,
+                sink: get_poloniex_gen_sink_wrapper(sink_id as i32, sink_arg1, sink_arg2),
+                cs: cs,
+            })) as *mut c_void
         },
         POLONIEX_NEW_TRADE => {
             let cs = CommandServer::new(Uuid::new_v4(), "Poloniex New Trade Executor");
-            (cs.clone(), Box::into_raw(Box::new(PoloniexTradeMap::new(HashMap::new(), cs))) as *mut c_void)
+            Box::into_raw(Box::new(TradeExecutor {
+                map: Box::into_raw(Box::new(PoloniexTradeMap::new(HashMap::new(), cs.clone()))) as *mut c_void,
+                sink: get_poloniex_gen_sink_wrapper(sink_id as i32, sink_arg1, sink_arg2),
+                cs: cs,
+            })) as *mut c_void
         }
         _ => unimplemented!(),
-    };
-
-    // box it up and cast it to a raw pointer to be handed off over the FFI
-    Box::into_raw(Box::new(BookRemovalExecutor {
-        map: map,
-        sink: get_poloniex_gen_sink_wrapper(sink_id as i32, sink_arg1, sink_arg2),
-        cs: cs,
-    })) as *mut c_void
+    }
 }
 
 /// Function exported to the FFI interface that takes an event type, timestamp, and event as a JSON-formatted string pointer and
@@ -115,7 +120,7 @@ unsafe fn get_poloniex_gen_sink_wrapper<T>(
             let path_string = String::from(ptr_to_cstring(arg1 as *mut c_char).to_str().expect("Bad CString provided as argument to CSV Sink!"));
             let mut settings = HashMap::new();
             settings.insert(String::from("output_path"), path_string);
-            Box::new(CsvSink::new(settings).expect("Unable to create `CsvSink` from supplied settings!"))
+            Box::new(CsvSink::new(settings).expect("Unable to create `CsvSink` from supplied settings!") as CsvSink<T>)
         },
         _ => unimplemented!(),
     }

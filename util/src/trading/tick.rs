@@ -1,6 +1,8 @@
 //! Structs and functions for creating and managing Ticks.  Ticks represent one
 //! data point in a timeseries.
 
+use std::fmt::{self, Debug, Formatter};
+
 use serde_json;
 
 #[allow(unused_imports)]
@@ -12,6 +14,18 @@ use transport::query_server::QueryServer;
 pub struct GenTick<T> {
     pub timestamp: u64,
     pub data: T,
+}
+
+impl<T> Debug for GenTick<T> where T:Debug {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "GenTick{{ {:?} }}", self.data)
+    }
+}
+
+impl<T> Clone for GenTick<T> where T:Clone {
+    fn clone(&self) -> GenTick<T> {
+        GenTick{timestamp: self.timestamp, data: self.data.clone()}
+    }
 }
 
 /// A traditional tick containing a bid and ask in pips.

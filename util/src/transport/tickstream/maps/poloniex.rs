@@ -176,10 +176,12 @@ impl GenTickMap<String, PoloniexTrade> for PoloniexTradeMap {
 
         // try to parse the `HashMap` into a `PoloniexTrade` and return it
         match parse_trade_hashmap(&hm) {
-            Ok(trade) => Some(GenTick{
-                timestamp: tick.timestamp,
-                data: trade
-            }),
+            Ok(trade) => {
+                Some(GenTick{
+                    timestamp: tick.timestamp,
+                    data: trade
+                })
+            },
             Err(err) => {
                 self.cs.error(Some("`PoloniexTradeMap`"), &format!("Error while parsing the `HashMap` into a `PoloniexTrade`: {:?}", err));
                 None

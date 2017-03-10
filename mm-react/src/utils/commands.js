@@ -19,40 +19,6 @@ const wsError = () => {
 };
 
 /**
- * Generates a new V4 UUID in hyphenated form
- */
-function v4 () {
-  function s4 () {
-    return Math.floor((1 + Math.random()) * 0x10000)
-      .toString(16)
-      .substring(1);
-  }
-  return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
-    s4() + '-' + s4() + s4() + s4();
-}
-
-/**
- * Starts the WS listening for new messages sets up processing callback
- */
-function initWs (callback, dispatch, ourUuid) {
-  let socketUrl = 'ws://localhost:7037';
-  let socket = new WebSocket(socketUrl);
-  socket.onmessage = message => {
-    let parsed = JSON.parse(message.data);
-    // throw away messages we're transmitting to channels we don't care about
-    if ([CONF.redis_control_channel, CONF.redis_responses_channel, CONF.redis_log_channel, ourUuid].indexOf(parsed.channel) !== -1) {
-      callback(dispatch, parsed);
-    }
-  };
-
-  socket.onerror = () => {
-    wsError();
-  };
-
-  return socket;
-}
-
-/**
  * Processes a command and returns a Response to send back
  */
 function getResponse (command, uuid) {
