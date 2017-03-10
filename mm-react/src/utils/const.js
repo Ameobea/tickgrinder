@@ -15,7 +15,16 @@ const dataDownloaders = [
     description: 'Retrieves the FXCM-hosted flatfile archives containing historical tick data and processes ' +
       'them into CSV files.',
     command: 'SpawnFxcmFlatfileDataDownloader',
-  },
+  }, {
+    name: 'IEX Data Downloader',
+    description: 'Uses the live data streams from the Investor\'s Exchange (IEX) to get live price data for US stocks.',
+    command: 'SpawnIexDataDownloader',
+  }, {
+    name: 'Poloniex Data Downloader',
+    description: 'Hooks into the Poloniex API to retrieve live streaming orderbook and trade updates as well as ' +
+      'historical trade data.  Only supports writing to Flatfile.',
+    command: 'SpawnPoloniexDataDownloader',
+  }
 ];
 
 export default {

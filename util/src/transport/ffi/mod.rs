@@ -150,14 +150,6 @@ pub unsafe extern "C" fn get_command_server(name: *mut c_char) -> *mut c_void {
 **** null pointer as a category is the same as `None`.
 ***/
 
-/// Maps an `Option<*mut c_char>` into an `Option<&str>`
-unsafe fn map_ptr_opt(ptr_opt: Option<*mut c_char>) -> Option<String> {
-    ptr_opt.map(|ptr| {
-        let cat_cstring = ptr_to_cstring(ptr);
-        String::from(cat_cstring.to_str().expect(CSTRING_CONV_ERR))
-    })
-}
-
 #[no_mangle]
 pub unsafe extern "C" fn c_cs_debug(cs_ptr: *mut c_void, category: *mut c_char, msg: *mut c_char) {
     let cs: &mut CommandServer = &mut *(cs_ptr as *mut CommandServer);
@@ -211,13 +203,4 @@ pub unsafe extern "C" fn c_cs_critical(cs_ptr: *mut c_void, category: *mut c_cha
     let msg_str = msg_cstring.to_str().expect(CSTRING_CONV_ERR);
     cs.critical(Some(cat_str), msg_str);
     mem::forget(cs);
-}
-
-/// Creates a wrapper around a `GenTickSink` that can be passed to a sink executor to send data to it.
-pub fn get_gen_sink_wrapper(sink_id: c_int) -> Result<*mut c_void, ()> {
-    match sink_id {
-        POLONIEX_CSV => {
-            unimplemented!();
-        }
-    }
 }

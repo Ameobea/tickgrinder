@@ -287,6 +287,7 @@ kill:
 configure:
 	cd configurator && cargo run
 	cp configurator/conf.rs util/src
+	cp configurator/conf.js util/js/src
 	cp configurator/conf.js mm-react/src
 	cp configurator/conf.js data_downloaders/iex/src
 	cp configurator/conf.js data_downloaders/poloniex/src
@@ -321,7 +322,6 @@ node:
 	if [[ ! -f ./util/js/node_modules/installed ]]; then \
 		cd util/js && npm install && touch ./node_modules/installed; \
 	fi
-
 	cd util/js && npm run-script strip
 	rm data_downloaders/poloniex/node_modules/tickgrinder_util -rf
 	cp util/js/stripped data_downloaders/poloniex/node_modules/tickgrinder_util -r

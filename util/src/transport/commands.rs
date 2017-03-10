@@ -34,6 +34,8 @@ pub enum Command {
     SpawnLogger,
     SpawnFxcmNativeDataDownloader,
     SpawnFxcmFlatfileDataDownloader,
+    SpawnIexDataDownloader,
+    SpawnPoloniexDataDownloader,
     KillInstance{uuid: Uuid},
     KillAllInstances,
     // Commands for interfacing with the document store

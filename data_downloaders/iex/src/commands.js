@@ -4,6 +4,8 @@
 
 const CONF = require('./conf.js');
 
+// TODO: Swap to using the functions from the JS util library
+
 /**
  * Generates a new V4 UUID in hyphenated form
  */
