@@ -9,6 +9,7 @@ const autobahn = require('autobahn');
 const CONF = require('./src/conf');
 import util from 'tickgrinder_util';
 const { Tickstream, Log, POLONIEX_BOOK_MODIFY, POLONIEX_BOOK_REMOVE, POLONIEX_NEW_TRADE } = util.ffi;
+const { v4, initWs } = util;
 
 type OrderBookMessage = {data: {type: string, rate: string, amount: ?string, tradeID: ?string, date: ?string, total: ?string}, type: string, timestamp: number};
 type CacheEntry = {msg: Array<OrderBookMessage>, seq: number, timestamp: number};
@@ -32,7 +33,7 @@ const pair = 'BTC_XMR';
 // a place to hold out-of-order messages until the missing messages are received
 var messageCache: Array<CacheEntry> = [];
 // holds all active downloads and their progress, used to respond to commands requesting their progress
-var runningDownloads: Array<RunningDownload> = [];
+var runningDownloads: { [key: string]: RunningDownload } = [];
 
 // set up some state for communicating with the platform's util library through FFI
 let cs = Log.get_cs('Poloniex Data Downloader');
@@ -46,24 +47,69 @@ let book_new_trade_executor: ExecutorDescriptor =
   Tickstream.getCsvSinkExecutor(POLONIEX_NEW_TRADE, `${CONF.data_dir + '/polo_book_rew_trade.csv'}`);
 
 // usage: ./run.sh uuid
-let our_uuid: string = process.argv[2];
+let ourUuid: string = process.argv[2];
 
-if(!our_uuid) {
+if(!ourUuid) {
   console.error('Usage: node manager.js uuid');
   process.exit(0);
 } else {
-  Log.notice(cs, '', `Poloniex Data Downloader now listening for commands on ${CONF.redis_control_channel} and ${our_uuid}`);
+  Log.notice(cs, '', `Poloniex Data Downloader now listening for commands on ${CONF.redis_control_channel} and ${ourUuid}`);
 }
 
-function handleWsMessage(dispatch: any, msg: any) {
-  // TODO
+/**
+ * Given a command or a response from the platform, determines if an action needs to be taken and, if it does, takes it.
+ * Also sends back responses conditionally.
+ */
+function handleWsMessage(dispatch: any, msg: {uuid: string, cmd: ?any, res: ?any}) {
+  if(msg.cmd) {
+    let res = handleCommand(msg.cmd);
+    if(res) {
+      // get a response to send back and send it
+      let wsMsg = {uuid: msg.uuid, channel: CONF.redis_responses_channel, res: JSON.stringify(res)};
+      socket.send(JSON.stringify(wsMsg));
+    }
+  } else if(msg.res) {
+    // We don't really need to listen for any responses
+    return;
+  } else {
+    Log.error(cs, 'Platform Communication', `Received a message without a \`cmd\` or \`res\`: ${JSON.stringify(msg)}`);
+  }
+}
+
+/**
+ * Given a command send to our instance, executes it (if it needs to be executed) and optionally returns a response to be sent back.
+ */
+function handleCommand(cmd: any): ?any {
+  if(cmd == 'Ping') {
+    return [ourUuid];
+  } else if(cmd == 'Type') {
+    return {Info: {info: 'Poloniex Data Downloader'}};
+  } else if(cmd == 'Kill') {
+    setTimeout(() => {
+      console.log('Rushing B no stop.');
+      Log.notice(cs, '', 'Poloniex Data Downloader is despawning.');
+      process.exit(0);
+    }, 3001);
+    return {Info: {info: 'Poloniex Data Downloader is despawning in 3 seconds...'}};
+  } else if(cmd.DownloadTicks) {
+    // TODO
+  } else if(cmd.ListRunningDownloads) {
+    // TODO
+  } else if(cmd.CancelDataDownload) {
+    // TODO
+  } else if(cmd.GetRunningDownloads) {
+    // TODO
+  } else {
+    return {Info: {info: 'Poloniex Data Downloader doesn\'t recognize that command.'}};
+  }
 }
 
 // set up Websocket connection to the platform's messaging system
-let socket = util.initWs(handleWsMessage, null, our_uuid, wsError);
+let socket = initWs(handleWsMessage, null, ourUuid, wsError);
 
 // send ready message to notify the platform that we're up and running
-let wsmsg = {uuid: v4(), channel: CONF.redis_control_channel, message: JSON.stringify("Ready")};
+let msgUuid = v4();
+let wsmsg = {uuid: msgUuid, channel: CONF.redis_control_channel, message: JSON.stringify({uuid: msgUuid, cmd: 'Ready'})};
 socket.send(JSON.stringify(wsmsg));
 
 /**
@@ -113,6 +159,10 @@ function processOrderBookMessage(msg: OrderBookMessage, timestamp: number) {
   } else { // TODO: Add handlers for other message types
     Log.error(cs, 'processOrderBookMessage', `Unhandled message type received: ${msg.type}`);
   }
+}
+
+function wsError(e: string) {
+  Log.error(cs, 'Websocket', `Error in WebSocket connection: ${e}`);
 }
 
 /**
@@ -256,13 +306,34 @@ function fetchTradeHistory(pair: string, startTimestamp: number, endTimestamp: n
  * Initializes a download of historical data for a pair.  This will attempt to fetch all of the stored data over that time period and
  * write it to the sink.  This will internally manage the API limitations.  Start/end timestamps are Unix format second precision.
  */
-function initHistTradeDownload(pair: string, startTimestamp: number, endTimestamp: number, outputPath: string) {
+function initHistTradeDownload(pair: string, startTimestamp: number, endTimestamp: number, outputPath: string, outputFilename: string) {
   // create an executor to which to funnel the data
   let executor: ExecutorDescriptor = Tickstream.getCsvSinkExecutor(POLONIEX_NEW_TRADE, outputPath);
+  const downloadUuid = v4();
+  const dst = {CsvFlatfile: {filename: outputFilename}};
   // register this download as in-progress
-  runningDownloads.push({pair: pair, startTime: startTimestamp, endTime: endTimestamp, curTime: startTimestamp});
+  runningDownloads[downloadUuid] = {
+    symbol: pair,
+    startTime: startTimestamp,
+    endTime: endTimestamp,
+    curTime: startTimestamp,
+    dst: dst,
+  };
   // send download started message
-  let wsmsg = {uuid: uuid, channel: channel, message: JSON.stringify(msg)};
+  const msgUuid = v4();
+  const msg = {uuid: msgUuid, cmd: {DownloadStarted: {
+    id: downloadUuid,
+    downloader: {
+      instance_type: 'Poloniex Data Downloader',
+      uuid: ourUuid,
+    },
+    start_time: startTimestamp,
+    end_time: endTimestamp,
+    symbol: pair,
+    dst: dst,
+  }}};
+  const wsmsg = {uuid: msgUuid, channel: CONF.redis_control_channel, message: JSON.stringify(msg)};
+  socket.send(JSON.stringify(wsmsg));
 
   let curStartTimestamp = startTimestamp;
   let curEndTimestamp = endTimestamp;
@@ -273,44 +344,66 @@ function initHistTradeDownload(pair: string, startTimestamp: number, endTimestam
     curEndTimestamp = endTimestamp;
   }
 
-  // TODO: Make the loop properly and probably add some kind of dowload delay
-  fetchTradeHistory(pair, curStartTimestamp, curEndTimestamp).then((data: Array<PoloniexRawTrade>) => {
-    // sort the trades from oldest to newest
-    let sortedData = data.sort((a: PoloniexRawTrade, b: PoloniexRawTrade): number => {
-      return (a.tradeID > b.tradeID) ? 1 : ((b.tradeID > a.tradeID) ? -1 : 0);
-    });
-    assert(sortedData[sortedData.length - 1].tradeID > sortedData[0].tradeID);
+  function downloadChunk() {
+    fetchTradeHistory(pair, curStartTimestamp, curEndTimestamp).then((data: Array<PoloniexRawTrade>) => {
+      // sort the trades from oldest to newest
+      let sortedData = data.sort((a: PoloniexRawTrade, b: PoloniexRawTrade): number => {
+        return (a.tradeID > b.tradeID) ? 1 : ((b.tradeID > a.tradeID) ? -1 : 0);
+      });
+      assert(sortedData[sortedData.length - 1].tradeID > sortedData[0].tradeID);
 
-    // process the trades into the sink
-    for(var i=0; i<sortedData.length; i++) {
-      // convert the date from "2017-03-10 01:31:08" format into a Unix timestamp
-      let timestamp = new Date(sortedData[i].date);
-      // send the trade through the executor and into the sink
-      Tickstream.executorExec(executor, timestamp, JSON.stringify(sortedData[i]));
-    }
-
-    // update download progress
-    // TODO
-    // TODO: Make the download progress thing a key:value store rather than an array
-    // TODO: Make platform respond to messages including download requests, download progresses, etc.
-
-    if(sortedData.length === 50000) {
-      // if it was more than 50,000 trades, download what's missing before going on
-      curEndTimestamp = new Date(sortedData[0].date).getTime() - 1;
-    } else {
-      curStartTimestamp = curEndTimestamp + 1;
-      // if less than 50,000 trades, then download the next segment
-      if(endTimestamp - curEndTimestamp > SECONDS_IN_A_YEAR) {
-        curEndTimestamp = curStartTimestamp + (SECONDS_IN_A_YEAR - 1001);
-      } else if(curEndTimestamp >= endTimestamp) {
-        // download complete!
-        break;
-      } else {
-        curEndTimestamp = endTimestamp;
+      // process the trades into the sink
+      for(var i=0; i<sortedData.length; i++) {
+        // convert the date from "2017-03-10 01:31:08" format into a Unix timestamp
+        let timestamp = new Date(sortedData[i].date);
+        // send the trade through the executor and into the sink
+        Tickstream.executorExec(executor, timestamp, JSON.stringify(sortedData[i]));
       }
-    }
-  });
 
-  // send download complete message
-  // TODO
+      // update download progress
+      // TODO
+
+      if(sortedData.length === 50000) {
+        // if it was more than 50,000 trades, download what's missing before going on
+        curEndTimestamp = new Date(sortedData[0].date).getTime() - 1;
+      } else {
+        curStartTimestamp = curEndTimestamp + 1;
+        // if less than 50,000 trades, then download the next segment
+        if(endTimestamp - curEndTimestamp > SECONDS_IN_A_YEAR) {
+          curEndTimestamp = curStartTimestamp + (SECONDS_IN_A_YEAR - 1001);
+        } else if(curEndTimestamp >= endTimestamp) {
+          return downloadComplete();
+        } else {
+          curEndTimestamp = endTimestamp;
+        }
+      }
+
+      // download the next chunk after waiting a few seconds as to avoid overloading their API
+      setTimeout(() => {
+        downloadChunk();
+      }, 7683);
+    });
+  }
+
+  function downloadComplete() {
+    // remove the running download from the running downloads list
+    delete runningDownloads[downloadUuid];
+    // send download complete message
+    const msgUuid = v4();
+    const wsMsg = {uuid: msgUuid, channel: CONF.redis_control_channel, message: {uuid: msgUuid, cmd: {DownloadComplete: {
+      id: downloadUuid,
+      downloader: {
+        instance_type: 'Poloniex Data Downloader',
+        uuid: ourUuid,
+      },
+      start_time: startTimestamp,
+      end_time: endTimestamp,
+      symbol: pair,
+      dst: dst,
+    }}}};
+    socket.send(JSON.stringify(wsMsg));
+  }
+
+  // call the recursive chunk download function and start the download progress
+  downloadChunk();
 }

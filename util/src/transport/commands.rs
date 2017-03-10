@@ -131,6 +131,7 @@ pub enum HistTickDst {
     RedisChannel { host: String, channel: String },
     RedisSet { host: String, set_name: String },
     Console,
+    CsvFlatfile { filename: String },
 }
 
 /// A log message from some part of the platform
