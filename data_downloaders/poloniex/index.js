@@ -72,8 +72,8 @@ function handleCommand(cmd: any): any {
       // convert start/end times from nanoseconds to seconds
       let startTimestamp = Math.floor(cmd.DownloadTicks.start_time / (1000 * 1000 * 1000));
       let endTimestamp = Math.ceil(cmd.DownloadTicks.end_time / (1000 * 1000 * 1000));
+      const downloadUuid = v4();
       setTimeout(() => {
-        const downloadUuid = v4();
         // register this download as in-progress
         runningDownloads[downloadUuid] = {
           symbol: cmd.DownloadTicks.symbol,
@@ -119,22 +119,57 @@ function handleCommand(cmd: any): any {
           socket.send(JSON.stringify(wsMsg));
         };
 
+        // function that can be called by the downloader to indicate that it has made progress during the download
+        const progressUpdated = (curTimestamp: number) => {
+          runningDownloads[downloadUuid].curTime = curTimestamp;
+        };
+
         // start the download
-        initHistTradeDownload(cmd.DownloadTicks.pair, startTimestamp, endTimestamp, outputFilename, ourUuid, downloadComplete);
+        initHistTradeDownload(cmd.DownloadTicks.pair, startTimestamp, endTimestamp, outputFilename, ourUuid, downloadComplete, progressUpdated, cs);
       }, 0);
       return 'Ok';
     } else if(/WS_.+/.test(cmd.DownloadTicks.symbol)) {
+      const downloadUuid = v4();
+      runningDownloads[downloadUuid] = {
+        symbol: cmd.DownloadTicks.symbol,
+        startTime: 0,
+        endTime: 0,
+        curTime: 0,
+        dst: cmd.DownloadTicks.dst,
+      };
       let pair = cmd.DownloadTicks.symbol.split('WS_')[1];
-      return startWsDownload(pair, cmd.DownloadTicks.dst, cs);
+      const isDownloadCancelled = (): boolean => {
+        return !!runningDownloads[downloadUuid];
+      };
+      return startWsDownload(pair, cmd.DownloadTicks.dst, cs, isDownloadCancelled);
     } else {
       return {Error: {status: 'Malformed symbol received; must be in format \'HISTTRADES_BTC_XMR\' or \'WS_BTC_XMR\'.'}};
     }
   } else if(cmd.ListRunningDownloads) {
-    // TODO
+    return {Error: {status: 'Unimplemented!'}}; // TODO
   } else if(cmd.CancelDataDownload) {
-    // TODO
-  } else if(cmd.GetRunningDownloads) {
-    // TODO
+    if(runningDownloads[cmd.CancelDataDownload.id]) {
+      // only able to cancel streaming downloads, not historical downloads
+      if(/WS_.+/.test(runningDownloads[cmd.CancelDataDownload.id].symbol)) {
+        delete runningDownloads[cmd.CancelDataDownload.id];
+      } else {
+        return {Error: {status: 'Unable to cancel historical data download!'}}
+      }
+    } else {
+      return {Error: {status: 'There are no currently running downloads with that UUID!'}};
+    }
+  } else if(cmd.GetDownloadProgress) {
+    if(runningDownloads[cmd.GetDownloadProgress.id]) {
+      let runningDownload = runningDownloads[cmd.GetDownloadProgress.id];
+      return {DownloadProgress: {
+        id: cmd.GetDownloadProgress.id,
+        start_time: runningDownload.startTime,
+        cur_time: runningDownload.curTime,
+        end_time: runningDownload.endTime,
+      }};
+    } else {
+      return {Error: {status: 'There are no currently running downloads with that UUID!'}};
+    }
   } else {
     return {Info: {info: 'Poloniex Data Downloader doesn\'t recognize that command.'}};
   }

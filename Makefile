@@ -322,7 +322,6 @@ node:
 	if [[ ! -f ./util/js/node_modules/installed ]]; then \
 		cd util/js && npm install && touch ./node_modules/installed; \
 	fi
-
 	cd util/js && npm run-script strip
 	rm data_downloaders/poloniex/node_modules/tickgrinder_util -rf
 	cp util/js/stripped data_downloaders/poloniex/node_modules/tickgrinder_util -r

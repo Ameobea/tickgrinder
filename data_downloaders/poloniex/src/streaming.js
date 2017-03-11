@@ -25,19 +25,20 @@ if(CACHE_SIZE % 10 !== 0) {
 /**
  * Starts downloading live streaming trade and orderbook data to the specified destination.
  * TODO: Periodic ledger synchronization to make sure we're keeping up correctly
+ * @param {function} isDownloadRunning - A function that returns whether or not the selected download has been cancelled
  */
-function startWsDownload(pair: string, dst: any, cs: any): {Error: {status: string}} | string {
-  // this only works for `CsvFlatfile` destinations for now.
-  if(!dst.CsvFlatfile) {
-    return {Error: {status: 'Streaming Poloniex Downloader currently only works with the `CsvFlatfile` hist tick destination!'}};
+function startWsDownload(pair: string, dst: any, cs: any, isDownloadCancelled: () => boolean): {Error: {status: string}} | string {
+  // this only works for `Flatfile` destinations for now.
+  if(!dst.Flatfile) {
+    return {Error: {status: 'Streaming Poloniex Downloader currently only works with the `Flatfile` hist tick destination!'}};
   }
   // create the executors used for processing the ticks
   let book_modify_executor: ExecutorDescriptor =
-    Tickstream.getCsvSinkExecutor(POLONIEX_BOOK_MODIFY, dst.CsvFlatfile.filename);
+    Tickstream.getCsvSinkExecutor(POLONIEX_BOOK_MODIFY, dst.Flatfile.filename);
   let book_remove_executor: ExecutorDescriptor =
-    Tickstream.getCsvSinkExecutor(POLONIEX_BOOK_REMOVE, dst.CsvFlatfile.filename);
+    Tickstream.getCsvSinkExecutor(POLONIEX_BOOK_REMOVE, dst.Flatfile.filename);
   let book_new_trade_executor: ExecutorDescriptor =
-    Tickstream.getCsvSinkExecutor(POLONIEX_NEW_TRADE, dst.CsvFlatfile.filename);
+    Tickstream.getCsvSinkExecutor(POLONIEX_NEW_TRADE, dst.Flatfile.filename);
 
   // create a cache to store messages that are waiting to be pushed through the executor
   let messageCache: Array<CacheEntry> = [];
@@ -60,8 +61,6 @@ function startWsDownload(pair: string, dst: any, cs: any): {Error: {status: stri
         try {
           let parsedData = JSON.parse(rawData);
           last_seq = parsedData.seq;
-
-          // TODO: Read all of the updates in the ledger into the cache as simulated updates
         } catch(e) {
           console.error(`Unable to parse orderbook response into JSON: ${e}`);
           process.exit(1);
@@ -83,23 +82,20 @@ function startWsDownload(pair: string, dst: any, cs: any): {Error: {status: stri
   connection.onopen = session => {
     function marketEvent(args: Array<OrderBookMessage>, kwargs: {seq: number}) {
       messageCache.push({msg: args, seq: kwargs.seq, timestamp: Date.now()});
+      if(isDownloadCancelled()) {
+        // flush all cached ticks into the sink before exiting
+        drainCache(true, messageCache, book_modify_executor, book_remove_executor, book_new_trade_executor, cs);
+        // close the connection so that no further updates are recorded
+        connection.close();
+        return;
+      }
       // if the cache is full, sort it and process it into the sink
       if(messageCache.length >= CACHE_SIZE) {
-        drainCache(messageCache, book_modify_executor, book_remove_executor, book_new_trade_executor, cs);
+        drainCache(false, messageCache, book_modify_executor, book_remove_executor, book_new_trade_executor, cs);
       }
     }
 
-    function tickerEvent(args, kwargs) {
-      // console.logkw(args); // TODO
-    }
-
-    function trollboxEvent(args, kwargs) {
-      // console.log(args); // TODO
-    }
-
     session.subscribe(pair, marketEvent);
-    session.subscribe('ticker', tickerEvent);
-    session.subscribe('trollbox', trollboxEvent);
   };
 
   connection.onclose = function() {
@@ -114,9 +110,11 @@ function startWsDownload(pair: string, dst: any, cs: any): {Error: {status: stri
 
 /**
  * Attempts to drain the cache of all stored messages
+ * @param {bool} isFlush - If true, the entire cache will be emptied into the sink.  If false, only the oldest 90% will be emptied in order
+ *  allow for any out-of-order ticks to be properly ordered.
  */
 function drainCache(
-  messageCache: Array<CacheEntry>, book_modify_executor: ExecutorDescriptor, book_remove_executor: ExecutorDescriptor,
+  isFlush: boolean, messageCache: Array<CacheEntry>, book_modify_executor: ExecutorDescriptor, book_remove_executor: ExecutorDescriptor,
   book_new_trade_executor: ExecutorDescriptor, cs
 ) {
   // sort the message cache by sequence number from most recent to oldest
@@ -162,7 +160,7 @@ function processOrderBookMessage(
     Tickstream.executorExec(book_remove_executor, timestamp, JSON.stringify({rate: msg.data.rate, type: msg.data.type}));
   } else if(msg.type == 'newTrade') {
     Tickstream.executorExec(book_new_trade_executor, timestamp, JSON.stringify(msg.data));
-  } else { // TODO: Add handlers for other message types
+  } else {
     Log.error(cs, 'processOrderBookMessage', `Unhandled message type received: ${msg.type}`);
   }
 }

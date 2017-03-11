@@ -17,7 +17,10 @@ const SECONDS_IN_A_YEAR = 31556926;
  * Initializes a download of historical data for a pair.  This will attempt to fetch all of the stored data over that time period and
  * write it to the sink.  This will internally manage the API limitations.  Start/end timestamps are Unix format second precision.
  */
-function initHistTradeDownload(pair: string, startTimestamp: number, endTimestamp: number, outputPath: string, ourUuid: string, downloadComplete: () => void) {
+function initHistTradeDownload(
+  pair: string, startTimestamp: number, endTimestamp: number, outputPath: string, ourUuid: string, downloadComplete: () => void,
+  progressUpdated: (curTimestamp: number) => void, cs: any
+) {
   // create an executor to which to funnel the data
   let executor: ExecutorDescriptor = Tickstream.getCsvSinkExecutor(POLONIEX_NEW_TRADE, outputPath);
 
@@ -31,6 +34,10 @@ function initHistTradeDownload(pair: string, startTimestamp: number, endTimestam
   }
 
   function downloadChunk() {
+    Log.debug(
+      `Historical Trades Download for pair ${pair}`,
+      `Downloading chunk starting at timestamp ${curStartTimestamp} and ending at ${curEndTimestamp}`
+    );
     fetchTradeHistory(pair, curStartTimestamp, curEndTimestamp).then((data: Array<PoloniexRawTrade>) => {
       // sort the trades from oldest to newest
       let sortedData = data.sort((a: PoloniexRawTrade, b: PoloniexRawTrade): number => {
@@ -47,7 +54,7 @@ function initHistTradeDownload(pair: string, startTimestamp: number, endTimestam
       }
 
       // update download progress
-      // TODO
+      progressUpdated(curStartTimestamp);
 
       if(sortedData.length === 50000) {
         // if it was more than 50,000 trades, download what's missing before going on
