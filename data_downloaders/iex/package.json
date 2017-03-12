@@ -21,6 +21,7 @@
   "scripts": {
     "flow": "flow; test $? -eq 0 -o $? -eq 2",
     "run": "babel-node iex.js",
+    "transpile": "rm ../../dist/iex_dd -rf && babel --out-dir ../../dist/iex_dd iex.js && babel --out-dir ../../dist/iex_dd/src ./src  && cp ./node_modules ../../dist/iex_dd -r",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "sh run.sh"
   },

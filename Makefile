@@ -17,7 +17,7 @@ SHELL := /bin/bash
 
 release:
 	make init
-	make node
+	make node_init
 
 	# copy libstd to the dist/lib directory if it's not already there
 	if [[ ! -f dist/lib/$$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) ]]; then \
@@ -66,8 +66,7 @@ release:
 	cd logger && CARGO_INCREMENTAL=1 cargo build --release
 	cp logger/target/release/logger dist
 
-	# compile the MM
-	cd mm-react && npm run build
+	make node_compile
 
 dev:
 	# rm dist/mm -r
@@ -87,7 +86,7 @@ dev_release:
 
 debug:
 	make init
-	make node
+	make node_init
 
 	# copy libstd to the dist/lib directory if it's not already there
 	if [[ ! -f dist/lib/$$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) ]]; then \
@@ -140,6 +139,8 @@ debug:
 	cp logger/target/debug/logger dist
 	cd mm && npm install
 	cp ./mm dist -r
+
+	make node_compile
 
 strip:
 	cd dist && strip backtester spawner optimizer tick_processor
@@ -301,12 +302,20 @@ init:
 	mkdir dist
 	mkdir dist/lib
 
-node:
+node_init:
 	if [[ ! $$(which dva) ]]; then npm install -g dva-cli; fi
 	if [[ ! -f ./mm-react/node_modules/installed ]]; then \
 		npm install -g eslint-plugin-flowtype && npm install -g babel-cli && npm install -g babel-eslint && npm install -g flow-remove-types && \
 		cd mm-react && npm install react && npm install react-dom && npm install babel-plugin-import --save && npm install && \
 			npm install dva-loading --save && touch ./node_modules/installed; \
+	fi
+
+	if [[ ! -f ./data_downloaders/poloniex/node_modules/installed ]]; then \
+		cd data_downloaders/poloniex && npm install && touch node_modules/installed; \
+	fi
+
+	if [[ ! -f ./data_downloaders/iex/node_modules/installed ]]; then \
+		cd data_downloaders/iex && npm install && touch node_modules/installed; \
 	fi
 
 	# fetch a built copy of the ckeditor if it doesn't exist.  If ameo.link is dead and gone, you can build your own version
@@ -331,3 +340,11 @@ node:
 	cp util/js/stripped data_downloaders/iex/node_modules/tickgrinder_util -r
 	cp util/js/node_modules data_downloaders/iex/node_modules/tickgrinder_util/node_modules -r
 	cp util/js/package.json data_downloaders/iex/node_modules/tickgrinder_util
+
+node_compile:
+	# transpile the Poloniex + IEX data downloaders
+	cd data_downloaders/iex && npm run transpile
+	cd data_downloaders/poloniex && npm run transpile
+
+	# compile the MM
+	cd mm-react && npm run build

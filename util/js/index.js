@@ -1,6 +1,8 @@
 //! JavaScript utility library.  See README.txt for more information.
 // @flow
 
+const WebSocket = require('ws');
+
 const ffi = require('./src/ffi');
 const CONF = require('./src/conf');
 
@@ -24,11 +26,11 @@ function v4(): string {
  * @param {string} ourUuid - The UUID of the instance creating this websocket server
  * @param {function} wsError - A callback invoked when the websocket encounters an error
  */
-function initWs(callback: (dispatch: any, parsed: any) => void, dispatch: any, ourUuid: string, wsError: (e: string) => void) {
+function initWs(callback: (dispatch: any, parsed: any) => void, dispatch: any, ourUuid: string, wsError: (e: string) => void): WebSocket {
   let socketUrl = 'ws://localhost:7037';
   let socket = new WebSocket(socketUrl);
   socket.onmessage = message => {
-    if(typeof(message.data) != "string") {
+    if(typeof(message.data) != 'string') {
       wsError('Received non-string data over websocket connection!');
       return;
     }
