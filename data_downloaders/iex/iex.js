@@ -1,6 +1,8 @@
 //! The IEX streaming data downloader.  Hooks into the free IEX socket.io API to retrieve live top-of-book information
 // @flow
 
+const WebSocket = require('ws');
+
 const io = require('socket.io-client');
 const ref = require('ref');
 
@@ -18,17 +20,21 @@ if(cs.isNull()) {
 }
 
 // usage: node manager.js uuid
-let our_uuid: string = process.argv[2];
+let ourUuid: string = process.argv[2];
 
-if(!our_uuid) {
+if(!ourUuid) {
   console.error('Usage: node manager.js uuid');
   process.exit(0);
 } else {
-  Log.notice(cs, '', `IEX Data Downloader now listening for commands on ${CONF.redis_control_channel} and ${our_uuid}`);
+  Log.notice(cs, '', `IEX Data Downloader now listening for commands on ${CONF.redis_control_channel} and ${ourUuid}`);
 }
 
 // start listening for commands from the platform and responding to them
-initWs(handleCommand);
+initWs(handleCommand, null, ourUuid, (err: string) => {
+  Log.error('', `Error in WebSocket connection: ${err}`);
+}).then((socket: WebSocket) => {
+  Log.notice('', 'WebSocket connection successfully opened to platform communication system');
+});
 
 /**
  * Starts recording live ticks from the IEX exchange and writing them to the supplied endpiont.

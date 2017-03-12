@@ -321,6 +321,8 @@ impl InstanceManager {
             },
             Command::SpawnFxcmFlatfileDataDownloader => self.spawn_fxcm_flatfile_dd(),
             Command::SpawnFxcmNativeDataDownloader => self.spawn_fxcm_dd(),
+            Command::SpawnIexDataDownloader => self.spawn_iex_dd(),
+            Command::SpawnPoloniexDataDownloader => self.spawn_poloniex_dd(),
             _ => Response::Error{
                 status: format!("Command not accepted by the instance spawner: {:?}", cmd),
             },
@@ -432,6 +434,32 @@ impl InstanceManager {
                                 .spawn()
                                 .expect("Unable to spawn FXCM Flatfile Data Downloader");
         Response::Ok
+    }
+
+    /// Spawns an IEX Data Downloader
+    fn spawn_iex_dd(&mut self) -> Response {
+        let mod_uuid = Uuid::new_v4();
+        let path = "./iex_dd/iex.js";
+        match process::Command::new(CONF.node_binary_path)
+                                .arg(path)
+                                .arg(&mod_uuid.to_string())
+                                .spawn() {
+            Ok(_) => Response::Ok,
+            Err(err) => Response::Error{status: format!("Error while attempting to spawn IEX Data Downloader: {:?}", err)},
+        }
+    }
+
+    /// Spawns a Poloniex Data Downloader
+    fn spawn_poloniex_dd(&mut self) -> Response {
+        let mod_uuid = Uuid::new_v4();
+        let path = "./poloniex_dd/index.js";
+        match process::Command::new(CONF.node_binary_path)
+                                .arg(path)
+                                .arg(&mod_uuid.to_string())
+                                .spawn() {
+            Ok(_) => Response::Ok,
+            Err(err) => Response::Error{status: format!("Error while attempting to spawn Poloniex Data Downloader: {:?}", err)},
+        }
     }
 
     /// Broadcasts a Ping message on the broadcast channel to all running instances.  Returns

@@ -26,6 +26,21 @@ if(!ourUuid) {
   Log.notice(cs, '', `Poloniex Data Downloader now listening for commands on ${CONF.redis_control_channel} and ${ourUuid}`);
 }
 
+// set up Websocket connection to the platform's messaging system
+let socket: WebSocket;
+initWs(handleWsMessage, null, ourUuid, wsError).then((socket_: WebSocket) => {
+  socket = socket_;
+
+  // send ready message to notify the platform that we're up and running
+  let msgUuid = v4();
+  let wsmsg = {uuid: msgUuid, channel: CONF.redis_control_channel, message: JSON.stringify({uuid: msgUuid, cmd: 'Ready'})};
+  socket.send(JSON.stringify(wsmsg));
+});
+
+function wsError(e: string) {
+  Log.error(cs, 'Websocket', `Error in WebSocket connection: ${e}`);
+}
+
 /**
  * Given a command or a response from the platform, determines if an action needs to be taken and, if it does, takes it.
  * Also sends back responses conditionally.
@@ -153,7 +168,7 @@ function handleCommand(cmd: any): any {
       if(/WS_.+/.test(runningDownloads[cmd.CancelDataDownload.id].symbol)) {
         delete runningDownloads[cmd.CancelDataDownload.id];
       } else {
-        return {Error: {status: 'Unable to cancel historical data download!'}}
+        return {Error: {status: 'Unable to cancel historical data download!'}};
       }
     } else {
       return {Error: {status: 'There are no currently running downloads with that UUID!'}};
@@ -173,16 +188,4 @@ function handleCommand(cmd: any): any {
   } else {
     return {Info: {info: 'Poloniex Data Downloader doesn\'t recognize that command.'}};
   }
-}
-
-// set up Websocket connection to the platform's messaging system
-let socket = initWs(handleWsMessage, null, ourUuid, wsError);
-
-// send ready message to notify the platform that we're up and running
-let msgUuid = v4();
-let wsmsg = {uuid: msgUuid, channel: CONF.redis_control_channel, message: JSON.stringify({uuid: msgUuid, cmd: 'Ready'})};
-socket.send(JSON.stringify(wsmsg));
-
-function wsError(e: string) {
-  Log.error(cs, 'Websocket', `Error in WebSocket connection: ${e}`);
 }

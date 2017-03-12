@@ -99,8 +99,8 @@ function startWsDownload(pair: string, dst: any, cs: any, isDownloadCancelled: (
   };
 
   connection.onclose = function() {
-    Log.warning(cs, 'Websocket', 'Websocket connection closed!');
-    console.error('Websocket connection closed!');
+    Log.warning(cs, 'Socket.io', 'Socket.io connection closed!');
+    console.error('Socket.io connection closed!');
   };
 
   connection.open();

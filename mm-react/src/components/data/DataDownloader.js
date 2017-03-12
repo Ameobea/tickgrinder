@@ -166,7 +166,7 @@ class DataDownloader extends React.Component {
     return (
       <div>
         <h2>{'Start Data Download'}</h2>
-        <Form inline onSubmit={this.handleSubmit}>
+        <Form layout='inline' onSubmit={this.handleSubmit}>
           <FormItem label='Data Downloader'>
             {getFieldDecorator('downloader', {
               rules: [{ required: true, message: 'Please select a data downloader to use for this download.'}]
@@ -200,13 +200,19 @@ class DataDownloader extends React.Component {
           <FormItem>
             {getFieldDecorator('destination', {
               rules: [{}]
-            })}
+            })(
+              <Button>
+                {'TODO'}
+              </Button>
+            )}
           </FormItem>
 
           <FormItem>
+            {getFieldDecorator('button', {})(
             <Button htmlType='submit' type='primary'>
               {'Start Data Download'}
             </Button>
+          )}
           </FormItem>
         </Form>
 

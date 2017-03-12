@@ -21,6 +21,7 @@
   "scripts": {
     "flow": "flow; test $? -eq 0 -o $? -eq 2",
     "run": "babel-node index.js",
+    "transpile": "rm ../../dist/poloniex_dd -rf && babel --out-dir ../../dist/poloniex_dd index.js && babel --out-dir ../../dist/poloniex_dd/src ./src && cp ./node_modules ../../dist/poloniex_dd -r",
 		"debug": "babel-node debug index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
