@@ -199,7 +199,7 @@ class DataDownloader extends React.Component {
 
           <FormItem>
             {getFieldDecorator('destination', {
-              rules: [{}]
+              rules: [{ required: true, message: 'Please select a destination for the downloaded ticks!' }],
             })(
               <Button>
                 {'TODO'}

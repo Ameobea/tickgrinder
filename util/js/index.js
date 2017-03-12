@@ -26,30 +26,26 @@ function v4(): string {
  * @param {string} ourUuid - The UUID of the instance creating this websocket server
  * @param {function} wsError - A callback invoked when the websocket encounters an error
  */
-function initWs(callback: (dispatch: any, parsed: any) => void, dispatch: any, ourUuid: string, wsError: (e: string) => void): Promise<WebSocket> {
+function initWs(callback: (dispatch: any, parsed: any) => void, dispatch: any, ourUuid: string, wsError: (e: string) => void): WebSocket {
   let socketUrl = 'ws://localhost:7037';
   let socket = new WebSocket(socketUrl);
-  return new Promise((fulfill: (res: WebSocket) => void, reject: (error: string) => void) => {
-    socket.onmessage = message => {
-      if(typeof(message.data) != 'string') {
-        wsError('Received non-string data over websocket connection!');
-        return;
-      }
-      let parsed = JSON.parse(message.data);
-      // throw away messages we're transmitting to channels we don't care about
-      if ([CONF.redis_control_channel, CONF.redis_responses_channel, CONF.redis_log_channel, ourUuid].indexOf(parsed.channel) !== -1) {
-        callback(dispatch, parsed);
-      }
-    };
+  socket.onmessage = message => {
+    if(typeof(message.data) != 'string') {
+      wsError('Received non-string data over websocket connection!');
+      return;
+    }
+    let parsed = JSON.parse(message.data);
+    // throw away messages we're transmitting to channels we don't care about
+    if ([CONF.redis_control_channel, CONF.redis_responses_channel, CONF.redis_log_channel, ourUuid].indexOf(parsed.channel) !== -1) {
+      callback(dispatch, parsed);
+    }
+  };
 
-    socket.onerror = () => {
-      wsError('Unhandled error occured on the websocket connection!');
-    };
+  socket.onerror = () => {
+    wsError('Unhandled error occured on the websocket connection!');
+  };
 
-    socket.on('open', () => {
-      fulfill(socket);
-    });
-  });
+  return socket;
 }
 
 module.exports = {

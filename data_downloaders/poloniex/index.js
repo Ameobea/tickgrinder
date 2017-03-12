@@ -27,13 +27,12 @@ if(!ourUuid) {
 }
 
 // set up Websocket connection to the platform's messaging system
-let socket: WebSocket;
-initWs(handleWsMessage, null, ourUuid, wsError).then((socket_: WebSocket) => {
-  socket = socket_;
-
+let socket: WebSocket = initWs(handleWsMessage, null, ourUuid, wsError);
+socket.on('open', () => {
   // send ready message to notify the platform that we're up and running
   let msgUuid = v4();
-  let wsmsg = {uuid: msgUuid, channel: CONF.redis_control_channel, message: JSON.stringify({uuid: msgUuid, cmd: 'Ready'})};
+  let msg = {Ready: {instance_type: 'Poloniex Data Downloader', uuid: ourUuid}};
+  let wsmsg = {uuid: msgUuid, channel: CONF.redis_control_channel, message: JSON.stringify({uuid: msgUuid, cmd: msg})};
   socket.send(JSON.stringify(wsmsg));
 });
 
@@ -45,12 +44,17 @@ function wsError(e: string) {
  * Given a command or a response from the platform, determines if an action needs to be taken and, if it does, takes it.
  * Also sends back responses conditionally.
  */
-function handleWsMessage(dispatch: any, msg: {uuid: string, cmd: ?any, res: ?any}) {
+function handleWsMessage(dispatch: any, raw_msg: {uuid: string, channel: string, message: string}) {
+  let msg = JSON.parse(raw_msg.message);
   if(msg.cmd) {
+    // ignore log messages
+    if(msg.cmd.Log) {
+      return;
+    }
     let res = handleCommand(msg.cmd);
     if(res) {
       // get a response to send back and send it
-      let wsMsg = {uuid: msg.uuid, channel: CONF.redis_responses_channel, res: JSON.stringify(res)};
+      let wsMsg = {uuid: msg.uuid, channel: CONF.redis_responses_channel, message: JSON.stringify({uuid: msg.uuid, res: res})};
       socket.send(JSON.stringify(wsMsg));
     }
   } else if(msg.res) {
@@ -66,7 +70,7 @@ function handleWsMessage(dispatch: any, msg: {uuid: string, cmd: ?any, res: ?any
  */
 function handleCommand(cmd: any): any {
   if(cmd == 'Ping') {
-    return [ourUuid];
+    return {Pong: {args: [ourUuid]}};
   } else if(cmd == 'Type') {
     return {Info: {info: 'Poloniex Data Downloader'}};
   } else if(cmd == 'Kill') {
@@ -186,6 +190,6 @@ function handleCommand(cmd: any): any {
       return {Error: {status: 'There are no currently running downloads with that UUID!'}};
     }
   } else {
-    return {Info: {info: 'Poloniex Data Downloader doesn\'t recognize that command.'}};
+    return {Info: {info: `Poloniex Data Downloader doesn\'t recognize that command: ${JSON.stringify(cmd)}`}};
   }
 }

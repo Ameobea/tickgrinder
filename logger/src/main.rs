@@ -63,13 +63,14 @@ impl Logger {
         for msg_res in rx.wait() {
             let (_, wr_cmd_string) = msg_res.expect("Got error in listen loop");
             let wr_cmd_res = WrappedCommand::from_str(&wr_cmd_string);
-            if wr_cmd_res.is_err() {
-                self.cs.error(
-                    Some("CommandDeserialization"),
-                    &format!("Unable to convert str into WrappedCommand: {}", wr_cmd_string)
-                );
-            }
-            let wr_cmd = wr_cmd_res.unwrap();
+
+            let wr_cmd = match wr_cmd_res {
+                Ok(wr_cmd) => wr_cmd,
+                Err(err) => {
+                    self.cs.error(Some("Command Deserialization"), &format!("Unable to parse WrappedCommand: ${:?}", err));
+                    break;
+                },
+            };
 
             let res_opt = match wr_cmd.cmd {
                 Command::Log{msg} => {

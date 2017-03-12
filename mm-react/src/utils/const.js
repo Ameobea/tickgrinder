@@ -34,6 +34,15 @@ const dataDownloaders: Array<DataDownloaderDefinition> = [
   }
 ];
 
+/**
+ * A set of props that represent all possible places that ticks can be sent to.  They contain the paramaters that are required
+ * in order to build the `HistTickDst`s internally and are designed to be placed in forms.
+ */
+const tickSinks = {
+  // TODO
+};
+
 export default {
   dataDownloaders: dataDownloaders,
+  tickSinks: tickSinks,
 };
