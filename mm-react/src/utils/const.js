@@ -1,6 +1,9 @@
 //! Declares platform constants and metadata used to send commands.
 // @flow
 
+import React from 'react';
+import { Input } from 'antd';
+
 type DataDownloaderDefinition = {name: string, description: string, command: string, supportedDownloaders: Array<string>};
 
 /**
@@ -35,11 +38,80 @@ const dataDownloaders: Array<DataDownloaderDefinition> = [
 ];
 
 /**
- * A set of props that represent all possible places that ticks can be sent to.  They contain the paramaters that are required
- * in order to build the `HistTickDst`s internally and are designed to be placed in forms.
+ * `TickSink`s are react components that contain an extra function that, using the state of the component, creates a `HistTickDst`
+ * that can be used along with a backtest.
  */
-const tickSinks = {
-  // TODO
+class TickSink extends React.Component {
+  constructor(props) {
+    super(props);
+    // create `TickSink`s out of all of the supplied sink definitions
+    let defs = props.paramDefs;
+    const sinks = defs.map((def: {paramName: string, paramType: string}): TickSinkParam<any> => tickSinkParams[def.paramType](def.paramName));
+
+    this.state = {
+      sinks: sinks,
+    };
+  }
+
+  render() {
+
+  }
+}
+
+TickSink.PropTypes = {
+  name: React.PropTypes.string,
+  paramDefs: React.PropTypes.arrayOf(
+    React.PropTypes.shape({
+      paramName: React.PropTypes.string,
+      paramType: React.PropTypes.string,
+    })
+  ),
+};
+
+/**
+ * A React component that also exposes a `getValue()` function to retrieve the user-supplied sink parameter (or null if the user faile to supply a value)
+ */
+type TickSinkParam<T> = React.Component & {getValue: () => ?T};
+
+/**
+ * A function that, given the name of the parameter, returns a `TickSinkParam` for it.
+ */
+type TickSinkParamGenerator<T> = (name: string) => TickSinkParam<T>;
+
+/**
+ * All parameter generator functions available for tick sinks to use in their components
+ */
+const tickSinkParamGens: { [key: string]: TickSinkParamGenerator<any> } = {
+  str: (name: string): TickSinkParam<string> => {
+    class StringInput extends React.Component {
+      getValue(): ?string {
+        return 'TEST';
+      }
+
+      render() {
+        return (
+          <div>
+            {this.props.name}{':'} <Input />
+          </div>
+        );
+      }
+    }
+
+    StringInput.propTypes = {
+      name: React.PropTypes.string,
+    };
+
+    return <StringInput name={name} />;
+  }
+};
+
+/**
+ * A set of definitions for props that represent all possible places that ticks can be sent to.  They contain the names of all paramaters that are required
+ * in order to build the `HistTickDst`s internally.
+ */
+const tickSinkDefs: { [key: string]: Array<{name: string, param: TickSinkParam}> } = {
+  Console: [],
+  Flatfile: [{name: 'Filename', param: tickSinkParamGens.str}],
 };
 
 export default {
