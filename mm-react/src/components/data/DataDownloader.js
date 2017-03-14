@@ -3,14 +3,14 @@
 
 import React from 'react';
 import { connect } from 'dva';
-import { Select, Table, Button, Popconfirm, Tooltip, Progress, Form, Input, DatePicker } from 'antd';
+import { Select, Table, Button, Popconfirm, Tooltip, Progress, Form, Input, DatePicker, message } from 'antd';
 const Option = Select.Option;
 const FormItem = Form.Item;
 const { RangePicker } = DatePicker;
 
 import { InstanceShape, HistTickDstShape } from '../../utils/commands';
-import { dataDownloaders } from '../../utils/const';
 import { Instance } from '../instances/Instance';
+import DstSelector from './DstSelector';
 
 /**
  * Given a list of running instances, returns the set of those instances that are data downloaders as `Option`s
@@ -78,35 +78,45 @@ DownloadProgress.propTypes = {
 // TODO: Auto-update progress of all running data downloads every few seconds
 
 class DataDownloader extends React.Component {
-  handleSubmit = e => {
-    e.preventDefault();
-    this.props.form.validateFields((err, values) => {
-      if (!err) {
-        // get the data out of the form
-        let {downloader, timeframe, symbol, destination} = this.props.form.getFieldsValue(
-          ['downloader', 'timeframe', 'symbol', 'destination']
-        );
+  /**
+   * Returns a function that, given a `HistTickDst` as an argument, attempts to start the data download.  Shows a message on error.
+   */
+  handleSubmit = dst => {
+    return e => {
+      e.preventDefault();
+      this.props.form.validateFields((err, values) => {
+        if (!err) {
+          // get the data out of the form
+          let {downloader, timeframe, symbol} = this.props.form.getFieldsValue(
+            ['downloader', 'timeframe', 'symbol']
+          );
 
-        // convert start and end times to nanoseconds and send command to start the download
-        let startTime = timeframe[0]._d.getTime() * 1000 * 1000;
-        let endTime = timeframe[1]._d.getTime() * 1000 * 1000;
-        let cmd = {DownloadTicks: {
-          start_time: startTime,
-          end_time: endTime,
-          symbol: symbol,
-          dst: destination,
-        }};
+          console.log(dst);
+          if(dst === null) {
+            message.error('Invalid input supplied for the ')
+          }
 
-        // send the command to the chosen data downloader
-        this.props.dispatch({
-          instance_name: 'Spawner',
-          cb_action: 'data/downloadStarted',
-          channel: downloader,
-          cmd: cmd,
-          type: 'platform_communication/sendCommand',
-        });
-      }
-    });
+          // convert start and end times to nanoseconds and send command to start the download
+          let startTime = timeframe[0]._d.getTime() * 1000 * 1000;
+          let endTime = timeframe[1]._d.getTime() * 1000 * 1000;
+          let cmd = {DownloadTicks: {
+            start_time: startTime,
+            end_time: endTime,
+            symbol: symbol,
+            dst: JSON.parse(dst),
+          }};
+
+          // send the command to the chosen data downloader
+          this.props.dispatch({
+            instance_name: 'Spawner',
+            cb_action: 'data/downloadStarted',
+            channel: downloader,
+            cmd: cmd,
+            type: 'platform_communication/sendCommand',
+          });
+        }
+      });
+    }
   }
 
   render() {
@@ -166,7 +176,7 @@ class DataDownloader extends React.Component {
     return (
       <div>
         <h2>{'Start Data Download'}</h2>
-        <Form layout='inline' onSubmit={this.handleSubmit}>
+        <Form inline onSubmit={this.handleSubmit(this.props.dst)}>
           <FormItem label='Data Downloader'>
             {getFieldDecorator('downloader', {
               rules: [{ required: true, message: 'Please select a data downloader to use for this download.'}]
@@ -198,21 +208,15 @@ class DataDownloader extends React.Component {
           </FormItem>
 
           <FormItem>
-            {getFieldDecorator('destination', {
-              rules: [{ required: true, message: 'Please select a destination for the downloaded ticks!' }],
-            })(
-              <Button>
-                {'TODO'}
-              </Button>
-            )}
+            <DstSelector />
           </FormItem>
 
           <FormItem>
             {getFieldDecorator('button', {})(
-            <Button htmlType='submit' type='primary'>
-              {'Start Data Download'}
-            </Button>
-          )}
+              <Button htmlType='submit' type='primary'>
+                {'Start Data Download'}
+              </Button>
+            )}
           </FormItem>
         </Form>
 
@@ -249,6 +253,7 @@ function mapProps(state) {
     runningDownloads: state.data.runningDownloads,
     livingInstances: state.instances.living_instances,
     downloadProgresses: state.data.downloadProgresses,
+    dst: state.data.dst,
   };
 }
 

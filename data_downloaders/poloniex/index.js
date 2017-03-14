@@ -190,6 +190,6 @@ function handleCommand(cmd: any): any {
       return {Error: {status: 'There are no currently running downloads with that UUID!'}};
     }
   } else {
-    return {Info: {info: `Poloniex Data Downloader doesn\'t recognize that command: ${JSON.stringify(cmd)}`}};
+    return {Error: {status: `Poloniex Data Downloader doesn\'t recognize that command: ${JSON.stringify(cmd)}`}};
   }
 }
