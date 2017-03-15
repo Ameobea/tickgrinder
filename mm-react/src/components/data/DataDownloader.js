@@ -9,8 +9,8 @@ const FormItem = Form.Item;
 const { RangePicker } = DatePicker;
 
 import { InstanceShape, HistTickDstShape } from '../../utils/commands';
-import { dataDownloaders } from '../../utils/const';
 import { Instance } from '../instances/Instance';
+import DstSelector from './DstSelector';
 
 /**
  * Given a list of running instances, returns the set of those instances that are data downloaders as `Option`s
@@ -166,7 +166,7 @@ class DataDownloader extends React.Component {
     return (
       <div>
         <h2>{'Start Data Download'}</h2>
-        <Form layout='inline' onSubmit={this.handleSubmit}>
+        <Form inline onSubmit={this.handleSubmit}>
           <FormItem label='Data Downloader'>
             {getFieldDecorator('downloader', {
               rules: [{ required: true, message: 'Please select a data downloader to use for this download.'}]
@@ -198,21 +198,15 @@ class DataDownloader extends React.Component {
           </FormItem>
 
           <FormItem>
-            {getFieldDecorator('destination', {
-              rules: [{ required: true, message: 'Please select a destination for the downloaded ticks!' }],
-            })(
-              <Button>
-                {'TODO'}
-              </Button>
-            )}
+            <DstSelector />
           </FormItem>
 
           <FormItem>
             {getFieldDecorator('button', {})(
-            <Button htmlType='submit' type='primary'>
-              {'Start Data Download'}
-            </Button>
-          )}
+              <Button htmlType='submit' type='primary'>
+                {'Start Data Download'}
+              </Button>
+            )}
           </FormItem>
         </Form>
 
@@ -249,7 +243,14 @@ function mapProps(state) {
     runningDownloads: state.data.runningDownloads,
     livingInstances: state.instances.living_instances,
     downloadProgresses: state.data.downloadProgresses,
+    dst: state.data.dst,
   };
 }
 
-export default connect(mapProps)(Form.create()(DataDownloader));
+export default connect(mapProps)(Form.create({
+  mapPropsToFields: props => {
+    return {
+      destination: props.dst,
+    };
+  },
+})(DataDownloader));

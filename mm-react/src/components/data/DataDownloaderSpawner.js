@@ -6,7 +6,7 @@ import { Select, Button, Form } from 'antd';
 const FormItem = Form.Item;
 const Option = Select.Option;
 
-import { dataDownloaders } from '../../utils/const';
+import { dataDownloaders } from '../../utils/data_util';
 
 class DataDownloaderSpawner extends React.Component {
   handleSubmit = e => {
@@ -42,7 +42,7 @@ class DataDownloaderSpawner extends React.Component {
 
     const { getFieldDecorator } = this.props.form;
     return (
-      <Form layout='inline' onSubmit={this.handleSubmit}>
+      <Form inline onSubmit={this.handleSubmit}>
         <FormItem>
           {getFieldDecorator('downloaderName', {
             rules: [

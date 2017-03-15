@@ -3,7 +3,7 @@
 import { message } from 'antd';
 import { select } from 'redux-saga/effects';
 
-import { dataDownloaders } from '../utils/const';
+import { dataDownloaders } from '../utils/data_util';
 
 export default {
   namespace: 'data',
@@ -12,13 +12,14 @@ export default {
     runningDownloads: [], // all actively running data downloads
     downloadedData: [], // contains information about data that the platform has stored
     downloadProgresses: [], // contains the progress of all running backtests
+    dst: null, // the currently selected `HistTickDst` for a bactest (or null if the user has supplied incomplete/invalid params)
   },
 
   reducers: {
     /**
      * Called when the spawner responds to a request to spawn a data downloader
      */
-    dataDownloaderSpawnResponseReceived (state, {msg}) {
+    dataDownloaderSpawnResponseReceived(state, {msg}) {
       if(msg.res == 'Ok') {
         message.success('Data downloader spawn request accepted');
       } else if(msg.res.Error) {
@@ -35,7 +36,7 @@ export default {
      * If the download started successfully, adds the download to the list of running downloads and displays
      * a message.  If unsuccessful, displays an error message.
      */
-    downloadStarted (state, {msg}) {
+    downloadStarted(state, {msg}) {
       if(msg.res.DownloadStarted) {
         message.loading(`Data download for symbol ${msg.DownloadStarted.symbol} has been successfully initialized.`);
         return {...state,
@@ -55,7 +56,7 @@ export default {
      * Called as a callback for `DownloadComplete` commands send by data downloaders.  Removes the download from
      * the list of running downloads and displays a message indicating its completion.
      */
-    downloadFinished (state, {msg}) {
+    downloadFinished(state, {msg}) {
       // display a notification of the download's success
       let {symbol, id, start_time, end_time} = msg.DownloadComplete;
       message.success(`Data download for symbol ${symbol} with ID ${id} has completed after ${end_time - start_time} seconds!`);
@@ -69,7 +70,7 @@ export default {
     /**
      * Called as a callback for `GetDownloadProgress` commands.
      */
-    downloadProgressReceived (state, {msg}) {
+    downloadProgressReceived(state, {msg}) {
       if(msg.res.DownloadProgress) {
         // remove the old progress from the state (if it exists) and put the new progress in
         let newProgresses = state.downloadProgresses.filter(prog => prog.id !== msg.res.DownloadProgress.id);
@@ -85,6 +86,15 @@ export default {
       }
 
       return {...state};
+    },
+
+    /**
+     * Called when the user changes the params for a `TickSink` component; contains the new sink as a `HistTickSink`.
+     */
+    newDst(state, {dst}) {
+      return {...state,
+        dst: dst,
+      };
     }
   },
 
