@@ -103,20 +103,11 @@ function handleCommand(cmd: any): any {
         };
 
         // send download started message
-        const msgUuid = v4();
-        const msg = {uuid: msgUuid, cmd: {DownloadStarted: {
-          id: downloadUuid,
-          downloader: {
-            instance_type: 'Poloniex Data Downloader',
-            uuid: ourUuid,
-          },
-          start_time: startTimestamp,
-          end_time: endTimestamp,
-          symbol: cmd.DownloadTicks.symbol,
-          dst: cmd.DownloadTicks.dst,
-        }}};
-        const wsmsg = {uuid: msgUuid, channel: CONF.redis_control_channel, message: JSON.stringify(msg)};
-        socket.send(JSON.stringify(wsmsg));
+        const ourInstance = {
+          instance_type: 'Poloniex Data Downloader',
+          uuid: ourUuid,
+        };
+        sendDownloadStartedMessage(downloadUuid, cmd.DownloadTicks.symbol, startTimestamp, endTimestamp, cmd.DownloadTicks.dst, ourInstance);
 
         // function to be called once the download finishes
         const downloadComplete = () => {
@@ -126,10 +117,7 @@ function handleCommand(cmd: any): any {
           const msgUuid = v4();
           const wsMsg = {uuid: msgUuid, channel: CONF.redis_control_channel, message: {uuid: msgUuid, cmd: {DownloadComplete: {
             id: downloadUuid,
-            downloader: {
-              instance_type: 'Poloniex Data Downloader',
-              uuid: ourUuid,
-            },
+            downloader: ourInstance,
             start_time: startTimestamp,
             end_time: endTimestamp,
             symbol: cmd.DownloadTicks.symbol,
@@ -146,6 +134,7 @@ function handleCommand(cmd: any): any {
         // start the download
         initHistTradeDownload(cmd.DownloadTicks.pair, startTimestamp, endTimestamp, outputFilename, ourUuid, downloadComplete, progressUpdated, cs);
       }, 0);
+
       return 'Ok';
     } else if(/WS_.+/.test(cmd.DownloadTicks.symbol)) {
       const downloadUuid = v4();
@@ -156,10 +145,24 @@ function handleCommand(cmd: any): any {
         curTime: 0,
         dst: cmd.DownloadTicks.dst,
       };
+
       let pair = cmd.DownloadTicks.symbol.split('WS_')[1];
       const isDownloadCancelled = (): boolean => {
-        return !!runningDownloads[downloadUuid];
+        return !runningDownloads[downloadUuid];
       };
+
+      // send download started message
+      const ourInstance = {
+        instance_type: 'Poloniex Data Downloader',
+        uuid: ourUuid,
+      };
+      sendDownloadStartedMessage(downloadUuid, cmd.DownloadTicks.symbol, 0, 0, cmd.DownloadTicks.dst, ourInstance);
+
+      // this only works for `Flatfile` destinations for now.
+      if(!cmd.DownloadTicks.dst.Flatfile) {
+        return {Error: {status: 'Streaming Poloniex Downloader currently only works with the `Flatfile` hist tick destination!'}};
+      }
+
       return startWsDownload(pair, cmd.DownloadTicks.dst, cs, isDownloadCancelled);
     } else {
       return {Error: {status: 'Malformed symbol received; must be in format \'HISTTRADES_BTC_XMR\' or \'WS_BTC_XMR\'.'}};
@@ -192,4 +195,23 @@ function handleCommand(cmd: any): any {
   } else {
     return {Error: {status: `Poloniex Data Downloader doesn\'t recognize that command: ${JSON.stringify(cmd)}`}};
   }
+}
+
+/**
+ * Broadcasts a command to the platform indicating that a data download has started.
+ */
+function sendDownloadStartedMessage(
+  downloadUuid: string, pair: string, startTimestamp: number, endTimestamp: number, dst: object, instance: {instance_type: string, uuid: string}
+) {
+  const msgUuid = v4();
+  const msg = {uuid: msgUuid, cmd: {DownloadStarted: {
+    id: downloadUuid,
+    downloader: instance,
+    start_time: startTimestamp,
+    end_time: endTimestamp,
+    symbol: pair,
+    dst: dst,
+  }}};
+  const wsmsg = {uuid: msgUuid, channel: CONF.redis_control_channel, message: JSON.stringify(msg)};
+  socket.send(JSON.stringify(wsmsg));
 }

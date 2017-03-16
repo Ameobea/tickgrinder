@@ -42,7 +42,7 @@ class DataDownloaderSpawner extends React.Component {
 
     const { getFieldDecorator } = this.props.form;
     return (
-      <Form inline onSubmit={this.handleSubmit}>
+      <Form layout='inline' onSubmit={this.handleSubmit}>
         <FormItem>
           {getFieldDecorator('downloaderName', {
             rules: [
