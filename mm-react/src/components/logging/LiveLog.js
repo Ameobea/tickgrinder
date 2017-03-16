@@ -5,6 +5,7 @@ import React from 'react';
 import { Row, Col, Card, Tag, Checkbox, Tooltip } from 'antd';
 
 import styles from '../../static/css/logging.css';
+import { InstanceShape } from '../../utils/commands';
 import { LogLine, Severity } from './LogLine';
 
 const handleCategoryClose = (dispatch, name) => {
@@ -16,7 +17,7 @@ const handleInstanceClose = (dispatch, sender) => {
 };
 
 const SelectedTags = connect()(({dispatch, selected_categories, selected_severities, selected_instances, inclusive}) => {
-  const handleClick = dispatch => dispatch({type: 'logging/severityClosed', item: name});
+  const handleClick = (dispatch, level) => dispatch({type: 'logging/severityClosed', item: level});
   let tags = [];
   for(var i=0; i<selected_severities.length; i++) {
     let name = selected_severities[i];
@@ -31,7 +32,7 @@ const SelectedTags = connect()(({dispatch, selected_categories, selected_severit
     tags.push(tag);
   }
 
-  const catClickHandler = () => handleCategoryClose(dispatch, name);
+  const catClickHandler = name => handleCategoryClose(dispatch, name);
 
   for(var j=0; j<selected_categories.length; j++) {
     let name = selected_categories[j];
@@ -39,7 +40,7 @@ const SelectedTags = connect()(({dispatch, selected_categories, selected_severit
       <Tag closable
         color="blue"
         key={'category-' + name}
-        onClick={catClickHandler}
+        onClick={function(){catClickHandler(name);}}
       >
         {name}
       </Tag>
@@ -130,10 +131,20 @@ const LiveLog = ({dispatch, log_cache, selected_categories, selected_severities,
 LiveLog.propTypes = {
   dispatch: React.PropTypes.func.isRequired,
   inclusive: React.PropTypes.bool.isRequired,
-  log_cache: React.PropTypes.array.isRequired,
-  selected_categories: React.PropTypes.array.isRequired,
-  selected_instances: React.PropTypes.array.isRequired,
-  selected_severities: React.PropTypes.array.isRequired
+  log_cache: React.PropTypes.arrayOf(React.PropTypes.shape({
+    uuid: React.PropTypes.string,
+    cmd: React.PropTypes.shape({
+      Log: React.PropTypes.shape({
+        msg: React.PropTypes.shape({
+          level: React.PropTypes.string.isRequired,
+          sender: React.PropTypes.shape(InstanceShape).isRequired,
+        }).isRequired,
+      }).isRequired,
+    }).isRequired,
+  })).isRequired,
+  selected_categories: React.PropTypes.arrayOf(React.PropTypes.string).isRequired,
+  selected_instances: React.PropTypes.arrayOf(React.PropTypes.shape(InstanceShape).isRequired).isRequired,
+  selected_severities: React.PropTypes.arrayOf(React.PropTypes.string).isRequired
 };
 
 function mapProps(state) {

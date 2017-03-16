@@ -317,5 +317,12 @@ pub const DATA_DOWNLOADER_SETTINGS: SettingsPage = SettingsPage {
             setting_type: SettingType::String,
             comment: Some("The API endpoint for the Poloniex HTTP API.  Should be good as default; if it's changed please open an issue."),
         },
+        SettingRow {
+            id: "poloniex_ws_cache_size",
+            name: "Poloniex WebSocket Message Cache Size",
+            default: Some("500"),
+            setting_type: SettingType::Usize,
+            comment: Some("How many messages to buffer before flushing into the sink.  The buffer is used to catch unordered messages.")
+        },
     ],
 };
