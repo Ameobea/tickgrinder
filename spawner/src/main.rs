@@ -3,7 +3,7 @@
 //! Responsible for spawning, destroying, and managing all instances of the bot4
 //! platform's modules and reporting on their status.
 
-#![feature(plugin, test, conservative_impl_trait, custom_derive)]
+#![feature(plugin, test, conservative_impl_trait, custom_derive, associated_consts)]
 
 extern crate uuid;
 extern crate redis;
@@ -347,19 +347,6 @@ impl InstanceManager {
 
         let res_string = format!("[{}]", partials.join(", "));
         Response::Info{info: res_string}
-    }
-
-    /// Spawns a new MM server instance and inserts its Uuid into the living instances list
-    fn spawn_mm(&mut self) -> Response {
-        let mod_uuid = Uuid::new_v4();
-        let path = "./mm/manager.js";
-        let _ = process::Command::new(CONF.node_binary_path)
-                                .arg(path)
-                                .arg(mod_uuid.to_string().as_str())
-                                .spawn()
-                                .expect("Unable to spawn MM");
-
-        Response::Ok
     }
 
     /// Spawns a logger instance and inserts it into the list of running instances
