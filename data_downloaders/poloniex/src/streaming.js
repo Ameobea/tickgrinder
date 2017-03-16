@@ -15,7 +15,7 @@ type CacheEntry = {msg: Array<OrderBookMessage>, seq: number, timestamp: number}
 type ExecutorDescriptor = {id: number, pointer: any};
 
 // how large to grow the cache before writing the data into the sink.  Must be a multiple of 10.
-const CACHE_SIZE = 50000;
+const CACHE_SIZE = 5000;
 
 if(CACHE_SIZE % 10 !== 0) {
   console.error('ERROR: `CACHE_SIZE` must be a multiple of 10!');
@@ -28,17 +28,13 @@ if(CACHE_SIZE % 10 !== 0) {
  * @param {function} isDownloadRunning - A function that returns whether or not the selected download has been cancelled
  */
 function startWsDownload(pair: string, dst: any, cs: any, isDownloadCancelled: () => boolean): {Error: {status: string}} | string {
-  // this only works for `Flatfile` destinations for now.
-  if(!dst.Flatfile) {
-    return {Error: {status: 'Streaming Poloniex Downloader currently only works with the `Flatfile` hist tick destination!'}};
-  }
   // create the executors used for processing the ticks
   let book_modify_executor: ExecutorDescriptor =
-    Tickstream.getCsvSinkExecutor(POLONIEX_BOOK_MODIFY, dst.Flatfile.filename);
+    Tickstream.getCsvSinkExecutor(POLONIEX_BOOK_MODIFY, dst.Flatfile.filename + '.modifications.csv');
   let book_remove_executor: ExecutorDescriptor =
-    Tickstream.getCsvSinkExecutor(POLONIEX_BOOK_REMOVE, dst.Flatfile.filename);
+    Tickstream.getCsvSinkExecutor(POLONIEX_BOOK_REMOVE, dst.Flatfile.filename + '.removals.csv');
   let book_new_trade_executor: ExecutorDescriptor =
-    Tickstream.getCsvSinkExecutor(POLONIEX_NEW_TRADE, dst.Flatfile.filename);
+    Tickstream.getCsvSinkExecutor(POLONIEX_NEW_TRADE, dst.Flatfile.filename + '.newtrades.csv');
 
   // create a cache to store messages that are waiting to be pushed through the executor
   let messageCache: Array<CacheEntry> = [];
@@ -57,18 +53,18 @@ function startWsDownload(pair: string, dst: any, cs: any, isDownloadCancelled: (
       });
 
       res.on('end', () => {
-        let last_seq = 0;
+        let lastSeq = 0;
         try {
           let parsedData = JSON.parse(rawData);
-          last_seq = parsedData.seq;
+          lastSeq = parsedData.seq;
         } catch(e) {
           console.error(`Unable to parse orderbook response into JSON: ${e}`);
           process.exit(1);
         }
 
         // drop all recorded updates that were before the order book's sequence number
-        messageCache = messageCache.filter((msg: CacheEntry): boolean => msg.seq > last_seq);
-        Log.notice(cs, 'Ledger Downloader', `Received original copy of ledger with seq ${last_seq}; clearing cache.`);
+        messageCache = messageCache.filter((msg: CacheEntry): boolean => msg.seq > lastSeq);
+        Log.notice(cs, 'Ledger Downloader', `Received original copy of ledger with seq ${lastSeq}; clearing cache.`);
       });
     });
   }, 3674);
@@ -87,6 +83,7 @@ function startWsDownload(pair: string, dst: any, cs: any, isDownloadCancelled: (
         drainCache(true, messageCache, book_modify_executor, book_remove_executor, book_new_trade_executor, cs);
         // close the connection so that no further updates are recorded
         connection.close();
+        Log.info(cs, '', `Data download for symbol ${pair} cancelled.`)
         return;
       }
       // if the cache is full, sort it and process it into the sink
@@ -126,21 +123,26 @@ function drainCache(
   assert(messageCache[0].seq > messageCache[messageCache.length - 1].seq);
 
   // split the oldest 90% of the array off to process into the sink
-  let split = messageCache.splice(0, .9 * CACHE_SIZE);
-  assert(split.length === .9 * CACHE_SIZE);
+  let split;
+  if(!isFlush) {
+    split = messageCache.splice(0, .9 * CACHE_SIZE);
+    assert(split.length === .9 * CACHE_SIZE);
+    // make sure that the correct number of elements are left in the message cache
+    assert(messageCache.length == .1 * CACHE_SIZE);
+  } else {
+    split = messageCache;
+    messageCache = [];
+  }
 
-  // process the oldest 90% of messages that were waiting for this message before being recorded
+  // process the messages that were waiting for this message before being recorded
   let old_length = split.length;
   for(var j=0; j<old_length; j++) {
     let entry: CacheEntry = split.pop();
     // process each of the individual events in the message
     for(var k=0; k<entry.msg.length; k++) {
-      processOrderBookMessage(entry.msg[k], entry.timestamp, book_modify_executor, book_remove_executor, book_new_trade_executor);
+      processOrderBookMessage(entry.msg[k], entry.timestamp, book_modify_executor, book_remove_executor, book_new_trade_executor, cs);
     }
   }
-
-  // make sure that the correct number of elements are left in the message cache
-  assert(messageCache.length == .1 * CACHE_SIZE);
 
   if(split.length !== 0) {
     Log.error(cs, 'Message Cache', 'Error while draining message cache: The cache was expected to be empty but had elements remaining in it!');

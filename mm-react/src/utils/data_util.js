@@ -41,7 +41,7 @@ const dataDownloaders: Array<DataDownloaderDefinition> = [
  * `TickSink`s are react components that contain an extra function that, using the state of the component, creates a `HistTickDst`
  * that can be used along with a backtest.
  *
- * Use like `<TickSink sinkJsonName='Flatfile' />`
+ * Use like `<TickSink sinkJsonName='Flatfile' handleUpdate={this.handleUpdate} />`
  *
  * These components also compose a `getHistTickDst()` method that returns a JSON-encoded `HistTickDst` or null if the user neglected
  * to input one or more of the required input fields.

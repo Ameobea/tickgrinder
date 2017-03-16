@@ -32,33 +32,38 @@ export default {
     },
 
     /**
-     * Called as a callback for responses received from commands dispatched to start data downloads.
-     * If the download started successfully, adds the download to the list of running downloads and displays
-     * a message.  If unsuccessful, displays an error message.
+     * Called when a data downloader sends a response to a command to start a data download.
      */
-    downloadStarted(state, {msg}) {
-      if(msg.res.DownloadStarted) {
-        message.loading(`Data download for symbol ${msg.DownloadStarted.symbol} has been successfully initialized.`);
-        return {...state,
-          runningDownloads: [...state.runningDownloads, msg.res.DownloadStarted],
-        };
-      } else if(msg.res.Error) {
-        message.error('Error starting data download: ' + msg.res.Error.status);
-      } else {
-        message.error('Received unexpected response to data download request: ' + JSON.stringify(msg));
+    downloadRequestResponseReceived(state, {msg}) {
+      if(msg.res.Error) {
+        message.error('Error when attempting to initialize data download: ' + msg.res.Error.status);
+      } else if(msg.res !== 'Ok') {
+        message.error(
+          'Unexpected response received from data downloader instance when attempting to initialize data download: ' + JSON.stringify(msg)
+        );
       }
 
-      // TODO: Remove the download request from the list of pending download requests
       return {...state};
     },
 
     /**
-     * Called as a callback for `DownloadComplete` commands send by data downloaders.  Removes the download from
+     * Called when `DownloadStarted` commands are received. If the download started successfully, adds the download to the list of running
+     * downloads and displays a message.  If unsuccessful, displays an error message.
+     */
+    downloadStarted(state, {msg}) {
+      message.loading(`Data download for symbol ${msg.cmd.DownloadStarted.symbol} has been successfully initialized.`);
+      return {...state,
+        runningDownloads: [...state.runningDownloads, msg.cmd.DownloadStarted],
+      };
+    },
+
+    /**
+     * Called as a callback for `DownloadComplete` commands sent by data downloaders.  Removes the download from
      * the list of running downloads and displays a message indicating its completion.
      */
     downloadFinished(state, {msg}) {
       // display a notification of the download's success
-      let {symbol, id, start_time, end_time} = msg.DownloadComplete;
+      let {symbol, id, start_time, end_time} = msg.cmd.DownloadComplete;
       message.success(`Data download for symbol ${symbol} with ID ${id} has completed after ${end_time - start_time} seconds!`);
 
       return {...state,
@@ -117,26 +122,6 @@ export default {
         instance_name: 'Spawner',
         type: 'platform_communication/sendCommandToInstance',
       });
-    },
-
-    /**
-     * Dispatches the correct command to initialize the specified data download.
-     */
-    *startDataDownload ({startTime, endtime, symbol, tickDst, downloaderId}, {call, put}) {
-      let cmd = {DownloadTicks: {
-        start_time: startTime,
-        end_time: endTime,
-        symbol: symbol,
-        dst: tickDst,
-      }};
-
-      yield put({
-        type: 'instances/sendCommand',
-        channel: downloaderId,
-        cmd: cmd,
-        cb_action: 'data/downloadStarted'
-      });
-      // TODO
     },
 
     /**

@@ -83,6 +83,9 @@ function getResponse (command, uuid) {
     } else if(command.DownloadComplete) {
       res = 'Ok';
       action = 'data/downloadFinished';
+    } else if(command.DownloadStarted) {
+      res = 'Ok';
+      action = 'data/downloadStarted';
     } else {
       res = {Error: {status: 'Command not recognized.'}};
     }
