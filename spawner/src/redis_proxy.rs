@@ -66,6 +66,7 @@ impl ReceivedMessages {
             if oldest_msg.is_some() {
                 // remove the oldest entry from the `HashMap`
                 self.hm.remove(&oldest_msg.unwrap()).unwrap();
+                self.first_id += 1;
             } else {
                 panic!("No entry in the `HashMap` where value == `first_id`!");
             }
@@ -74,16 +75,14 @@ impl ReceivedMessages {
 }
 
 struct WsProxy {
-    out: ws::Sender,
     redis_pub_client: RedisClient,
     cs: CommandServer,
     proxied_uuids: Arc<Mutex<ReceivedMessages>>,
 }
 
 impl WsProxy {
-    fn new(out: ws::Sender, container: Arc<Mutex<ReceivedMessages>>, cs: CommandServer) -> WsProxy {
+    fn new(container: Arc<Mutex<ReceivedMessages>>, cs: CommandServer) -> WsProxy {
         WsProxy {
-            out: out,
             redis_pub_client: get_redis_client(CONF.redis_host),
             cs: cs,
             proxied_uuids: container,
@@ -102,7 +101,6 @@ impl Handler for WsProxy {
             ws::Message::Text(ref s) => s.clone(),
             ws::Message::Binary(_) => {
                 self.cs.error(Some("WsMsg Parsing"), "Received binary message over websocket!");
-                println!("Received binary message over websocket!");
                 return Ok(());
             },
         };
@@ -112,7 +110,6 @@ impl Handler for WsProxy {
         let wsmsg = if res.is_err() {
             let errmsg = format!("Unable to parse string into `WsMsg`: {}", msg_string);
             self.cs.error(Some("WsMsg Parsing"), &errmsg);
-            println!("{}", errmsg);
             return Ok(());
         } else {
             res.unwrap()
@@ -122,10 +119,7 @@ impl Handler for WsProxy {
         let mut recvd_uuids = self.proxied_uuids.lock().unwrap();
         if !(*recvd_uuids).contains(&wsmsg) {
             recvd_uuids.add(wsmsg.clone());
-            println!("Sending WS msg to Redis: {}", wsmsg.message);
             publish(&self.redis_pub_client, &wsmsg.channel, &wsmsg.message);
-        } else {
-            println!("Not sending WS msg to Redis because already sent: {}", wsmsg.message);
         }
 
         // self.out.broadcast(msg)
@@ -184,10 +178,8 @@ impl Handler for WsServerHandler {
             set.add(wsmsg);
             // re-transmit the message to all connected WS clients (this includes the sender of the message and us,
             // but we've added it to the `ReceivedMessages` object so we won't transmit again)
-            println!("Re-broadcasting WS msg back over WS: {}", msg);
             self.out.broadcast(msg)
         } else {
-            println!("Not re-broadcasting WS msg back over WS because already sent: {}", msg);
             Ok(())
         }
     }
@@ -209,8 +201,9 @@ pub fn proxy() {
 
     // proxy messages received over Redis to the websocket
     let cs_clone_ = cs.clone();
+    let redis_uuids_clone = redis_uuids.clone();
     thread::spawn(move || {
-        proxy_redis(ws_uuids, cs_clone_, broadcaster);
+        proxy_redis(ws_uuids, redis_uuids_clone, cs_clone_, broadcaster);
     });
 
     // proxy messages received over WebSocket to Redis
@@ -220,7 +213,10 @@ pub fn proxy() {
 }
 
 /// Proxies commands/responses received via Redis to Websocket
-fn proxy_redis(container: Arc<Mutex<ReceivedMessages>>, mut cs: CommandServer, broadcaster: ws::Sender) {
+fn proxy_redis(
+    ws_uuids: Arc<Mutex<ReceivedMessages>>, redis_uuids: Arc<Mutex<ReceivedMessages>>,
+    mut cs: CommandServer, broadcaster: ws::Sender
+) {
     // get a websocket client connected to our own websocket server
     let rx = sub_multiple(
         CONF.redis_host, &[CONF.redis_control_channel, CONF.redis_responses_channel, CONF.redis_log_channel]
@@ -267,9 +263,12 @@ fn proxy_redis(container: Arc<Mutex<ReceivedMessages>>, mut cs: CommandServer, b
         match uuid_res {
             Ok(uuid) => {
                 let wsmsg = WsMsg {uuid: uuid, channel: chan.clone(), message: msg.clone()};
-                let mut collection = container.lock().unwrap();
-                if !collection.contains(&wsmsg) {
-                    collection.add(wsmsg);
+                let mut ws_collection = ws_uuids.lock().unwrap();
+                let mut redis_collection = redis_uuids.lock().unwrap();
+                if !ws_collection.contains(&wsmsg) {
+                    ws_collection.add(wsmsg.clone());
+                    // also add to redis collection because the fact that we're receiving it means that it was also sent
+                    redis_collection.add(wsmsg);
                     let wsmsg = WsMsg {
                         uuid: uuid,
                         channel: chan,
@@ -277,10 +276,7 @@ fn proxy_redis(container: Arc<Mutex<ReceivedMessages>>, mut cs: CommandServer, b
                     };
 
                     let wsmsg_string: String = to_string(&wsmsg).unwrap();
-                    println!("Broadcasting msg from Redis to WS: {}", msg.clone());
                     broadcaster.broadcast(wsmsg_string.as_str()).expect("Unable to send message over websocket");
-                } else {
-                    println!("Not broadcasting msg from Redis to WS because already sent: {}", msg);
                 }
             },
             Err(()) => {
@@ -292,8 +288,8 @@ fn proxy_redis(container: Arc<Mutex<ReceivedMessages>>, mut cs: CommandServer, b
 
 /// Proxy all messages received over the websocket server to Redis
 fn proxy_websocket(container: Arc<Mutex<ReceivedMessages>>, cs: CommandServer) {
-    connect(format!("ws://{}", get_ws_host()), |out| {
-        WsProxy::new(out, container.clone(), cs.clone())
+    connect(format!("ws://{}", get_ws_host()), |_| {
+        WsProxy::new(container.clone(), cs.clone())
     }).expect("Unable to initialize websocket proxy");
 }
 

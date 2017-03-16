@@ -30,7 +30,7 @@ const Severity = connect()(({dispatch, level, onClick, closable}) => {
   }
 
   const handleClick = () => {
-    onClick(dispatch);
+    onClick(dispatch, level);
   };
 
   return (
@@ -43,7 +43,7 @@ const Severity = connect()(({dispatch, level, onClick, closable}) => {
     </Tag>);
 });
 
-const Instance = ({dispatch, sender}) => {
+const StaticInstance = ({dispatch, sender}) => {
   let instance_type = sender.instance_type;
   const handleChange = () => dispatch({type: 'logging/instanceAdded', item: sender});
 
@@ -59,10 +59,10 @@ const Instance = ({dispatch, sender}) => {
   );
 };
 
-Instance.propTypes = {
+StaticInstance.propTypes = {
   dispatch: React.PropTypes.func.isRequired,
   sender: React.PropTypes.shape({
-    instance_uuid: React.PropTypes.string.isRequired,
+    instance_type: React.PropTypes.string.isRequired,
     uuid: React.PropTypes.string.isRequired,
   }).isRequired,
 };
@@ -83,7 +83,7 @@ const LogLine = ({dispatch, msg}) => {
       type="flex"
     >
       <Col span={2}>
-        <Instance
+        <StaticInstance
           dispatch={dispatch}
           sender={msg.sender}
         />
@@ -103,8 +103,8 @@ const LogLine = ({dispatch, msg}) => {
 LogLine.propTypes = {
   dispatch: React.PropTypes.func.isRequired,
   msg: React.PropTypes.shape({
-    level: React.PropTypes.number.isRequired,
-    sender: InstanceShape.isRequired,
+    level: React.PropTypes.string.isRequired,
+    sender: React.PropTypes.shape(InstanceShape).isRequired,
   }).isRequired,
 };
 
