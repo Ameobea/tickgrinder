@@ -8,7 +8,18 @@ const { v4, initWs } = util;
 const startWsDownload = require('./src/streaming');
 const initHistTradeDownload = require('./src/historical');
 
-type RunningDownload = {symbol: string, startTime: number, endTime: number, curTime: number};
+type RunningDownload = {
+  id: string,
+  symbol: string,
+  downloader: {
+    instance_type: string,
+    uuid: string
+  },
+  start_time: number,
+  cur_time: number,
+  end_time: number,
+  dst: any
+};
 
 // holds all active downloads and their progress, used to respond to commands requesting their progress
 var runningDownloads: { [key: string]: RunningDownload } = {};
@@ -25,6 +36,11 @@ if(!ourUuid) {
 } else {
   Log.notice(cs, '', `Poloniex Data Downloader now listening for commands on ${CONF.redis_control_channel} and ${ourUuid}`);
 }
+
+const ourInstance = {
+  instance_type: 'Poloniex Data Downloader',
+  uuid: ourUuid,
+};
 
 // set up Websocket connection to the platform's messaging system
 let socket: WebSocket = initWs(handleWsMessage, null, ourUuid, wsError);
@@ -81,13 +97,13 @@ function handleCommand(cmd: any): any {
     }, 3001);
     return {Info: {info: 'Poloniex Data Downloader is despawning in 3 seconds...'}};
   } else if(cmd.DownloadTicks) {
-    // Pairs that look like "HISTTRADES_XMR_BTC" will be downloaded using the historical trades HTTP downloader
+    // Pairs that look like "HIST_XMR_BTC" will be downloaded using the historical trades HTTP downloader
     // Pairs that look like "WS_XMR_BTC" will be downloaded using the streaming WebSocket downloader
-    if(/HISTTRADES_.+/.test(cmd.DownloadTicks.symbol)) {
-      if(!cmd.DownloadTicks.dst.CsvFlatfile) {
-        return {Error: {status: 'Unacceptable tick destination; this downloader only works with the `CsvFlatfile` downloader.'}};
+    if(/HIST_.+/.test(cmd.DownloadTicks.symbol)) {
+      if(!cmd.DownloadTicks.dst.Flatfile) {
+        return {Error: {status: 'Unacceptable tick destination; this downloader only works with the `Flatfile` downloader.'}};
       }
-      let outputFilename = cmd.DownloadTicks.dst.CsvFlatfile.filename;
+      let outputFilename = cmd.DownloadTicks.dst.Flatfile.filename;
       // convert start/end times from nanoseconds to seconds
       let startTimestamp = Math.floor(cmd.DownloadTicks.start_time / (1000 * 1000 * 1000));
       let endTimestamp = Math.ceil(cmd.DownloadTicks.end_time / (1000 * 1000 * 1000));
@@ -95,54 +111,48 @@ function handleCommand(cmd: any): any {
       setTimeout(() => {
         // register this download as in-progress
         runningDownloads[downloadUuid] = {
+          id: downloadUuid,
+          downloader: ourInstance,
           symbol: cmd.DownloadTicks.symbol,
-          startTime: startTimestamp,
-          endTime: endTimestamp,
-          curTime: startTimestamp,
+          start_time: startTimestamp,
+          cur_time: startTimestamp,
+          end_time: endTimestamp,
           dst: cmd.DownloadTicks.dst,
         };
 
         // send download started message
-        const ourInstance = {
-          instance_type: 'Poloniex Data Downloader',
-          uuid: ourUuid,
-        };
-        sendDownloadStartedMessage(downloadUuid, cmd.DownloadTicks.symbol, startTimestamp, endTimestamp, cmd.DownloadTicks.dst, ourInstance);
+        sendDownloadStartedMessage(runningDownloads[downloadUuid]);
 
         // function to be called once the download finishes
         const downloadComplete = () => {
-          // remove the running download from the running downloads list
-          delete runningDownloads[downloadUuid];
           // send download complete message
           const msgUuid = v4();
-          const wsMsg = {uuid: msgUuid, channel: CONF.redis_control_channel, message: {uuid: msgUuid, cmd: {DownloadComplete: {
-            id: downloadUuid,
-            downloader: ourInstance,
-            start_time: startTimestamp,
-            end_time: endTimestamp,
-            symbol: cmd.DownloadTicks.symbol,
-            dst: cmd.DownloadTicks.dst,
-          }}}};
+          const wsMsg = {uuid: msgUuid, channel: CONF.redis_control_channel, message: {uuid: msgUuid, cmd: {DownloadComplete: {download: runningDownloads[downloadUuid]}}}};
           socket.send(JSON.stringify(wsMsg));
+
+          // remove the running download from the running downloads list
+          delete runningDownloads[downloadUuid];
         };
 
         // function that can be called by the downloader to indicate that it has made progress during the download
         const progressUpdated = (curTimestamp: number) => {
-          runningDownloads[downloadUuid].curTime = curTimestamp;
+          runningDownloads[downloadUuid].cur_time = curTimestamp;
         };
 
         // start the download
-        initHistTradeDownload(cmd.DownloadTicks.pair, startTimestamp, endTimestamp, outputFilename, ourUuid, downloadComplete, progressUpdated, cs);
+        initHistTradeDownload(cmd.DownloadTicks.symbol.split('HIST_')[1], startTimestamp, endTimestamp, outputFilename, ourUuid, downloadComplete, progressUpdated, cs);
       }, 0);
 
       return 'Ok';
     } else if(/WS_.+/.test(cmd.DownloadTicks.symbol)) {
       const downloadUuid = v4();
       runningDownloads[downloadUuid] = {
+        id: downloadUuid,
+        downloader: ourInstance,
         symbol: cmd.DownloadTicks.symbol,
-        startTime: 0,
-        endTime: 0,
-        curTime: 0,
+        start_time: 0,
+        cur_time: 0,
+        end_time: 0,
         dst: cmd.DownloadTicks.dst,
       };
 
@@ -152,10 +162,6 @@ function handleCommand(cmd: any): any {
       };
 
       // send download started message
-      const ourInstance = {
-        instance_type: 'Poloniex Data Downloader',
-        uuid: ourUuid,
-      };
       sendDownloadStartedMessage(downloadUuid, cmd.DownloadTicks.symbol, 0, 0, cmd.DownloadTicks.dst, ourInstance);
 
       // this only works for `Flatfile` destinations for now.
@@ -165,10 +171,14 @@ function handleCommand(cmd: any): any {
 
       return startWsDownload(pair, cmd.DownloadTicks.dst, cs, isDownloadCancelled);
     } else {
-      return {Error: {status: 'Malformed symbol received; must be in format \'HISTTRADES_BTC_XMR\' or \'WS_BTC_XMR\'.'}};
+      return {Error: {status: 'Malformed symbol received; must be in format \'HIST_BTC_XMR\' or \'WS_BTC_XMR\'.'}};
     }
-  } else if(cmd.ListRunningDownloads) {
-    return {Error: {status: 'Unimplemented!'}}; // TODO
+  } else if(cmd == 'ListRunningDownloads') {
+    let runningList = [];
+    for(let downloadId in runningDownloads) {
+      runningList.push(runningDownloads[downloadId]);
+    }
+    return {RunningDownloads: {downloads: runningList}};
   } else if(cmd.CancelDataDownload) {
     if(runningDownloads[cmd.CancelDataDownload.id]) {
       // only able to cancel streaming downloads, not historical downloads
@@ -181,14 +191,11 @@ function handleCommand(cmd: any): any {
       return {Error: {status: 'There are no currently running downloads with that UUID!'}};
     }
   } else if(cmd.GetDownloadProgress) {
-    if(runningDownloads[cmd.GetDownloadProgress.id]) {
-      let runningDownload = runningDownloads[cmd.GetDownloadProgress.id];
-      return {DownloadProgress: {
-        id: cmd.GetDownloadProgress.id,
-        start_time: runningDownload.startTime,
-        cur_time: runningDownload.curTime,
-        end_time: runningDownload.endTime,
-      }};
+    let id = cmd.GetDownloadProgress.id;
+    if(runningDownloads[id]) {
+      let runningDownload = runningDownloads[id];
+      runningDownload.id = id;
+      return {DownloadProgress: {download: runningDownload}};
     } else {
       return {Error: {status: 'There are no currently running downloads with that UUID!'}};
     }
@@ -200,18 +207,9 @@ function handleCommand(cmd: any): any {
 /**
  * Broadcasts a command to the platform indicating that a data download has started.
  */
-function sendDownloadStartedMessage(
-  downloadUuid: string, pair: string, startTimestamp: number, endTimestamp: number, dst: object, instance: {instance_type: string, uuid: string}
-) {
+function sendDownloadStartedMessage(download: RunningDownload) {
   const msgUuid = v4();
-  const msg = {uuid: msgUuid, cmd: {DownloadStarted: {
-    id: downloadUuid,
-    downloader: instance,
-    start_time: startTimestamp,
-    end_time: endTimestamp,
-    symbol: pair,
-    dst: dst,
-  }}};
+  const msg = {uuid: msgUuid, cmd: {DownloadStarted: {download: download}}};
   const wsmsg = {uuid: msgUuid, channel: CONF.redis_control_channel, message: JSON.stringify(msg)};
   socket.send(JSON.stringify(wsmsg));
 }

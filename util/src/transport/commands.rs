@@ -59,22 +59,8 @@ pub enum Command {
         dst: HistTickDst,
     },
     ListRunningDownloads,
-    DownloadComplete {
-        id: Uuid,
-        downloader: Instance, // the `Instance` managing this download
-        start_time: u64,
-        end_time: u64,
-        symbol: String,
-        dst: HistTickDst,
-    },
-    DownloadStarted {
-        id: Uuid,
-        downloader: Instance, // the `Instance` managing this download
-        start_time: u64,
-        end_time: u64,
-        symbol: String,
-        dst: HistTickDst,
-    },
+    DownloadComplete {download: RunningDownload},
+    DownloadStarted {download: RunningDownload},
     GetDownloadProgress {id: Uuid},
     CancelDataDownload{download_id: Uuid},
     TransferHistData { src: HistTickDst, dst: HistTickDst },
@@ -93,12 +79,8 @@ pub enum Response {
     Info{info: String},
     DocumentQueryResult{results: Vec<String>},
     Document{doc: SrcDocument},
-    DownloadProgress{
-        id: Uuid,
-        start_time: u64,
-        cur_time: u64,
-        end_time: u64,
-    },
+    DownloadProgress{download: RunningDownload},
+    RunningDownloads{downloads: Vec<RunningDownload>},
 }
 
 impl Command {
@@ -140,6 +122,18 @@ pub struct LogMessage {
     pub message_type: String,
     pub message: String,
     pub level: LogLevel,
+}
+
+/// Defines a running download
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunningDownload {
+    pub id: Uuid,
+    pub symbol: String,
+    pub downloader: Instance,
+    pub start_time: u64,
+    pub cur_time: u64,
+    pub end_time: u64,
+    pub dst: HistTickDst,
 }
 
 /// Represents an instance of a platform module.

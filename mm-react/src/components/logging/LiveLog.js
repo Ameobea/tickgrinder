@@ -119,8 +119,8 @@ const LiveLog = ({dispatch, log_cache, selected_categories, selected_severities,
       />
       <Row>
         <Col span={2}><b>{'Sending Instance'}</b></Col>
-        <Col span={2}><b>{'Event Type'}</b></Col>
-        <Col span={18}><b>{'Message'}</b></Col>
+        <Col span={7}><b>{'Event Type'}</b></Col>
+        <Col span={13}><b>{'Message'}</b></Col>
         <Col span={2}><b>{'Severity'}</b></Col>
       </Row>
       {rows}

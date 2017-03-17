@@ -322,7 +322,7 @@ pub const DATA_DOWNLOADER_SETTINGS: SettingsPage = SettingsPage {
             name: "Poloniex WebSocket Message Cache Size",
             default: Some("500"),
             setting_type: SettingType::Usize,
-            comment: Some("How many messages to buffer before flushing into the sink.  The buffer is used to catch unordered messages.")
+            comment: Some("MUST BE MULTIPLE OF 10!  How many messages to buffer before flushing into the sink.  The buffer is used to catch unordered messages."),
         },
     ],
 };
