@@ -34,7 +34,7 @@ struct ReceivedMessages {
 
 impl ReceivedMessages {
     /// How many UUIDs to keep a count of before dropping old values
-    const MAX_SIZE: usize = 5000;
+    const MAX_SIZE: usize = 10000;
 
     pub fn new() -> ReceivedMessages {
         ReceivedMessages {
@@ -50,10 +50,11 @@ impl ReceivedMessages {
 
     /// Adds a new UUID to the internal `HashMap`, removing the oldest element if the size limit has been met
     pub fn add(&mut self, msg: WsMsg) {
-        self.last_id += 1;
         self.hm.insert(msg, self.last_id);
+        self.last_id += 1;
 
         let mut oldest_msg: Option<WsMsg> = None;
+        // trim old messages if the size of the collection exceeds the maximum to save memory/compute time
         if self.hm.len() > ReceivedMessages::MAX_SIZE {
             // find the UUID of the entry with id == `first_id`
             for (k, v) in self.hm.iter() {
@@ -68,7 +69,7 @@ impl ReceivedMessages {
                 self.hm.remove(&oldest_msg.unwrap()).unwrap();
                 self.first_id += 1;
             } else {
-                panic!("No entry in the `HashMap` where value == `first_id`!");
+                panic!("No entry in the `HashMap` where value == `first_id`!: {}", self.first_id);
             }
         }
     }

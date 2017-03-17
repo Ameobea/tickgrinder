@@ -15,7 +15,7 @@ type CacheEntry = {msg: Array<OrderBookMessage>, seq: number, timestamp: number}
 type ExecutorDescriptor = {id: number, pointer: any};
 
 // how large to grow the cache before writing the data into the sink.  Must be a multiple of 10.
-const CACHE_SIZE = 5000;
+const CACHE_SIZE = CONF.poloniex_ws_cache_size;
 
 if(CACHE_SIZE % 10 !== 0) {
   console.error('ERROR: `CACHE_SIZE` must be a multiple of 10!');

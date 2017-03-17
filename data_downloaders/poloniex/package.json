@@ -2,7 +2,8 @@
   "name": "poloniex",
   "version": "1.0.0",
   "dependencies": {
-		"autobahn": "*"
+		"autobahn": "*",
+    "lodash": "4.17.4"
 	},
   "description": "A data downloader using the Poloniex API to download data",
   "devDependencies": {

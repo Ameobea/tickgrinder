@@ -1,8 +1,9 @@
 //! Handles state related to data management and downloading for the MM.
 
+var _ = require('lodash');
 import { message } from 'antd';
-import { select } from 'redux-saga/effects';
 
+const CONF = require('../conf');
 import { dataDownloaders } from '../utils/data_util';
 
 export default {
@@ -11,7 +12,6 @@ export default {
   state: {
     runningDownloads: [], // all actively running data downloads
     downloadedData: [], // contains information about data that the platform has stored
-    downloadProgresses: [], // contains the progress of all running backtests
     dst: null, // the currently selected `HistTickDst` for a bactest (or null if the user has supplied incomplete/invalid params)
   },
 
@@ -51,9 +51,9 @@ export default {
      * downloads and displays a message.  If unsuccessful, displays an error message.
      */
     downloadStarted(state, {msg}) {
-      message.loading(`Data download for symbol ${msg.cmd.DownloadStarted.symbol} has been successfully initialized.`);
+      message.loading(`Data download for symbol ${msg.cmd.DownloadStarted.download.symbol} has been successfully initialized.`);
       return {...state,
-        runningDownloads: [...state.runningDownloads, msg.cmd.DownloadStarted],
+        runningDownloads: [...state.runningDownloads, msg.cmd.DownloadStarted.download],
       };
     },
 
@@ -63,7 +63,7 @@ export default {
      */
     downloadFinished(state, {msg}) {
       // display a notification of the download's success
-      let {symbol, id, start_time, end_time} = msg.cmd.DownloadComplete;
+      let {symbol, id, start_time, end_time} = msg.cmd.DownloadComplete.download;
       message.success(`Data download for symbol ${symbol} with ID ${id} has completed after ${end_time - start_time} seconds!`);
 
       return {...state,
@@ -78,16 +78,31 @@ export default {
     downloadProgressReceived(state, {msg}) {
       if(msg.res.DownloadProgress) {
         // remove the old progress from the state (if it exists) and put the new progress in
-        let newProgresses = state.downloadProgresses.filter(prog => prog.id !== msg.res.DownloadProgress.id);
-        newProgresses.push(msg.res.DownloadProgress);
+        let newProgresses = state.runningDownloads.filter(prog => prog.id !== msg.res.DownloadProgress.download.id);
+        newProgresses.push(msg.res.DownloadProgress.download);
 
         return {...state,
-          downloadProgresses: newProgresses,
+          runningDownloads: newProgresses,
         };
       } else if(msg.res.Error) {
         message.error(`Received error when requesting progress of data download: ${msg.res.Error.status}`);
       } else {
         message.error(`Received unexpected response when requesting progress of data download: ${JSON.stringify(msg)}`);
+      }
+
+      return {...state};
+    },
+
+    /**
+     * Called as a callback to a `ListRunningDownloads` command.  It's possible that responses will come from instances that
+     * aren't data downloaders, so `Error` replies aren't necessary indicative of a problem.
+     */
+    runningDownloadsReceived(state, {msg}) {
+      if(msg.res.RunningDownloads) {
+        let running = msg.res.RunningDownloads.downloads.concat(state.runningDownloads);
+        return {...state,
+          runningDownloads: _.uniqBy(running, download => download.id),
+        };
       }
 
       return {...state};
@@ -100,7 +115,7 @@ export default {
       return {...state,
         dst: dst,
       };
-    }
+    },
   },
 
   effects: {
@@ -126,7 +141,7 @@ export default {
 
     /**
      * Sends a request to get the progress of the current download.
-    */
+     */
     *getDownloadProgress ({downloaderUuid, downloadId}, {call, put}) {
       let cmd = {GetDownloadProgress: {id: downloadId}};
       yield put({
@@ -135,6 +150,19 @@ export default {
         cmd: cmd,
         cb_action: 'data/downloadProgressReceived'
       });
-    }
+    },
+
+    /**
+     * Broadcasts a request to all running instances to list all running downloads, collects the results into an array, and sends
+     * the result to the `runningDownloadsReceived` reducer.
+     */
+    *getRunningDownloads(args, {call, put}) {
+      yield put({
+        type: 'platform_communication/sendCommand',
+        channel: CONF.redis_control_channel,
+        cmd: 'ListRunningDownloads',
+        cb_action: 'data/runningDownloadsReceived',
+      });
+    },
   },
 };

@@ -6,4 +6,4 @@
 
 LD_LIBRARY_PATH="$(pwd)/dist/lib"
 export LD_LIBRARY_PATH
-cd dist && RUST_BACKTRACE=1 ./spawner
+cd dist && RUST_BACKTRACE=1 RUST_BACKTRACE=1 ./spawner
