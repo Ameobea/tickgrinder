@@ -122,7 +122,7 @@ class DataDownloader extends React.Component {
         </Form>
 
         <h2>{'Running Downloads'}</h2>
-        <RunningDownloads />
+        {'<RunningDownloads />'}'
       </div>
     );
   }

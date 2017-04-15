@@ -33,8 +33,8 @@ function initHistTradeDownload(
 
   // make sure that we're requesting less than a year's worth of trades to start off
   let curEndTimestamp;
-  if(endTimestamp - curStartTimestamp > SECONDS_IN_A_YEAR) {
-    curEndTimestamp = curStartTimestamp + (SECONDS_IN_A_YEAR - 1001);
+  if((endTimestamp - curStartTimestamp) > SECONDS_IN_A_YEAR) {
+    curEndTimestamp = curStartTimestamp + (SECONDS_IN_A_YEAR * .99);
   } else {
     curEndTimestamp = endTimestamp;
   }
@@ -46,13 +46,14 @@ function initHistTradeDownload(
   function downloadChunk() {
     Log.debug(
       cs,
-      `Historical Trades Download for pair ${pair}`,
+      `Hist. Download ${pair}`,
       `Downloading chunk from ${curStartTimestamp} : ${curEndTimestamp}`
     );
     fetchTradeHistory(pair, curStartTimestamp, curEndTimestamp, cs).then((data: Array<PoloniexRawTrade>) => {
       // sort the trades from oldest to newest
       let sortedData = _.sortBy(data, trade => trade.tradeID);
-      assert(_.last(sortedData).tradeID > sortedData[0].tradeID);
+      if(data.length > 0)
+        assert(_.last(sortedData).tradeID > sortedData[0].tradeID);
 
       // process the trades into the sink
       for(var i=0; i<sortedData.length; i++) {
@@ -79,6 +80,7 @@ function initHistTradeDownload(
         // if this is the first attempt to download an oversized segment, update `maxEndTimestamp`
         if(!areBacktracking){
           Log.debug(cs, '', 'We weren\'t backtracking but now are due to hitting a max-sized result');
+          Log.debug(cs, '', `curStartTimestamp: ${curStartTimestamp}, new curEndTimestamp: ${curEndTimestamp}`);
           areBacktracking = true;
         }
       } else {
@@ -96,7 +98,7 @@ function initHistTradeDownload(
         // if less than 50,000 trades, then download the next segment
         if(endTimestamp - curEndTimestamp > SECONDS_IN_A_YEAR) {
           Log.debug(cs, '', 'More than a year\'s worth of data remaining before end; setting next segment size to one year after `curStartTimestamp`.');
-          curEndTimestamp = curStartTimestamp + (SECONDS_IN_A_YEAR - 1001);
+          curEndTimestamp = curStartTimestamp + (SECONDS_IN_A_YEAR * .99);
         } else if(curEndTimestamp >= endTimestamp || curStartTimestamp >= endTimestamp) {
           Log.debug(cs, '', 'Download complete!');
           return downloadComplete();
@@ -109,7 +111,7 @@ function initHistTradeDownload(
       // download the next chunk after waiting a few seconds as to avoid overloading their API
       setTimeout(() => {
         downloadChunk();
-      }, 3582); // TODO: make config value
+      }, 2587); // TODO: make config value
     }).catch(e => {
       console.log(e);
     });

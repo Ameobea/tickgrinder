@@ -54,8 +54,8 @@ fn main() {
 impl InstanceManager {
     /// Creates a new spawner instance.
     pub fn new() -> InstanceManager {
-        let uuid = Uuid::new_v4();
-        let mut cs = CommandServer::new(uuid, "Spawner");
+        let our_uuid = Uuid::new_v4();
+        let mut cs = CommandServer::new(our_uuid, "Spawner");
         let store_handle = match init_store_handle() {
             Ok(handle) => handle,
             Err(err) => {
@@ -67,7 +67,7 @@ impl InstanceManager {
         };
 
         InstanceManager {
-            uuid: uuid,
+            uuid: our_uuid,
             living: Arc::new(Mutex::new(Vec::new())),
             cs: cs,
             store_handle: store_handle,

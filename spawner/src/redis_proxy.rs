@@ -13,7 +13,7 @@ use serde_json::{from_str, to_string};
 use uuid::Uuid;
 use redis::Client as RedisClient;
 
-use tickgrinder_util::transport::redis::{sub_multiple, publish, get_client as get_redis_client};
+use tickgrinder_util::transport::redis::{sub_all, publish, get_client as get_redis_client};
 use tickgrinder_util::transport::command_server::CommandServer;
 use tickgrinder_util::transport::commands::{WrappedCommand, WrappedResponse};
 use tickgrinder_util::conf::CONF;
@@ -219,12 +219,10 @@ fn proxy_redis(
     mut cs: CommandServer, broadcaster: ws::Sender
 ) {
     // get a websocket client connected to our own websocket server
-    let rx = sub_multiple(
-        CONF.redis_host, &[CONF.redis_control_channel, CONF.redis_responses_channel, CONF.redis_log_channel]
-    );
+    let rx = sub_all(CONF.redis_host);
 
     for res in rx.wait() {
-        let (chan, msg) = res.expect("Got error in redis message loop");
+        let (chan, msg): (String, String) = res.expect("Got error in redis message loop");
 
         // get the UUID of the received message
         let uuid_res: Result<Uuid, ()> = if &chan == CONF.redis_control_channel || &chan == CONF.redis_log_channel {

@@ -1,5 +1,6 @@
 //! Functions for communication with the platform's modules using Websockets that are bridged to Redis pub/sub.
 
+import { message } from 'antd';
 import { delay } from 'redux-saga';
 import { select } from 'redux-saga/effects';
 
@@ -192,10 +193,13 @@ export default {
      */
     *sendCommandToInstance ({cmd, cb_action, instance_name}, {call, put}) {
       let living_instances = yield select(gstate => gstate.instances.living_instances);
-      let instanceUuid = getInstance(instance_name, living_instances)[0].uuid;
+      let instance = getInstance(instance_name, living_instances)[0];
+      if(!instance) {
+        return message.error(`No instance available with the name '${instance_name}'!`);
+      }
 
       // actually send the command to the instance
-      yield put({type: 'sendCommand', channel: instanceUuid, cb_action: cb_action, cmd: cmd});
+      yield put({type: 'sendCommand', channel: instance.uuid, cb_action: cb_action, cmd: cmd});
     },
 
     /**

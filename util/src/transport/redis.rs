@@ -65,8 +65,8 @@ pub fn sub_channel(host: &str, ps_channel: &str) -> UnboundedReceiver<String> {
     rx
 }
 
-/// Subscribes to many Redis channels and returns a Stream that yeilds
-/// (channel, message) items every time a message is received on one of them.
+/// Subscribes to many Redis channels and returns a `Stream` that yeilds
+/// `(channel, message)` items every time a message is received on one of them.
 pub fn sub_multiple(host: &str, channels: &[&str]) -> UnboundedReceiver<(String, String)> {
     let (mut tx, rx) = unbounded::<(String, String)>();
     let client = get_client(host);
@@ -77,6 +77,26 @@ pub fn sub_multiple(host: &str, channels: &[&str]) -> UnboundedReceiver<(String,
         pubsub.subscribe(*channel)
             .expect("Could not subscribe to pubsub channel");
     }
+
+    thread::spawn(move || {
+        loop {
+            get_chan_message_outer(&mut tx, &pubsub);
+        }
+    });
+
+    rx
+}
+
+/// Subscribes to all available channels and returns a `Stream` that yields `(channel, message)`
+/// items for every received message.
+pub fn sub_all(host: &str) -> UnboundedReceiver<(String, String)> {
+    let (mut tx, rx) = unbounded::<(String, String)>();
+    let client = get_client(host);
+
+    let mut pubsub = client.get_pubsub()
+        .expect("Could not create pubsub for redis client");
+
+    pubsub.psubscribe("*").expect("Unable to PSUBSCRIBE to channels!");
 
     thread::spawn(move || {
         loop {

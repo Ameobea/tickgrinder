@@ -21,7 +21,7 @@
   "main": "index.js",
   "scripts": {
     "flow": "flow; test $? -eq 0 -o $? -eq 2",
-    "run": "babel-node index.js",
+    "run": "babel-node index.js 13474c8b-5b0b-408e-b799-3a0de0254486",
     "transpile": "rm ../../dist/poloniex_dd -rf && babel --out-dir ../../dist/poloniex_dd index.js && babel --out-dir ../../dist/poloniex_dd/src ./src && cp ./node_modules ../../dist/poloniex_dd -r",
 		"debug": "babel-node debug index.js 5d4fdb9d-1b49-458d-ad03-b5f1935f0000",
 		"inspect": "babel-node --inspect index.js a2a8de10-8b93-e0ae-a675-6f720cd4d888",

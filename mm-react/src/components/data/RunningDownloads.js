@@ -41,17 +41,17 @@ class RunningDownloads extends React.Component {
     super(props);
     // send a query to all running instances to list their currently running downloads
     setTimeout(() => {
-      props.dispatch({type: 'data/getRunningDownloads'});
+      // props.dispatch({type: 'data/getRunningDownloads'});
     }, 2000);
   }
 
-  shouldComponentUpdate(nextProps, nextState) {
-    if(_.isEqual(nextProps.runningDownloads, this.props.runningDownloads)) {
-      return false;
-    }
+  // shouldComponentUpdate(nextProps, nextState) {
+  //   if(_.isEqual(nextProps.runningDownloads, this.props.runningDownloads)) {
+  //     return false;
+  //   }
 
-    return true;
-  }
+  //   return true;
+  // }
 
   render() {
     let {dispatch, runningDownloads} = this.props;
@@ -78,9 +78,7 @@ class RunningDownloads extends React.Component {
       };
     });
 
-    return (
-      <Table columns={columns} dataSource={dataSource} />
-    );
+    return <Table columns={columns} dataSource={dataSource} />;
   }
 }
 
