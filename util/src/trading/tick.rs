@@ -41,6 +41,10 @@ impl Tick {
             .expect("Couldn't convert tick to json string")
     }
 
+    pub fn to_csv_row(&self) -> String {
+        format!("{}, {}, {}\n", self.timestamp, self.bid, self.ask)
+    }
+
     /// Returns the difference between the bid and the ask
     pub fn spread(&self) -> usize {
         self.bid - self.ask
@@ -51,12 +55,25 @@ impl Tick {
         (self.bid + self.ask) / 2usize
     }
 
-    /// Saves the tick in the database.
-    /// The table "ticks_SYMBOL" must exist.
+    /// Saves the tick in the database.  The table "ticks_SYMBOL" must exist.
     pub fn store(&self, symbol: &str, qs: &mut QueryServer) {
         let query = format!(
             "INSERT INTO ticks_{} (tick_time, bid, ask) VALUES ({}, {}, {});",
             symbol,
+            self.timestamp,
+            self.bid,
+            self.ask
+        );
+
+        // Asynchronously store the tick in the database
+        qs.execute(query);
+    }
+
+    /// Saves the tick in the specified table.  The table must exist.
+    pub fn store_table(&self, table: &str, qs: &mut QueryServer) {
+        let query = format!(
+            "INSERT INTO {} (tick_time, bid, ask) VALUES ({}, {}, {});",
+            table,
             self.timestamp,
             self.bid,
             self.ask

@@ -2,5 +2,6 @@
 rustflags = [
     "-L", "../../../../../../../target/release/deps",
     "-L", "../../../../../../target/release/deps",
-    "-L", "native/dist"
+    "-L", "native/dist",
+    "-C", "prefer-dynamic",
 ]

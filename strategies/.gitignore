@@ -1,0 +1,8 @@
+*
+
+!.gitignore
+!sample
+!new.sh
+!README.txt
+!.templates
+!.templates/*

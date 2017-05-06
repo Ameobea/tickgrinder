@@ -132,7 +132,7 @@ fn send_command_outer(
     commands_channel: String
 ) -> Result<Sender<TimeoutRequest, ()>, ()> {
     let wr_cmd = command.wrap();
-    send_command(&wr_cmd, client, commands_channel.as_str());
+    let _ = send_command(&wr_cmd, client, commands_channel.as_str());
 
     let (sleepy_c, sleepy_o) = oneshot::<Thread>();
     let (awake_c, awake_o) = oneshot::<Result<Response, ()>>();
@@ -352,7 +352,7 @@ impl CommandServer {
         let alc = self.al.clone();
 
         // Broadcast the command
-        send_command(&wr_cmd, &mut client, commands_channel.as_str());
+        let _ = send_command(&wr_cmd, &mut client, commands_channel.as_str());
 
         // when a timeout happens, send all received responses back to caller.
         awake_o.and_then(move |_| {

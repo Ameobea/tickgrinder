@@ -25,7 +25,7 @@ pub struct Processor {
     pub ticks: DataField<Tick>,
     pub smas: SMAList,
     qs: QueryServer,
-    redis_client: redis::Client
+    pub redis_client: redis::Client
 }
 
 impl Processor {
@@ -41,7 +41,7 @@ impl Processor {
         let pg_client = get_client(pg_conf.clone()).expect("Could not connect to Postgres");
 
         println!("Successfully connected to Postgres");
-        init_tick_table(symbol.as_str(), &pg_client, CONF.postgres_user);
+        let _ = init_tick_table(symbol.as_str(), &pg_client, CONF.postgres_user);
 
         Processor {
             uuid: uuid,
@@ -102,6 +102,6 @@ impl Processor {
         };
 
         let wr = res.wrap(wrapped_cmd.uuid);
-        send_response(&wr, &self.redis_client, res_channel);
+        let _ = send_response(&wr, &self.redis_client, res_channel);
     }
 }

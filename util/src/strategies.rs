@@ -14,16 +14,17 @@
 
 use futures;
 
-use trading::tick::SymbolTick;
+use trading::broker::Broker;
 use transport::command_server::CommandServer;
 use transport::query_server::QueryServer;
 
-pub trait Strategy {
+pub trait Strategy<'a> {
     /// Make sure that all strategies include ways to interact with the optimizer in a standardized way
-    fn new(cs: CommandServer, qs: QueryServer) -> Self;
+    fn new<'b, B>(cs: CommandServer, qs: QueryServer, broker: &'a mut B) -> Self where B:Broker + 'b;
 
-    /// Called for every new tick received
-    fn process(&mut self, t: SymbolTick);
+    /// Instruct the strategy to initialize itself, subscribing to data streams and communicating with the
+    /// the rest of the platform as necessary
+    fn init(&mut self);
 
     /// Indicates that the strategy should save a copy of its internal state of its internal state to
     /// the database.  The supplied future should be resolved when the dump is complete.
@@ -34,4 +35,3 @@ pub trait Strategy {
     /// Provides a oneshot that should be resolved when the strategy is ready to exit.
     fn exit_now(&mut self, ready: futures::Complete<()>);
 }
-

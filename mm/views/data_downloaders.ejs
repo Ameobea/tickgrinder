@@ -1,0 +1,70 @@
+<html>
+<head>
+    <title>Algobot Backtest Management Interface</title>
+    <script type="text/javascript" src="http://code.jquery.com/jquery-1.10.1.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/react/0.14.7/react-with-addons.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/react/0.14.7/react-dom.js"></script>
+    <script type="text/javascript" src="sources/global_script.js"></script>
+    <script type="text/javascript" src="sources/data_downloaders.js"></script>
+    <link rel="stylesheet" href="sources/global_style.css">
+</head>
+<body>
+<% include ./partials/header %>
+<hr>
+<h1>Historical Data Downloaders</h1>
+
+<h2>Running Data Downloader Instances</h2>
+<table width="100%" class="white-border"><tbody id="active_instances">
+<tr><td>Loading...</td></tr>
+</tbody></table>
+
+<h2>Running Data Downloads</h2>
+<table width="100%" class="white-border"><tbody id="active_downloads">
+<tr><td>Loading...</td></tr>
+</tbody></table>
+
+<hr>
+<h2>Spawn Data Downloader</h2>
+<table><tr><td>
+    <select id="downloader-type">
+        <option value="FXCM">FXCM</option>
+    </select>
+</td><td>
+    <button onclick='spawnDataDownloader($("#downloader-type").val());''>Spawn</button>
+</td></tr></table>
+
+
+<h2>Start Data Download</h2>
+<table><tr>
+    <td>Downloader ID: <select id="download-list"></select></td>
+    <td>Symbol: <input type="text" id="symbol" value="EUR/USD"></td>
+</tr><tr><td colspan=2><center><p><b>Times in format <code>m.d.Y H:M:S</code></b></p></center></td></tr><tr>
+    <td>Start Time: <input type="text" id="start-time" value="01.01.2016 00:00:00"></td>
+    <td>End Time: <input type="text" id="end-time" value="12.12.2016 00:00:00"></td>
+</tr><tr>
+    <td>Data Destination: <select id="data-dst">
+        <option value="flatfile">Flatfile</option>
+        <option value="redis-channel">Redis Channel</option>
+        <option value="redis-set">Redis Set</option>
+        <option value="postgres">Postgres Table</option>
+        <option value="console">Console</option>
+    </select></td>
+    </tr><tr><td><span id="flatfile-config">
+        Output File Path: <input type="text" id="flatfile-filename" value="/home/user/ticks/EURUSD.csv">
+    </span>
+    <span id="redis-channel-config" style="display: none;">
+        Host: <input type="text" id="redis-channel-host" value="redis://localhost/">
+        Channel: <input type="text" id="redis-channel-host" value="HIST_TICKS">
+    </span>
+    <span id="redis-set-config" style="display: none;">
+        Host: <input type="text" id="redis-set-host" value="redis://localhost/">
+        Set Name: <input type="text" id="redis-set" value="HIST_TICKS">
+    </span>
+    <span id="postgres-config" style="display: none;">
+        Postgres Table: <input type="text" id="postgres-table">
+    </span></td></tr>
+    <tr><td><button onclick="startDownload();">Start Download</button></td></tr>
+</tr></table>
+
+<h1>Manage Downloaded Data</h1>
+<b>TODO</b>

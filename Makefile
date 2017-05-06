@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 
 release:
+	make init
 	git submodule update --init
 	rm -rf dist
 	mkdir dist
@@ -12,12 +13,19 @@ release:
 	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
 	# build all strategies and copy into dist/lib
-	for dir in ./strategies/*; \
+	for dir in ./strategies/*/; \
 	do \
 		cd $$dir && cargo build --release && \
-		cp target/release/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib && \
-		cp target/release/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../util/target/release/deps; \
+		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../dist/lib && \
+		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../util/target/release/deps && \
+		cd ../..; \
 	done
+
+	# build the FXCM shim
+	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
+	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
+	cd util/src/trading/broker/shims/FXCM/native && cargo build --release
+	cp util/src/trading/broker/shims/FXCM/native/target/release/libfxcm.so dist/lib
 
 	# build all modules and copy their binaries into the dist directory
 	cd backtester && cargo build --release
@@ -31,17 +39,16 @@ release:
 	cd mm && npm install
 	cp ./mm dist -r
 
-	# build the FXCM shim
-	cd util/src/trading/broker/shims/FXCM/native/native && ./build.sh
-	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
-	cd util/src/trading/broker/shims/FXCM/native && cargo build --release
-	cp util/src/trading/broker/shims/FXCM/native/target/release/libfxcm.so dist/lib
+	# build the FXCM native data downloader
+	cd data_downloaders/fxcm_native && cargo build --release
+	cp data_downloaders/fxcm_native/target/release/fxcm_native dist/fxcm_native_downloader
 
 dev:
 	rm dist/mm -r
 	cd dist && ln -s ../mm/ ./mm
 
 debug:
+	make init
 	git submodule update --init
 	rm -rf dist
 	mkdir dist
@@ -53,12 +60,19 @@ debug:
 	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
 	# build all strategies and copy into dist/lib
-	for dir in ./strategies/*; \
+	for dir in ./strategies/*/; \
 	do \
-		cd $$dir && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build && \
-		cp target/debug/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib && \
-		cp target/debug/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../util/target/debug/deps; \
+		cd $$dir && cargo build && \
+		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../dist/lib && \
+		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../util/target/release/deps && \
+		cd ../..; \
 	done
+
+	# build the FXCM shim
+	cd util/src/trading/broker/shims/FXCM/native/native ./build.sh
+	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
+	cd util/src/trading/broker/shims/FXCM/native && RUSTFLAGS="-L ../../../../../../../util/target/debug/deps -L ../../../../../../../dist/lib -C prefer-dynamic" cargo build
+	cp util/src/trading/broker/shims/FXCM/native/target/debug/libfxcm.so dist/lib
 
 	# build all modules and copy their binaries into the dist directory
 	cd backtester && RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo build
@@ -72,11 +86,9 @@ debug:
 	cd mm && npm install
 	cp ./mm dist -r
 
-	# build the FXCM shim
-	cd util/src/trading/broker/shims/FXCM/native/native ./build.sh
-	cp util/src/trading/broker/shims/FXCM/native/native/dist/* dist/lib
-	cd util/src/trading/broker/shims/FXCM/native && RUSTFLAGS="-L ../../../../../../../util/target/debug/deps -L ../../../../../../../dist/lib -C prefer-dynamic" cargo build
-	cp util/src/trading/broker/shims/FXCM/native/target/debug/libfxcm.so dist/lib
+	# build the FXCM native data downloader
+	cd data_downloaders/fxcm_native && cargo build
+	cp data_downloaders/fxcm_native/target/debug/fxcm_native dist/fxcm_native_downloader
 
 strip:
 	cd dist && strip backtester spawner optimizer tick_processor
@@ -98,6 +110,7 @@ clean:
 	rm util/src/trading/broker/shims/FXCM/native/native/dist -rf
 
 test:
+	make init
 	# build the bot's utility library and copy into dist/lib
 	cd util && cargo build && cargo test --no-fail-fast
 	cp util/target/debug/libalgobot_util.so dist/lib
@@ -105,11 +118,11 @@ test:
 	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
 	# build all strategies and copy into dist/lib
-	for dir in ./strategies/*; \
+	for dir in ./strategies/*/; \
 	do \
 		cd $$dir && RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo build && \
-		cp target/debug/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib && \
-		cp target/debug/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../util/target/debug/deps && \
+		cp target/debug/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../dist/lib && \
+		cp target/debug/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../util/target/debug/deps && \
 		LD_LIBRARY_PATH="../../dist/lib" RUSTFLAGS="-L ../../util/target/debug/deps -L ../../dist/lib -C prefer-dynamic" cargo test --no-fail-fast; \
 	done
 
@@ -120,9 +133,11 @@ test:
 	cd backtester && LD_LIBRARY_PATH="../dist/lib" RUSTFLAGS="-L ../util/target/debug/deps -L ../dist/lib -C prefer-dynamic" cargo test --no-fail-fast
 	cd mm && npm install
 	cd util/src/trading/broker/shims/FXCM/native && ./test.sh
+	cd data_downloaders/fxcm_native && ./test.sh
 	# TODO: Collect the results into a nice format
 
 bench:
+	make init
 	# build the bot's utility library and copy into dist/lib
 	cd util && cargo build --release && cargo bench
 	cp util/target/release/libalgobot_util.so dist/lib
@@ -130,11 +145,11 @@ bench:
 	cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib
 
 	# build all strategies and copy into dist/lib
-	for dir in ./strategies/*; \
+	for dir in ./strategies/*/; \
 	do \
 		cd $$dir && cargo build --release && \
-		cp target/release/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../dist/lib && \
-		cp target/release/lib$$(echo $$dir | sed "s/\.\/strategies\///").so ../../util/target/release/deps && \
+		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../dist/lib && \
+		cp target/release/lib$$(echo $$dir | sed 's/\.\/strategies\///; s/\///').so ../../util/target/release/deps && \
 		LD_LIBRARY_PATH="../../dist/lib" cargo bench; \
 	done
 
@@ -186,4 +201,33 @@ kill:
 	fi
 	if [[ $$(ps -aux | grep '[m]anager.js') ]]; then \
 		kill $$(ps -aux | grep '[m]anager.js' | awk '{print $$2}'); \
+	fi
+
+# used to set up the development environment
+init:
+	if [[ $$(which rustup) ]]; then \
+		if [[ $$(rustup show | grep nightly-2016-10-10 ) ]]; then \
+			rustup override set nightly-2016-10-10; \
+		else \
+			rustup install nightly-2016-10-10; \
+		fi \
+	else \
+		echo -e "\e[91mRustup is not installed or not in the path;"; \
+		echo -e "You need rustup to build this application."; \
+		echo -e "\e[94mYou can install rustup here: https://rustup.rs/\e[0m"; \
+		echo "Would you like to install it now? "; \
+		read -p "[Y/n]:" bool; \
+		if [[ $$bool =~ ^([yY][eE][sS]|[yY])$$ ]]; then \
+			curl https://sh.rustup.rs -sSf | sh; \
+		fi \
+	fi
+
+	if [[ ! -a tick_parser/src/conf.rs ]]; then \
+		cp tick_parser/src/conf.default.rs tick_parser/src/conf.rs; \
+		cp spawner/src/conf.default.rs spawner/src/conf.rs; \
+		cp optimizer/src/conf.sample.rs optimizer/src/conf.rs; \
+		cp mm/sources/conf.sample.js mm/sources/conf.js; \
+		cp backtester/src/conf.default.rs backtester/src/conf.rs; \
+		cp util/src/trading/broker/shims/FXCM/native/src/conf.default.rs util/src/trading/broker/shims/FXCM/native/src/conf.rs; \
+		cp data_downloaders/fxcm_native/src/conf.default.rs data_downloaders/fxcm_native/src/conf.rs; \
 	fi

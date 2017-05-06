@@ -12,7 +12,7 @@ pub struct Conf {
     pub redis_responses_channel: &'static str,
     // Postgres config
     pub postgres_url: &'static str,
-    pub postgres_port: i32,
+    pub postgres_port: usize,
     pub postgres_user: &'static str,
     pub postgres_password: &'static str,
     pub postgres_db: &'static str,

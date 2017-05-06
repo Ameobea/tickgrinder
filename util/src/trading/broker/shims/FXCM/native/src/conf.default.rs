@@ -5,11 +5,13 @@
 pub struct Conf {
     pub fxcm_username: &'static str,
     pub fxcm_password: &'static str,
+    pub fxcm_url: &'static str,
     pub fxcm_pin: Option<&'static str>,
 }
 
 pub const CONF: Conf = Conf {
     fxcm_username: "Your_username",
     fxcm_password: "Your_password",
+    fxcm_url: "http://fxcorporate.com/Hosts.jsp",
     fxcm_pin: Some("1234"),
 };
