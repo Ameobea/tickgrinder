@@ -1,0 +1,84 @@
+// SEND/EXEC defaults to sending on the control channel
+// SEND("channel_name") "message"; for named sending
+
+// Use MATCH to pattern match a JSON reponse.
+// Use $var to indicate where matched values should be stored.
+// MATCH {foo: "bar"} | PANIC "Match failed; original input: $?"
+// If the match fails, the original input is passed through to the next command.
+
+// Automatically maintains an internal instance table, populated on startup and maintained.
+// Listens for "Ready" broadcasts and dynamically updates table.
+
+// Defines a command macro.
+DEF WHICH $name {
+    SEND "Census"
+        | MATCH {Info: {info: [{instance_type: $name, uuid: $uuid}]}}
+            // not currently running, so match its name and spawn it
+            | MATCH "Backtester" | { // {}s define a block of commands
+                SEND(WHICH "Spawner") "SpawnBacktester"
+                    | MATCH "Ok"
+                        | PANIC "Backtester failed to spawn!";
+                RET WHICH("Backtester");
+            }
+            // finally, panic if we can't spawn it
+            | PANIC "No such instance is running and no way to spawn it!";
+
+    RET $ret; // pass on the value of $ret as the response of this macro
+}
+
+// Spawn a SimBroker with the supplied settings
+SEND(WHICH "Spawner") { SpawnSimbroker: {
+    settings: {
+        starting_balance: 50000.00,
+        ping_ms: 0,
+        execution_delay_us: 50,
+    }
+}} | ASSERT( "Ok" );
+
+// Stores the UUID of the spawned simbroker in $simbroker_id
+SEND "ListSimbrokers"
+    | MATCH {Info: {info: [$simbroker_id]}}
+    | PANIC "Simbroker failed to spawn!";
+
+// Checks if a Backtester has been spawned and if not spawns it.
+SEND "Census"
+    | MATCH {Info: {info: [{instance_type: "Backtester", uuid: $backtester_uuid}, ...]}}
+    | SEND(WHICH "Spawner") SpawnBacktester
+    | MATCH "Ok"
+        | PANIC "Unable to spawn backtester!";
+
+// Starts a backtest
+SEND {StartBacktest: {
+    definition: "{
+        \"max_timestamp\":1451919404066,
+        \"max_tick_n\":null,
+        \"symbol\":\"usdcad\",
+        \"backtest_type\":
+        {\"Fast\": {\
+            "delay_ms\":50
+            }
+        },
+        \"data_source\":\"Random\",
+        \"data_dest\":\"Console\",
+        \"broker_settings\": {
+            \"starting_balance\":50000,
+            \"ping_ms\":0.2,
+            \"execution_delay_us\":2}
+    }"
+}}  | MATCH {Info: {info: $backtest_uuid}}
+        | PANIC "Failed to spawn backtest!";
+
+// Run inline JavaScript
+%{
+    setTimeout(function(){
+        // Evaluate script code within inline JS
+        ${
+            SEND(WHICH Backtester) {
+                PauseBacktest: {
+                    uuid: $backtest_uuid
+                }
+            }   | MATCH "Ok"
+                    | PANIC "Unable to Pause Backtest!";
+        }
+    });
+}%
