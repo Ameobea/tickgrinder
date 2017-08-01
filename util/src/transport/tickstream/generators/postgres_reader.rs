@@ -113,7 +113,7 @@ impl TickGenerator for PostgresReader {
     }
 }
 
-fn get_ticks<'a>(symbol: &str, start_time: u64, conn: &'a Connection) -> Result<Rows<'a>, Error> {
+fn get_ticks<'a>(symbol: &str, start_time: u64, conn: &'a Connection) -> Result<Rows, Error> {
     let query = format!(
         "SELECT (tick_time, bid, ask) FROM hist_{} WHERE tick_time > {} LIMIT 500 ORDER BY tick_time;",
         symbol,

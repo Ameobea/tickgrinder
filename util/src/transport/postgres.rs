@@ -2,12 +2,11 @@
 
 #![allow(unused_must_use)]
 
-use postgres::{Connection, TlsMode};
-use postgres::error;
+use postgres::{Connection, Error, TlsMode};
 
 use conf::CONF;
 
-pub fn get_client() -> Result<Connection, error::ConnectError> {
+pub fn get_client() -> Result<Connection, Error> {
     let conn_string = format!("postgres://{}:{}@{}:{}/{}",
         CONF.postgres_user,
         CONF.postgres_password,
@@ -20,9 +19,9 @@ pub fn get_client() -> Result<Connection, error::ConnectError> {
     Connection::connect(conn_string.as_str(), TlsMode::None)
 }
 
-/***************************
+/**************************\
 *  TICK-RELATED FUNCTIONS  *
-***************************/
+\**************************/
 
 pub fn csv_to_tick_table(filename: &str, table_name: &str, client: &Connection) {
     let query = format!(
@@ -70,7 +69,7 @@ fn tick_table_inner(table_name: &str, client: &Connection, pg_user: &str) -> Res
 ***************************/
 
 /// Drops all tables in the database, resetting it to defaults
-pub fn reset_db(client: &Connection, pg_user: &'static str) -> Result<(), error::Error> {
+pub fn reset_db(client: &Connection, pg_user: &'static str) -> Result<(), Error> {
     let query = format!("DROP SCHEMA public CASCADE;
         CREATE SCHEMA public AUTHORIZATION {};
         ALTER SCHEMA public OWNER TO {};

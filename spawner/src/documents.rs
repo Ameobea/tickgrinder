@@ -7,9 +7,10 @@ use std::fmt::Debug;
 use std::io::{Read, ErrorKind};
 use std::io::prelude::*;
 
-use futures::{Stream, Complete};
+use futures::Stream;
 use futures::stream::MergedItem;
 use futures::sync::mpsc::{channel, unbounded, Sender, Receiver, UnboundedSender, UnboundedReceiver};
+use futures::sync::oneshot::Sender as Complete;
 use tantivy::schema::{Schema, SchemaBuilder, Field, Value, TEXT, STORED, STRING};
 use tantivy::collector::TopCollector;
 use tantivy::query::{Query, QueryParser};
@@ -160,39 +161,48 @@ fn init_server_thread (
         }
 
         for msg in merged_rx.wait() {
-            match msg.expect("Msg was err in store event loop") {
-                MergedItem::First((query, query_type, complete)) => {
-                    // execute the query and send the results through the `res_tx`
-                    do_exec_query(query, query_type, complete, &index, &schema, &mut cs);
-                },
-                MergedItem::Second((doc_string, complete)) => {
-                    // insert the document into the store
-                    do_insert_doc(doc_string, complete, &mut index_writer, &mut cs)
-                },
-                MergedItem::Both((query, query_type, q_complete), (doc_string, i_complete)) => {
-                    // both execute the query and insert a document into the store
-                    do_exec_query(query, query_type, q_complete, &index, &schema, &mut cs);
-                    do_insert_doc(doc_string, i_complete, &mut index_writer, &mut cs);
-                },
+            let res: Result<(), Response> = (|| -> Result<(), Response> {
+                match msg.expect("Msg was err in store event loop") {
+                    MergedItem::First((query, query_type, complete)) => {
+                        // execute the query and send the results through the `res_tx`
+                        do_exec_query(query, query_type, complete, &index, &schema, &mut cs)
+                    },
+                    MergedItem::Second((doc_string, complete)) => {
+                        // insert the document into the store
+                        do_insert_doc(doc_string, complete, &mut index_writer, &mut cs)
+                    },
+                    MergedItem::Both((query, query_type, q_complete), (doc_string, i_complete)) => {
+                        // both execute the query and insert a document into the store
+                        do_exec_query(query, query_type, q_complete, &index, &schema, &mut cs)?;
+                        do_insert_doc(doc_string, i_complete, &mut index_writer, &mut cs)
+                    },
+                }
+            })();
+
+            if res.is_err() {
+                cs.error(
+                    None,
+                    &format!("There was an error processing a message from the document server's queue.  Response: {:?}", res.unwrap_err())
+                );
             }
         }
 
         let hmm: Result<(), ()> = Ok(());
-        return hmm
+        hmm
     });
 }
 
 /// Inserts the document into the store and fulfills the oneshot once it's finished.
 #[inline(always)]
-fn do_insert_doc(doc_string: String, complete: Complete<Response>, index_writer: &mut IndexWriter, cs: &mut CommandServer) {
+fn do_insert_doc(doc_string: String, complete: Complete<Response>, index_writer: &mut IndexWriter, cs: &mut CommandServer) -> Result<(), Response> {
     match insert_document(&doc_string, index_writer, cs, true) {
         Ok(_) => {
             // let the client know the document was successfully inserted
-            complete.complete(Response::Ok);
+            complete.send(Response::Ok)
         },
         Err(err) => {
             cs.error(None, &format!("Error while inserting document into store: {}", err));
-            complete.complete(Response::Error{status: format!("Unable to insert document into the store: {}", err)})
+            complete.send(Response::Error{status: format!("Unable to insert document into the store: {}", err)})
         },
     }
 }
@@ -202,7 +212,7 @@ fn do_insert_doc(doc_string: String, complete: Complete<Response>, index_writer:
 #[inline(always)]
 fn do_exec_query(
     query: String, query_type: QueryType, complete: Complete<Response>, index: &Index, schema: &Schema, cs: &mut CommandServer
-) {
+) -> Result<(), Response> {
     let query_result = query_document(&query, query_type, index, &schema, 50);
     match query_result {
         Ok(res_vec) => {
@@ -218,19 +228,19 @@ fn do_exec_query(
                             status: format!("No documents matched the title {}", query),
                         }
                     };
-                    complete.complete(res);
+                    complete.send(res)
                 },
                 _ => {
-                    complete.complete(Response::DocumentQueryResult{
+                    complete.send(Response::DocumentQueryResult{
                         results: res_vec,
-                    });
+                    })
                 }
             }
         },
         Err(err) => {
             let errmsg = format!("Got error while executing query: {}", err);
             cs.error(None, &errmsg);
-            complete.complete(Response::Error{status: errmsg});
+            complete.send(Response::Error{status: errmsg})
         },
     }
 }

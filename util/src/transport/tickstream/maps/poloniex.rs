@@ -27,7 +27,7 @@ pub struct PoloniexBookModifyMap {
 }
 
 /// Represents a modification to a Poloniex order book
-#[derive(PartialEq, Debug, RustcEncodable, RustcDecodable)]
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub struct PolniexOrderBookModification {
     rate: f32,
     is_bid: bool,
@@ -85,7 +85,7 @@ pub struct PoloniexBookRemovalMap {
 }
 
 /// Represents an order being removed from a Poloniex order book
-#[derive(PartialEq, Debug, RustcEncodable, RustcDecodable)]
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub struct PoloniexOrderBookRemoval {
     rate: f32,
     is_bid: bool,
@@ -143,7 +143,7 @@ pub struct PoloniexTradeMap {
 }
 
 /// Represents a trade that occured on Poloniex in a particular market
-#[derive(PartialEq, Debug, RustcEncodable, RustcDecodable)]
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub struct PoloniexTrade {
     trade_id: usize,
     rate: f32,

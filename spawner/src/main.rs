@@ -3,7 +3,7 @@
 //! Responsible for spawning, destroying, and managing all instances of the bot4
 //! platform's modules and reporting on their status.
 
-#![feature(plugin, test, conservative_impl_trait, custom_derive, associated_consts)]
+#![feature(plugin, test, conservative_impl_trait, custom_derive)]
 
 extern crate uuid;
 extern crate redis;
@@ -329,7 +329,7 @@ impl InstanceManager {
         };
 
         // fulfill right away since the response isn't async
-        c.complete(res);
+        c.send(res).expect("Error whle sending response from command handling; receiver probably went away.");
     }
 
     /// Returns a list of all living instances

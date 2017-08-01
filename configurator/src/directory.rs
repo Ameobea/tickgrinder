@@ -81,7 +81,7 @@ pub fn show_directory(s: &mut Cursive, settings: Settings, needs_start: bool) {
 
 /// Sets the value of the directory's comment box.
 pub fn set_directory_comment(comment: Option<&str>, s: &mut Cursive) {
-    let comment_box = s.find_id::<TextView>("directory-comment").unwrap();
+    let mut comment_box = s.find_id::<TextView>("directory-comment").unwrap();
     match comment {
         Some(comment_str) => comment_box.set_content(comment_str),
         None => comment_box.set_content(""),
@@ -130,7 +130,7 @@ pub fn get_row_by_name(page: &'static SettingsPage, name: &str) -> &'static Sett
 fn switch_categories(s: &mut Cursive, new_page: &SettingsPage, settings: Settings) {
     // blank out the comment
     set_directory_comment(None, s);
-    let lv: &mut ListView = s.find_id("directory-lv").expect("directory-lv not found");
+    let mut lv: &mut ListView = &mut *s.find_id("directory-lv").expect("directory-lv not found");
     populate_list_view(new_page, lv, settings.clone());
     let i = get_page_index(new_page.name)
         .expect("Unable to lookup page!");

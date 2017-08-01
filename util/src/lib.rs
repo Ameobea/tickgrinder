@@ -15,7 +15,6 @@ extern crate serde_json;
 extern crate serde_derive;
 extern crate postgres;
 extern crate csv;
-extern crate rustc_serialize;
 extern crate rand;
 extern crate time;
 extern crate test;

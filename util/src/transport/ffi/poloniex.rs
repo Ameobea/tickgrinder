@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 use libc::{c_int, c_char, c_void};
 
+use serde::{Serialize, Deserialize};
 use uuid::Uuid;
-use rustc_serialize::{Encodable, Decodable};
 
 use trading::tick::GenTick;
 use transport::tickstream::maps::poloniex::{PoloniexBookModifyMap, PoloniexBookRemovalMap, PolniexOrderBookModification};
@@ -113,7 +113,7 @@ pub unsafe extern "C" fn process_event(event_id: i64, state_ptr: *mut c_void, ti
 /// that's going to panic for now.  Also panics if you provide it a bad argument.
 unsafe fn get_poloniex_gen_sink_wrapper<T>(
     sink_id: c_int, arg1: *mut c_void, arg2: *mut c_void
-) -> Box<GenTickSink<T>> where T:Encodable, T:Decodable, T: 'static {
+) -> Box<GenTickSink<T>> where T : Serialize, T : for<'de> Deserialize<'de>, T: 'static {
     // TODO: Convert to returning a nullptr/error message kind of thing instead of just dying so that we can make this dynamic
     match sink_id {
         CSV => {

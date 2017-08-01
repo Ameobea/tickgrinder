@@ -4,7 +4,7 @@
 //! See README.md for more information about the specifics of the SimBroker implementation
 //! and a description of its functionality.
 
-#![feature(rustc_attrs, core_intrinsics, conservative_impl_trait, associated_consts, custom_derive, test, slice_patterns)]
+#![feature(libc, rustc_attrs, core_intrinsics, conservative_impl_trait, associated_consts, custom_derive, test, slice_patterns, rand)]
 
 extern crate test;
 extern crate futures;

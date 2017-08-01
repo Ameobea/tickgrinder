@@ -4,7 +4,7 @@ use cursive::theme::{Theme, BorderStyle, Palette, Color, BaseColor};
 
 pub const THEME: Theme = Theme {
     shadow: false,
-    borders: Some(BorderStyle::Simple),
+    borders: BorderStyle::Simple,
     colors: Palette {
         background: Color::RgbLowRes(0,1,1),
         shadow: Color::Dark(BaseColor::Magenta),

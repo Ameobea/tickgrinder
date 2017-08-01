@@ -67,7 +67,7 @@ struct RedisChannelSink<T> {
 
 // An example of generically implementing these traits for a struct.  Since Redis doesn't care the schema of the data
 // you send over it (as long as you can make it into a string) any kind of generic tick is acceptable.
-impl<T> GenTickSink<T> for RedisChannelSink<T> where T:Serialize, T:Deserialize {
+impl<T> GenTickSink<T> for RedisChannelSink<T> where T:Serialize, for<'de> T:Deserialize<'de> {
     fn new(settings: HashMap<String, String>) -> Result<Self, String> {
         unimplemented!();
     }
