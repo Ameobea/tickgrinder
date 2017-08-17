@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # This script starts the whole platform and is the only official way to start the platform.
 # It initializes a spawner instance which in turn spawns a Logger and a MM instance.
@@ -6,4 +6,4 @@
 
 LD_LIBRARY_PATH="$(pwd)/dist/lib"
 export LD_LIBRARY_PATH
-cd dist && RUST_BACKTRACE=1 RUST_BACKTRACE=1 ./spawner
+cd dist && RUST_BACKTRACE=1 ./spawner

@@ -1,5 +1,5 @@
 // Algobot 4 Tick Processor
-// Casey Primozic, 2016-2016
+// Casey Primozic, 2016-2017
 
 #![feature(custom_derive, plugin, test, conservative_impl_trait, slice_patterns)]
 
