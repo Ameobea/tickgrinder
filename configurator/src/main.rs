@@ -14,7 +14,6 @@ use std::rc::Rc;
 use std::str;
 
 use cursive::Cursive;
-#[allow(unused_imports)]
 use cursive::views::{Dialog, TextView, EditView, ListView, BoxView, LinearLayout, SelectView, Panel};
 use cursive::view::SizeConstraint;
 use cursive::direction::Orientation;
@@ -107,7 +106,8 @@ fn first_time(siv: &mut Cursive) {
 /// Checks if we think libboost is installed and lets the user know.
 fn boost_config(s: &mut Cursive, settings: Settings) {
     s.pop_layer();
-    let content = if libboost_detected() {
+    // TODO: Fix this so that it detects the library on all platforms
+    let content = if /*libboost_detected()*/ true {
         indoc!(
             "From what I can see, libboost is installed on this system.  Boost is required for this platform's C++ \
             FFI components.
@@ -333,7 +333,7 @@ fn which(binary: &str) -> String {
         .arg(binary)
         .stdout(Stdio::piped())
         .spawn()
-        .expect("Unable to spawn `which redis_server`");
+        .expect("Unable to spawn `which`");
 
     let output = child.wait_with_output()
         .expect("Unable to get output from `which redis_server`");

@@ -89,8 +89,9 @@ debug:
 	make node_init
 
 	# copy libstd to the dist/lib directory if it's not already there
+	# TODO: Fix so that this supports all dylib extensions for different platforms
 	if [[ ! -f dist/lib/$$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) ]]; then \
-		cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.so" | head -1) dist/lib; \
+		cp $$(find $$(rustc --print sysroot)/lib | grep -E "libstd-.*\.dylib" | head -1) dist/lib; \
 	fi;
 
 	# build the configurator
@@ -147,24 +148,24 @@ strip:
 	cd dist/lib && strip *
 
 clean:
-	rm optimizer/target -rf
-	rm logger/target -rf
-	rm spawner/target -rf
-	rm tick_parser/target -rf
-	rm util/target -rf
-	rm backtester/target -rf
-	rm private/target -rf
-	rm broker_shims/simbroker/target -rf
-	rm broker_shims/FXCM/native/native/dist -rf
-	rm broker_shims/FXCM/native/target -rf
-	rm data_downloaders/fxcm_native/target -rf
-	rm configurator/target -rf
+	rm -rf optimizer/target
+	rm -rf logger/target
+	rm -rf spawner/target
+	rm -rf tick_parser/target
+	rm -rf util/target
+	rm -rf backtester/target
+	rm -rf private/target
+	rm -rf broker_shims/simbroker/target
+	rm -rf broker_shims/FXCM/native/native/dist
+	rm -rf broker_shims/FXCM/native/target
+	rm -rf data_downloaders/fxcm_native/target
+	rm -rf configurator/target
 
-	rm util/js/node_modules -rf
-	rm mm/node_modules -rf
-	rm mm-react/node_modules -rf
-	rm data_downloaders/iex/node_modules -rf
-	rm data_downloaders/poloniex/node_modules -rf
+	rm -rf util/js/node_modules
+	rm -rf mm/node_modules
+	rm -rf mm-react/node_modules
+	rm -rf data_downloaders/iex/node_modules
+	rm -rf data_downloaders/poloniex/node_modules
 
 test:
 	# copy libstd to the dist/lib directory if it's not already there
@@ -261,7 +262,6 @@ update:
 	cd mm && npm update
 	cd broker_shims/FXCM/native && cargo update
 	cd configurator && cargo update
-	git submodule update
 
 doc:
 	cd configurator && cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
@@ -297,7 +297,6 @@ config:
 	make configure
 
 init:
-	git submodule update --init
 	rm -rf dist
 	mkdir dist
 	mkdir dist/lib
@@ -332,13 +331,13 @@ node_init:
 		cd util/js && npm install && touch ./node_modules/installed; \
 	fi
 	cd util/js && npm run-script strip
-	rm data_downloaders/poloniex/node_modules/tickgrinder_util -rf
-	cp util/js/stripped data_downloaders/poloniex/node_modules/tickgrinder_util -r
-	cp util/js/node_modules data_downloaders/poloniex/node_modules/tickgrinder_util/node_modules -r
+	rm -rf data_downloaders/poloniex/node_modules/tickgrinder_util
+	cp -r util/js/stripped data_downloaders/poloniex/node_modules/tickgrinder_util
+	cp -r util/js/node_modules data_downloaders/poloniex/node_modules/tickgrinder_util/node_modules
 	cp util/js/package.json data_downloaders/poloniex/node_modules/tickgrinder_util
-	rm data_downloaders/iex/node_modules/tickgrinder_util -rf
-	cp util/js/stripped data_downloaders/iex/node_modules/tickgrinder_util -r
-	cp util/js/node_modules data_downloaders/iex/node_modules/tickgrinder_util/node_modules -r
+	rm -rf data_downloaders/iex/node_modules/tickgrinder_util
+	cp -r util/js/stripped data_downloaders/iex/node_modules/tickgrinder_util
+	cp -r util/js/node_modules data_downloaders/iex/node_modules/tickgrinder_util/node_modules
 	cp util/js/package.json data_downloaders/iex/node_modules/tickgrinder_util
 
 node_compile:

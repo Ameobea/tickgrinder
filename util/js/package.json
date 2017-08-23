@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "flow": "flow; test $? -eq 0 -o $? -eq 2",
-    "strip": "rm stripped -rf && babel --out-dir stripped index.js && babel --out-dir stripped/src src/",
+    "strip": "rm -rf stripped && babel --out-dir stripped index.js && babel --out-dir stripped/src src/",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Casey Primozic <me@ameo.link>",

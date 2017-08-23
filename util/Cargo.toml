@@ -22,7 +22,7 @@ uuid = { version = "=0.5.1", features = ["serde", "v4",] }
 indoc = "^0.1.15"
 time = "0.1.38"
 chrono = "0.4.0"
-# rand = "0.3.16"
+rand = "0.3.16"
 from_hashmap = { path = "from_hashmap" }
 clippy = { git = "https://github.com/Manishearth/rust-clippy.git", optional = true  }
 
